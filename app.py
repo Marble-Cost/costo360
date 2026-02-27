@@ -1,5 +1,5 @@
-# app.py — CostoMármol v6 · Adaptive UX & Fixes
-# Mármoles Collante & Castro Ltda. · Feb 2026
+# app.py — CostoMármol v7 · Identidad de Marca MARMOLES COLLANTE & CASTRO LTDA.
+# Rediseño completo con colores corporativos del logo + logo en sidebar y header
 
 import io
 import base64
@@ -20,11 +20,191 @@ from parametros import (
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
 
 st.set_page_config(
-    page_title="CostoMármol — Mármoles Collante & Castro",
+    page_title="CostoMármol — MARMOLES Collante & Castro",
     page_icon="🪨",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── LOGO DE EMPRESA (hardcoded para identidad de marca) ───────────────────────
+LOGO_EMPRESA_PATH = os.path.join(os.path.dirname(__file__), "logo_cc.jpeg")
+
+def _cargar_logo_empresa():
+    """Carga el logo corporativo de la empresa."""
+    try:
+        with open(LOGO_EMPRESA_PATH, "rb") as f:
+            return f.read()
+    except Exception:
+        return None
+
+# Carga el logo al inicio
+_LOGO_BYTES = _cargar_logo_empresa()
+
+def _logo_base64():
+    if _LOGO_BYTES:
+        return base64.b64encode(_LOGO_BYTES).decode()
+    return None
+
+# ── PALETA CORPORATIVA (extraída del logo) ───────────────────────────────────
+# Azul marino profundo + Azul brillante + Dorado (del logo)
+CC_COLORS = {
+    "primary":    "#0D2137",   # Azul marino oscuro (fondo header)
+    "secondary":  "#1B5FA8",   # Azul corporativo brillante
+    "accent":     "#C9A84C",   # Dorado corporativo
+    "light":      "#D6E8FA",   # Azul muy claro
+    "ultralight": "#EEF5FD",   # Fondo alternado
+    "gray":       "#6B85A0",   # Gris azulado
+    "text":       "#0D2137",   # Texto oscuro
+    "white":      "#FFFFFF",
+}
+
+# ── CSS CORPORATIVO CON IDENTIDAD DE MARCA ────────────────────────────────────
+_logo_b64 = _logo_base64()
+_logo_style = f"background-image:url('data:image/jpeg;base64,{_logo_b64}');" if _logo_b64 else ""
+
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;900&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+* {{ box-sizing: border-box; }}
+html, body, [class*="css"] {{ font-family: 'Outfit', sans-serif; }}
+
+/* ── SIDEBAR BRAND ── */
+[data-testid="stSidebar"] {{
+    background: {CC_COLORS['primary']} !important;
+    border-right: 2px solid {CC_COLORS['secondary']} !important;
+}}
+[data-testid="stSidebar"] * {{
+    color: #E8F2FF !important;
+}}
+[data-testid="stSidebar"] .stRadio label {{
+    color: #B8D4F0 !important;
+    font-size: 0.88rem !important;
+    font-weight: 500 !important;
+    padding: 6px 8px !important;
+    border-radius: 6px !important;
+    transition: all 0.15s !important;
+}}
+[data-testid="stSidebar"] .stRadio label:hover {{
+    background: rgba(27, 95, 168, 0.4) !important;
+    color: #ffffff !important;
+}}
+
+/* ── LOGO SIDEBAR ── */
+.sidebar-logo-wrap {{
+    background: {CC_COLORS['primary']};
+    padding: 20px 16px 12px;
+    text-align: center;
+    border-bottom: 1px solid rgba(27,95,168,0.4);
+    margin-bottom: 8px;
+}}
+.sidebar-logo-wrap img {{
+    max-width: 140px;
+    max-height: 70px;
+    object-fit: contain;
+    filter: brightness(1.05);
+}}
+.sidebar-brand-name {{
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: {CC_COLORS['accent']} !important;
+    text-transform: uppercase;
+    margin-top: 8px;
+}}
+.sidebar-brand-sub {{
+    font-size: 0.58rem;
+    color: #7BA7D0 !important;
+    margin-top: 2px;
+}}
+
+/* ── BUTTONS ── */
+.stButton > button {{
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+    font-family: 'Outfit', sans-serif !important;
+    transition: all 0.18s ease !important;
+    padding: 0.45rem 1rem !important;
+}}
+.stButton > button[kind="primary"] {{
+    background: linear-gradient(135deg, {CC_COLORS['secondary']}, {CC_COLORS['primary']}) !important;
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 4px 14px rgba(27,95,168,0.35) !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+}}
+.stButton > button[kind="primary"]:hover {{
+    filter: brightness(1.12);
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(27,95,168,0.45) !important;
+}}
+
+/* ── CARDS ── */
+.card-custom {{
+    background: var(--secondary-background-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+}}
+.brand-card {{
+    background: linear-gradient(135deg, {CC_COLORS['primary']} 0%, {CC_COLORS['secondary']} 100%);
+    border-radius: 14px;
+    padding: 32px 40px;
+    margin-bottom: 24px;
+    color: white;
+    position: relative;
+    overflow: hidden;
+}}
+.brand-card::before {{
+    content: '';
+    position: absolute;
+    top: -20px; right: -20px;
+    width: 120px; height: 120px;
+    background: rgba(201,168,76,0.15);
+    border-radius: 50%;
+}}
+.brand-card::after {{
+    content: '';
+    position: absolute;
+    bottom: -30px; right: 60px;
+    width: 80px; height: 80px;
+    background: rgba(201,168,76,0.1);
+    border-radius: 50%;
+}}
+
+/* ── METRIC CARDS ── */
+.metric-brand {{
+    background: var(--secondary-background-color);
+    border-top: 3px solid {CC_COLORS['secondary']};
+    border-radius: 8px;
+    padding: 14px 16px;
+}}
+
+/* ── SECTION HEADERS ── */
+.seccion-titulo {{
+    font-family: 'Playfair Display', serif;
+    color: {CC_COLORS['secondary']};
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 20px 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 2px solid {CC_COLORS['light']};
+}}
+
+/* ── HERO PRICE CARD ── */
+.precio-hero {{
+    background: linear-gradient(135deg, {CC_COLORS['primary']} 0%, {CC_COLORS['secondary']} 100%);
+    border-radius: 14px;
+    padding: 28px 36px;
+    margin: 8px 0 20px;
+    color: white;
+    border-left: 4px solid {CC_COLORS['accent']};
+}}
+</style>
+""", unsafe_allow_html=True)
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN ──────────────────────────────────
 if "primera_visita" not in st.session_state:
@@ -139,37 +319,8 @@ def _chat_parametros(historial: list, mensaje: str) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
-# ── CSS NATIVO (ADAPTABLE A MODO CLARO/OSCURO) ────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600;700&display=swap');
-
-* { box-sizing: border-box; }
-html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-
-/* ── BUTTONS ── */
-.stButton > button {
-    border-radius: 6px !important; font-weight: 600 !important; font-size: 0.85rem !important;
-    transition: all 0.18s ease !important; padding: 0.45rem 1rem !important;
-}
-.stButton > button[kind="primary"] {
-    background: #1B5FA8 !important; color: white !important; border: none !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; text-transform: uppercase !important;
-}
-.stButton > button[kind="primary"]:hover { filter: brightness(1.1); transform: translateY(-2px) !important; }
-
-/* ── CARDS (Usa las variables de color del tema del celular/PC) ── */
-.card-custom {
-    background: var(--secondary-background-color);
-    border: 1px solid var(--border-color); 
-    border-radius: 10px; padding: 16px 18px; margin-bottom: 12px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ── HELPERS UI NATIVOS ────────────────────────────────────────────────────────
+# ── HELPERS UI ────────────────────────────────────────────────────────────────
 def alerta(texto, tipo="info"):
-    """Reemplazo de la alerta CSS por componentes nativos de Streamlit (100% compatibles con modo claro/oscuro)"""
     if tipo == "bueno":
         st.success(texto, icon="✅")
     elif tipo == "acepta":
@@ -180,7 +331,7 @@ def alerta(texto, tipo="info"):
         st.info(texto, icon="ℹ️")
 
 def seccion_titulo(texto, subtexto=""):
-    st.markdown(f"### {texto}")
+    st.markdown(f'<div class="seccion-titulo">{texto}</div>', unsafe_allow_html=True)
     if subtexto:
         st.caption(subtexto)
 
@@ -189,9 +340,8 @@ def bloque_costos(items_label_valor, total_label, total_val):
     for label, valor in items_label_valor:
         html += f"""<div style="display:flex;justify-content:space-between;padding:6px 0; border-bottom:1px solid var(--border-color); color:var(--text-color);">
             <span style="font-size:0.87rem;">{label}</span><span style="font-size:0.87rem;font-weight:600">{cop(valor)}</span></div>"""
-    
     html += f"""<div style="display:flex;justify-content:space-between;padding:10px 0 0 0; border-bottom:1px solid var(--border-color); color:var(--text-color);">
-            <span style="font-size:0.95rem;font-weight:800">{total_label}</span><span style="font-size:0.95rem;font-weight:800;color:#1B5FA8">{cop(total_val)}</span></div>"""
+            <span style="font-size:0.95rem;font-weight:800">{total_label}</span><span style="font-size:0.95rem;font-weight:800;color:{CC_COLORS['secondary']}">{cop(total_val)}</span></div>"""
     st.markdown(f'<div class="card-custom">{html}</div>', unsafe_allow_html=True)
 
 def numero_completo(valor):
@@ -211,16 +361,24 @@ _defaults = {
     "tarifas_custom": None, "logistica_custom": None, "viaticos_custom": None,
     "logo_bytes": None, "logo_mime": None,
     "empresa_info": {
-        "nombre": "MÁRMOLES COLLANTE & CASTRO LTDA.", "nit": "NIT: 900.111.561-1",
-        "tel": "+57 300 000 0000", "email": "ventas@marmolescc.com",
+        "nombre": "MARMOLES COLLANTE & CASTRO LTDA.", "nit": "NIT: 900.111.561-1",
+        "tel": "+57 317 310 9675", "email": "facturascollantecastro@gmail.com",
         "ciudad": "Barranquilla, Atlántico — Colombia", "banco": "Davivienda",
         "cuenta_tipo": "Cuenta Corriente Empresas", "cuenta_numero": "108900027484",
+        # Condiciones de pago por defecto
+        "anticipo_pct": 60,
+        "dias_entrega": 10,
+        "dias_validez": 30,
     },
     "vehiculos_custom": None, "cat_sel": "Mármol",
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# Inyectar logo corporativo como logo_bytes si no hay logo personalizado
+if st.session_state.logo_bytes is None and _LOGO_BYTES:
+    st.session_state.logo_bytes = _LOGO_BYTES
 
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
@@ -235,47 +393,66 @@ def get_vehiculos_dict():
     vc = get_vehiculos_config()
     return {f"{cfg.get('nombre', k)} ({'propio' if cfg.get('tipo')=='propio' else 'flete externo'})": k for k, cfg in vc.items()}
 
-# ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
+# ── SIDEBAR CON LOGO CORPORATIVO ──────────────────────────────────────────────
 with st.sidebar:
-    st.markdown(
-        f'<div style="background:var(--secondary-background-color); border:1px solid var(--border-color);border-radius:12px;padding:22px 16px;text-align:center;margin-bottom:4px">'
-        f'<div style="color:#C9A84C;font-size:2rem;font-weight:900;font-family:Playfair Display,serif;">CC</div>'
-        f'<div style="font-size:0.75rem;font-weight:700;margin-top:6px;letter-spacing:0.04em">MÁRMOLES</div>'
-        f'<div style="opacity:0.6;font-size:0.65rem;margin-top:2px">Collante &amp; Castro</div></div>',
-        unsafe_allow_html=True
-    )
-    st.markdown(f'<div style="margin:10px 0 16px;text-align:center"><div style="font-size:0.82rem;font-weight:700;line-height:1.3">{st.session_state.empresa_info["nombre"]}</div></div>', unsafe_allow_html=True)
-    
+    # Logo de la empresa
+    if _logo_b64:
+        st.markdown(
+            f'<div class="sidebar-logo-wrap">'
+            f'<img src="data:image/jpeg;base64,{_logo_b64}" alt="MARMOLES Collante & Castro"/>'
+            f'<div class="sidebar-brand-name">Sistema de Cotización</div>'
+            f'<div class="sidebar-brand-sub">Uso Exclusivo Interno</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            f'<div style="background:{CC_COLORS["primary"]};border-bottom:1px solid rgba(27,95,168,0.4);'
+            f'padding:20px 16px 12px;text-align:center;margin-bottom:8px">'
+            f'<div style="color:{CC_COLORS["accent"]};font-size:2rem;font-weight:900;font-family:Playfair Display,serif;">CC</div>'
+            f'<div style="font-size:0.65rem;color:{CC_COLORS["accent"]};font-weight:700;letter-spacing:0.1em;margin-top:6px">MARMOLES C&C</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
     opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Parametros", "Asistente IA", "Configuracion"]
-    
-    # Callback para sincronizar navegación
+
     def update_nav():
         st.session_state.nav_radio = st.session_state._radio_ui
-        
-    st.radio("Menú", opciones_menu, key="_radio_ui", index=opciones_menu.index(st.session_state.nav_radio), on_change=update_nav, label_visibility="collapsed")
+
+    st.radio("Menú", opciones_menu, key="_radio_ui",
+             index=opciones_menu.index(st.session_state.nav_radio),
+             on_change=update_nav, label_visibility="collapsed")
     pagina = st.session_state.nav_radio
 
-    st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
+    st.markdown('<hr style="margin:12px 0;border-color:rgba(27,95,168,0.3)">', unsafe_allow_html=True)
     if ia_disponible():
-        st.markdown('<div style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.3);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#16a34a">🟢 IA Activa</div>', unsafe_allow_html=True)
+        st.markdown('<div style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.3);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#4ade80">🟢 IA Activa</div>', unsafe_allow_html=True)
     else:
-        st.markdown('<div style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#d97706">🟠 IA sin configurar</div>', unsafe_allow_html=True)
+        st.markdown('<div style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#fbbf24">🟠 IA sin configurar</div>', unsafe_allow_html=True)
+
+    st.markdown(
+        f'<div style="margin-top:16px;padding:10px 8px;font-size:0.65rem;color:#4a7aaa;line-height:1.5">'
+        f'<b style="color:#7BA7D0">MARMOLES COLLANTE & CASTRO LTDA.</b><br>'
+        f'NIT: 900.111.561-1<br>'
+        f'+57 317 310 9675</div>',
+        unsafe_allow_html=True
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TOUR GUIADO (ONBOARDING) - VERSIÓN NATIVA ESTÉTICA
+# TOUR GUIADO
 # ═══════════════════════════════════════════════════════════════════════════════
 if st.session_state.get("onboarding_activo"):
     _op = min(st.session_state.get("onboarding_paso", 0), len(TOUR_PASOS) - 1)
     _paso = TOUR_PASOS[_op]
     _total = len(TOUR_PASOS)
 
-    # Tarjeta de Tour Integrada (Sin "position: fixed", sin romper la pantalla)
     with st.container(border=True):
-        st.markdown(f"### <span style='color:#1B5FA8'>{_paso['icono']}</span> {_paso['titulo']}", unsafe_allow_html=True)
+        st.markdown(f"### <span style='color:{CC_COLORS['secondary']}'>{_paso['icono']}</span> {_paso['titulo']}", unsafe_allow_html=True)
         st.caption(f"PASO {_op + 1} DE {_total}")
         st.markdown(_paso["cuerpo"].replace('\n', '\n\n'))
         st.progress((_op + 1) / _total)
-        
+
         c1, c2, c3 = st.columns(3)
         with c1:
             if _op > 0:
@@ -303,19 +480,31 @@ if st.session_state.get("onboarding_activo"):
 # INICIO
 # ═══════════════════════════════════════════════════════════════════════════════
 if pagina == "Inicio":
-    st.markdown(f"""
-    <div style="background:var(--secondary-background-color); border-radius:16px;padding:40px 44px;margin-bottom:28px; border:2px solid #1B5FA8;">
-      <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
-        Mármoles Collante &amp; Castro Ltda.
-      </div>
-      <div style="font-size:2.4rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:14px; color:var(--text-color);">
-        Sistema de Cotización<br>Profesional
-      </div>
-      <div style="opacity:0.8;font-size:0.92rem;line-height:1.65;max-width:500px; color:var(--text-color);">
-        Calcula el costo real de tus proyectos comerciales. Cotización Directa, licitaciones AIU y exportación a PDF adaptable a cualquier entorno.
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Hero con logo y branding
+    col_logo, col_texto = st.columns([1, 2.5])
+    with col_logo:
+        if _logo_b64:
+            st.markdown(
+                f'<div style="padding:16px;background:white;border-radius:12px;box-shadow:0 4px 20px rgba(13,33,55,0.12);text-align:center">'
+                f'<img src="data:image/jpeg;base64,{_logo_b64}" style="max-width:220px;max-height:120px;object-fit:contain"/>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+    with col_texto:
+        st.markdown(f"""
+        <div class="brand-card">
+          <div style="color:{CC_COLORS['accent']};font-size:0.65rem;text-transform:uppercase;letter-spacing:0.18em;font-weight:800;margin-bottom:10px">
+            Sistema de Cotización Profesional
+          </div>
+          <div style="font-size:2.2rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:12px">
+            MARMOLES<br>COLLANTE & CASTRO LTDA.
+          </div>
+          <div style="opacity:0.85;font-size:0.88rem;line-height:1.65;">
+            Herramienta de uso exclusivo interno · NIT 900.111.561-1<br>
+            Barranquilla, Atlántico — Colombia
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     if st.button("🚀 Reactivar Guía de Inicio", use_container_width=True):
         st.session_state.onboarding_activo = True
@@ -334,7 +523,7 @@ if pagina == "Inicio":
 # COTIZACIÓN DIRECTA
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Cotizacion Directa":
-    st.markdown("<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>Cotizacion Directa</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>Cotización Directa</h2>", unsafe_allow_html=True)
     st.markdown("<p style='opacity:0.7;font-size:0.88rem;margin-bottom:20px'>Para proyectos residenciales y clientes particulares</p>", unsafe_allow_html=True)
 
     pre = st.session_state.pre
@@ -353,7 +542,6 @@ elif pagina == "Cotizacion Directa":
     # ── PASO 1: MATERIAL(ES) ─────────────────────────────────────────────────
     seccion_titulo("Paso 1 — Material(es)", "Puedes agregar uno o más materiales si el proyecto mezcla referencias")
 
-    # Inicializar lista de materiales si no existe
     if "materiales_proyecto" not in st.session_state or not st.session_state.materiales_proyecto:
         st.session_state.materiales_proyecto = pre.get("materiales_proyecto", [
             {"cat": pre.get("categoria", "Mármol"), "ref": pre.get("referencia", ""), "precio_m2": pre.get("precio_m2", 220_000), "area_placa": pre.get("area_placa_comprada", 5.94)}
@@ -364,7 +552,6 @@ elif pagina == "Cotizacion Directa":
 
     for midx, mat_item in enumerate(mats):
         with st.container(border=True):
-            lbl = f"Material {midx + 1}" if len(mats) > 1 else "Material del proyecto"
             cola, colb, colc, cold = st.columns([1.8, 1.5, 1.5, 0.4])
             with cola:
                 cats_opts = CATEGORIAS_MATERIAL
@@ -379,7 +566,6 @@ elif pagina == "Cotizacion Directa":
                     referencia_m = st.text_input("Nombre", value=pre_ref_m if pre_ref_m not in refs_m else "", key=f"mrefcust_{midx}", placeholder="Ej: Calacatta Gold")
                 else:
                     referencia_m = ref_sel_m
-                    m_cat_data = next((m for m in MATERIALES_CATALOGO if m["nombre"] == ref_sel_m), None)
             with colc:
                 precio_m2_m = st.number_input("Precio/m² (COP)", min_value=10_000, max_value=5_000_000,
                     value=int(mat_item.get("precio_m2", 220_000)), step=1_000, key=f"mpm2_{midx}",
@@ -405,15 +591,11 @@ elif pagina == "Cotizacion Directa":
             st.session_state.materiales_proyecto.append({"cat": "Mármol", "ref": "", "precio_m2": 220_000, "area_placa": 5.94})
             st.rerun()
 
-    # Para el cálculo usamos el primer material como principal (categoría determina tarifas de MO)
-    # El costo total de material suma todos
     cat_sel = mats_nuevos[0]["cat"] if mats_nuevos else "Mármol"
     referencia = " + ".join([m["ref"] or m["cat"] for m in mats_nuevos]) if len(mats_nuevos) > 1 else (mats_nuevos[0]["ref"] if mats_nuevos else "")
     precio_m2 = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
-    # Área total y costo total de todos los materiales
     area_placa = sum(m["area_placa"] for m in mats_nuevos)
     costo_mat_total = sum(m["precio_m2"] * m["area_placa"] for m in mats_nuevos)
-    # Precio_m2 efectivo para que calcular_cotizacion_directa compute correctamente c1
     precio_m2_efectivo = costo_mat_total / area_placa if area_placa > 0 else precio_m2
 
     alerta(f"Total material: **{numero_completo(costo_mat_total)}** en {area_placa:.2f} m² comprados", "info")
@@ -421,10 +603,10 @@ elif pagina == "Cotizacion Directa":
     st.markdown("---")
 
     # ── PASO 2: DIMENSIONES ──────────────────────────────────────────────────
-    seccion_titulo("Paso 2 — Dimensiones del proyecto", "Ingresa cada pieza por metros lineales — la app convierte a m² automaticamente")
+    seccion_titulo("Paso 2 — Dimensiones del proyecto", "Ingresa cada pieza por metros lineales — la app convierte a m² automáticamente")
 
     if "piezas" not in st.session_state or not st.session_state.piezas:
-        st.session_state.piezas = pre.get("piezas", [{"nombre": "Meson de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}])
+        st.session_state.piezas = pre.get("piezas", [{"nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}])
 
     _mostrar_avanzado = st.session_state.get("modo_avanzado_medidas", False)
     if not _mostrar_avanzado:
@@ -442,9 +624,9 @@ elif pagina == "Cotizacion Directa":
     m2_cortados_total = 0.0
 
     if "Por piezas" in modo_medida:
-        alerta("Agrega cada pieza del proyecto. Largo en ML × ancho estandar = m² calculados.", "info")
+        alerta("Agrega cada pieza del proyecto. Largo en ML × ancho estándar = m² calculados.", "info")
         hdr = st.columns([3, 1.2, 2.5, 1.5, 1.6, 0.6])
-        for col, lbl in zip(hdr, ["Pieza / Descripcion", "ML largo", "Tipo de superficie", "Ancho (m)", "m² calculados", ""]):
+        for col, lbl in zip(hdr, ["Pieza / Descripción", "ML largo", "Tipo de superficie", "Ancho (m)", "m² calculados", ""]):
             col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
 
         tipos_superficie = list(ANCHOS_ESTANDAR.keys())
@@ -483,8 +665,8 @@ elif pagina == "Cotizacion Directa":
             if m2_real > 0:
                 _ml_total = sum(p.get("ml", 0) for p in st.session_state.piezas)
                 st.markdown(
-                    f'''<div style="background:var(--secondary-background-color); border:1px solid var(--border-color); border-radius:10px;padding:12px 18px;text-align:center">
-                  <div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total del proyecto</div>
+                    f'''<div style="background:var(--secondary-background-color); border:2px solid {CC_COLORS['secondary']}; border-radius:10px;padding:12px 18px;text-align:center">
+                  <div style="font-size:0.7rem;color:{CC_COLORS['secondary']};text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total del proyecto</div>
                   <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{_ml_total:.2f} ml</div>
                   <div style="font-size:0.85rem;opacity:0.7;margin-top:2px">{m2_real:.3f} m² de material</div>
                 </div>''', unsafe_allow_html=True)
@@ -519,34 +701,58 @@ elif pagina == "Cotizacion Directa":
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         tipo_opts = ["Mesón", "Cocina", "Baño", "Piso", "Escalera", "Fachada", "Mueble de cocina", "Otro"]
-        # Multi-select para tipo de proyecto
         pre_tipos = pre.get("tipos_proyecto", [pre.get("tipo_proyecto", "Mesón")] if pre.get("tipo_proyecto") else ["Mesón"])
         tipos_sel = st.multiselect(
-            "Tipo(s) de proyecto",
-            tipo_opts,
+            "Tipo(s) de proyecto", tipo_opts,
             default=[t for t in pre_tipos if t in tipo_opts] or ["Mesón"],
-            help="Selecciona uno o varios si el proyecto combina espacios (ej: Cocina + Baño)"
         )
         tipo = " + ".join(tipos_sel) if tipos_sel else "Otro"
     with c2:
         etapa = ETAPAS_OBRA[st.selectbox("Etapa de la obra", list(ETAPAS_OBRA.keys()))]
     with c3:
-        dias = st.number_input("Dias en obra", min_value=1, value=int(pre.get("dias_obra", 2)), step=1)
+        dias = st.number_input("Días en obra", min_value=1, value=int(pre.get("dias_obra", 2)), step=1)
     with c4:
-        personas = st.number_input("Num. de personas", min_value=1, value=int(pre.get("personas", 2)), step=1)
+        personas = st.number_input("Núm. de personas", min_value=1, value=int(pre.get("personas", 2)), step=1)
 
-    nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente", ""), placeholder="Ej: Juan Garcia / Constructora XYZ")
+    nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente", ""), placeholder="Ej: Juan García / Constructora XYZ")
 
-    st.markdown("**Zocalos**")
-    zocalo_activo = st.checkbox("Este proyecto lleva zocalos", value=pre.get("zocalo_activo", False))
+    st.markdown("**Zócalos**")
+    zocalo_activo = st.checkbox("Este proyecto lleva zócalos", value=pre.get("zocalo_activo", False))
     zocalo_ml = 0.0
     if zocalo_activo:
-        zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5)
+        zocalo_ml = st.number_input("Metros lineales de zócalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5)
 
     st.markdown("---")
 
-    # ── PASO 4: LOGÍSTICA ────────────────────────────────────────────────────
-    seccion_titulo("Paso 4 — Logistica")
+    # ── PASO 4: CONDICIONES DE PAGO ──────────────────────────────────────────
+    seccion_titulo("Paso 4 — Condiciones de pago y entrega")
+    emp_info = st.session_state.empresa_info
+    c_ant, c_dias, c_val = st.columns(3)
+    with c_ant:
+        anticipo_pct = st.number_input(
+            "% de anticipo a cobrar", min_value=0, max_value=100,
+            value=int(emp_info.get("anticipo_pct", 60)), step=5,
+            help="Porcentaje del valor total que se cobra como anticipo"
+        )
+    with c_dias:
+        dias_entrega = st.number_input(
+            "Días de entrega", min_value=1,
+            value=int(emp_info.get("dias_entrega", 10)), step=1
+        )
+    with c_val:
+        dias_validez = st.number_input(
+            "Días de validez de la cotización", min_value=1,
+            value=int(emp_info.get("dias_validez", 30)), step=5
+        )
+    # Guardar en session para usarlo en el PDF
+    st.session_state.empresa_info["anticipo_pct"] = anticipo_pct
+    st.session_state.empresa_info["dias_entrega"] = dias_entrega
+    st.session_state.empresa_info["dias_validez"] = dias_validez
+
+    st.markdown("---")
+
+    # ── PASO 5: LOGÍSTICA ────────────────────────────────────────────────────
+    seccion_titulo("Paso 5 — Logística")
 
     col_agt, col_veh = st.columns(2)
     with col_agt:
@@ -557,29 +763,29 @@ elif pagina == "Cotizacion Directa":
         _v_idx = 0
         if pre.get("vehiculo_entrega") in list(_veh_dict.values()):
             _v_idx = list(_veh_dict.values()).index(pre.get("vehiculo_entrega"))
-        veh_lbl = st.selectbox("Vehiculo de entrega", _veh_keys, index=_v_idx)
+        veh_lbl = st.selectbox("Vehículo de entrega", _veh_keys, index=_v_idx)
         vehiculo = _veh_dict[veh_lbl]
 
     c1, c2 = st.columns(2)
     with c1: km = st.number_input("Distancia (km, un trayecto)", min_value=0.0, value=float(pre.get("km", 5.0)), step=0.5)
-    with c2: peajes = st.number_input("Num. de peajes (ida+vuelta)", min_value=0, value=int(pre.get("peajes", 0)), step=1)
+    with c2: peajes = st.number_input("Núm. de peajes (ida+vuelta)", min_value=0, value=int(pre.get("peajes", 0)), step=1)
 
     st.markdown("---")
 
-    # ── PASO 5: FORÁNEO ──────────────────────────────────────────────────────
-    seccion_titulo("Paso 5 — Proyecto fuera de Barranquilla?")
-    foraneo_activo = st.checkbox("Si, proyecto en otra ciudad", value=pre.get("foraneo_activo", False))
+    # ── PASO 6: FORÁNEO ──────────────────────────────────────────────────────
+    seccion_titulo("Paso 6 — ¿Proyecto fuera de Barranquilla?")
+    foraneo_activo = st.checkbox("Sí, proyecto en otra ciudad", value=pre.get("foraneo_activo", False))
     viaticos_activos = False; tipo_aloj = "pueblo"; noches = 0
     if foraneo_activo:
         c1, c2, c3 = st.columns(3)
-        with c1: viaticos_activos = st.checkbox("Agregar viaticos", value=pre.get("viaticos_activos", False))
+        with c1: viaticos_activos = st.checkbox("Agregar viáticos", value=pre.get("viaticos_activos", False))
         with c2: tipo_aloj = ALOJAMIENTO[st.selectbox("Destino", list(ALOJAMIENTO.keys()))]
         with c3: noches = st.number_input("Noches", min_value=0, value=int(pre.get("noches", 1)))
 
     st.markdown("---")
 
-    # ── PASO 6: ADICIONALES ──────────────────────────────────────────────────
-    seccion_titulo("Paso 6 — Costos adicionales")
+    # ── PASO 7: ADICIONALES ──────────────────────────────────────────────────
+    seccion_titulo("Paso 7 — Costos adicionales")
     adicionales_activos = st.checkbox("Agregar costos adicionales (silicona, impermeabilizante)", value=pre.get("adicionales_activos", False))
     cantidades_add = pre.get("cantidades_add", [0.0] * len(ADICIONALES)) if pre.get("adicionales_activos") else [0.0] * len(ADICIONALES)
     if adicionales_activos:
@@ -590,35 +796,26 @@ elif pagina == "Cotizacion Directa":
 
     st.markdown("---")
 
-    # ── PASO 7: IVA ──────────────────────────────────────────────────────────
-    seccion_titulo("Paso 7 — IVA en la cotización")
+    # ── PASO 8: IVA ──────────────────────────────────────────────────────────
+    seccion_titulo("Paso 8 — IVA en la cotización")
 
     _col_iva1, _col_iva2 = st.columns([1.4, 2])
     with _col_iva1:
         incluir_iva = st.toggle(
             "Incluir IVA 19% en la cotización",
             value=pre.get("incluir_iva", True),
-            help="Activa si tu empresa es responsable del régimen común (ventas > 3.500 UVT ≈ $166 M/año). Desactiva si eres régimen simplificado.",
+            help="Activa si tu empresa es responsable del régimen común.",
         )
     with _col_iva2:
         if incluir_iva:
-            st.info(
-                "**IVA activo.** Se calculará el 19% sobre el **total de la cotización** (precio sugerido). "
-                "El precio final y el PDF incluirán el IVA desglosado.",
-                icon="🧾"
-            )
+            st.info("**IVA activo.** Se calculará el 19% sobre el **total de la cotización**.", icon="🧾")
         else:
-            st.warning(
-                "**IVA desactivado.** La cotización y el PDF se entregarán sin IVA. "
-                "Aplica si eres **régimen simplificado** o si el cliente es no responsable de IVA. "
-                "Confirma con tu contador.",
-                icon="⚠️"
-            )
+            st.warning("**IVA desactivado.** Aplica si eres régimen simplificado.", icon="⚠️")
 
     st.markdown("---")
 
     # ── CALCULAR ─────────────────────────────────────────────────────────────
-    if st.button("Calcular cotizacion", type="primary", use_container_width=True):
+    if st.button("Calcular cotización", type="primary", use_container_width=True):
         _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", [])) if "Por piezas" in modo_medida else (m2_real/0.60)
         resultado = calcular_cotizacion_directa(
             categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo, area_placa_comprada=area_placa,
@@ -632,8 +829,7 @@ elif pagina == "Cotizacion Directa":
             vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
             tarifas_override=st.session_state.get("tarifas_custom"),
         )
-        
-        # Guardar TODO el estado para poder re-editar fácilmente
+
         resultado["_estado_guardado"] = {
             "categoria": cat_sel, "referencia": referencia, "precio_m2": precio_m2, "area_placa_comprada": area_placa,
             "piezas": st.session_state.piezas, "m2_proyecto": m2_real, "m2_usados": m2_usados, "margen_pct": margen_pct,
@@ -642,10 +838,15 @@ elif pagina == "Cotizacion Directa":
             "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes, "foraneo_activo": foraneo_activo,
             "viaticos_activos": viaticos_activos, "noches": noches, "adicionales_activos": adicionales_activos,
             "cantidades_add": cantidades_add, "incluir_iva": incluir_iva,
+            # Condiciones de pago
+            "anticipo_pct": anticipo_pct, "dias_entrega": dias_entrega, "dias_validez": dias_validez,
         }
-        
+
         st.session_state.cotizacion = resultado
         resultado["incluir_iva"] = incluir_iva
+        resultado["anticipo_pct"] = anticipo_pct
+        resultado["dias_entrega"] = dias_entrega
+        resultado["dias_validez"] = dias_validez
         import random as _rand
         _num_auto = f"COT-{date.today().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
         _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
@@ -656,30 +857,27 @@ elif pagina == "Cotizacion Directa":
         st.markdown("---")
         st.markdown("<h3 style='font-family:Playfair Display,serif'>Resultado</h3>", unsafe_allow_html=True)
 
-        # ── IVA: condicional según elección del usuario ───────────────────────
-        # IVA se calcula sobre el TOTAL de la cotización (precio_sugerido), no sobre utilidad
         _iva_activo   = r.get("incluir_iva", incluir_iva)
         _iva_monto    = r['precio_sugerido'] * 0.19 if _iva_activo else 0.0
         _precio_final = r['precio_sugerido'] + _iva_monto
+        _anticipo_pct = r.get("anticipo_pct", 60)
+        _anticipo_val = _precio_final * (_anticipo_pct / 100)
 
-        # ── Hero card ─────────────────────────────────────────────────────────
+        # Hero card con anticipo visible
         if _iva_activo:
             _iva_line = (
-                f'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)">'
-                f'<span style="color:#C9A84C;font-weight:700">+ IVA 19% sobre total: {numero_completo(_iva_monto)}</span>'
+                f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.25)">'
+                f'<span style="color:{CC_COLORS["accent"]};font-weight:700">+ IVA 19%: {numero_completo(_iva_monto)}</span>'
                 f'&nbsp;&nbsp;→&nbsp;&nbsp;'
-                f'<span style="font-size:1.15rem;font-weight:900">Total con IVA: {numero_completo(_precio_final)}</span>'
+                f'<span style="font-size:1.1rem;font-weight:900">Total con IVA: {numero_completo(_precio_final)}</span>'
                 f'</div>'
             )
         else:
-            _iva_line = (
-                f'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)'
-                f';font-size:0.8rem;opacity:0.7">Sin IVA — cotización entregada en régimen simplificado</div>'
-            )
+            _iva_line = f'<div style="margin-top:10px;font-size:0.8rem;opacity:0.7">Sin IVA — régimen simplificado</div>'
 
         st.markdown(f"""
-        <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
-          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">
+        <div class="precio-hero">
+          <div style="color:{CC_COLORS['accent']};font-size:0.65rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">
             Precio de venta sugerido {'(sin IVA)' if _iva_activo else '— Sin IVA'}
           </div>
           <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
@@ -689,24 +887,17 @@ elif pagina == "Cotizacion Directa":
             Margen: {r['margen_pct']:.0f}%   ·   Utilidad: {numero_completo(r['utilidad'])}
           </div>
           {_iva_line}
+          <div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(201,168,76,0.4);
+               background:rgba(201,168,76,0.12);border-radius:8px;padding:10px 14px;margin-top:10px">
+            <span style="color:{CC_COLORS['accent']};font-weight:700;font-size:0.9rem">
+              💰 Anticipo ({_anticipo_pct}%): {numero_completo(_anticipo_val)}
+            </span>
+            <span style="opacity:0.75;font-size:0.82rem;margin-left:12px">
+              · Saldo contra entrega: {numero_completo(_precio_final - _anticipo_val)}
+            </span>
+          </div>
         </div>""", unsafe_allow_html=True)
 
-        # ── Nota contextual ───────────────────────────────────────────────────
-        if _iva_activo:
-            alerta(
-                "ℹ️ **¿Cuándo cobrar IVA?** El IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
-                "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Se aplica sobre el total de la cotización. "
-                "Consulta a tu contador para confirmar.",
-                "info"
-            )
-        else:
-            alerta(
-                "ℹ️ **Cotización sin IVA.** Si en algún momento cambias de régimen o el cliente lo requiere, "
-                "activa el IVA en el Paso 7 y recalcula.",
-                "info"
-            )
-
-        # ── Desglose de costos ────────────────────────────────────────────────
         col_res, col_det = st.columns([1, 1])
         with col_res:
             _items_desglose = [
@@ -720,7 +911,7 @@ elif pagina == "Cotizacion Directa":
             ]
             if _iva_activo:
                 _items_desglose.append(("Subtotal antes de IVA", r['precio_sugerido']))
-                _items_desglose.append((f"IVA 19% s/total cotización", _iva_monto))
+                _items_desglose.append((f"IVA 19%", _iva_monto))
                 _total_label = "TOTAL CON IVA"
             else:
                 _total_label = "PRECIO TOTAL (SIN IVA)"
@@ -733,10 +924,9 @@ elif pagina == "Cotizacion Directa":
             st.markdown(f"<div style='font-weight:700;margin:14px 0 8px'>Simulador en tiempo real</div>", unsafe_allow_html=True)
             _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
-            _sim_ut = _sim_p - r["costo_total"]
             _sim_iva = _sim_p * 0.19 if _iva_activo else 0.0
             if _iva_activo:
-                alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA 19% s/total: **{numero_completo(_sim_p + _sim_iva)}**", "info")
+                alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA: **{numero_completo(_sim_p + _sim_iva)}**", "info")
             else:
                 alerta(f"Precio total (sin IVA): **{numero_completo(_sim_p)}**", "info")
 
@@ -750,7 +940,7 @@ elif pagina == "Cotizacion Directa":
                 pdf_bytes = generar_pdf_cotizacion(
                     r, numero=num_cot,
                     empresa_info=st.session_state.empresa_info,
-                    logo_bytes=st.session_state.logo_bytes,
+                    logo_bytes=st.session_state.logo_bytes or _LOGO_BYTES,
                     incluir_iva=_iva_activo,
                 )
                 st.download_button("⬇ Descargar PDF", pdf_bytes, file_name=f"{num_cot}_Cotizacion.pdf", mime="application/pdf", use_container_width=True)
@@ -765,7 +955,7 @@ elif pagina == "Cotizacion Directa":
                 cc_bytes = generar_cuenta_cobro(
                     r, datos_prest, datos_pag,
                     numero=num_cc,
-                    logo_bytes=st.session_state.logo_bytes,
+                    logo_bytes=st.session_state.logo_bytes or _LOGO_BYTES,
                     incluir_iva=_iva_activo,
                 )
                 st.download_button("⬇ Descargar PDF", cc_bytes, file_name=f"{num_cc}_CuentaCobro.pdf", mime="application/pdf", use_container_width=True)
@@ -775,14 +965,27 @@ elif pagina == "Cotizacion Directa":
 # COTIZACIÓN AIU
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Cotizacion AIU":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Cotizacion AIU</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='opacity:0.7;font-size:0.88rem'>Estructura formal colombiana A+I+U+IVA</p>", unsafe_allow_html=True)
+    st.markdown("<h2 style='font-family:Playfair Display,serif'>Cotización AIU</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='opacity:0.7;font-size:0.88rem'>Estructura formal colombiana A+I+U+IVA — IVA solo sobre Utilidad (U)</p>", unsafe_allow_html=True)
 
     nombre_cliente_aiu = st.text_input("Nombre de la Constructora o Proyecto", placeholder="Ej: Constructora ABC", value=st.session_state.pre.get("nombre_cliente", ""))
 
-    seccion_titulo("Items del contrato")
+    # Condiciones de pago AIU
+    seccion_titulo("Condiciones de pago")
+    c_ant_a, c_dias_a, c_val_a = st.columns(3)
+    with c_ant_a:
+        anticipo_pct_aiu = st.number_input("% de anticipo", min_value=0, max_value=100,
+            value=int(st.session_state.empresa_info.get("anticipo_pct", 60)), step=5, key="aiu_anticipo")
+    with c_dias_a:
+        dias_entrega_aiu = st.number_input("Días de entrega", min_value=1,
+            value=int(st.session_state.empresa_info.get("dias_entrega", 10)), step=1, key="aiu_dias_ent")
+    with c_val_a:
+        dias_validez_aiu = st.number_input("Días de validez", min_value=1,
+            value=int(st.session_state.empresa_info.get("dias_validez", 30)), step=5, key="aiu_dias_val")
+
+    seccion_titulo("Ítems del contrato")
     hdr = st.columns([4, 1, 1, 2, 0.5])
-    for col, lbl in zip(hdr, ["Descripcion", "Unidad", "Cantidad", "Precio unitario (COP)", ""]):
+    for col, lbl in zip(hdr, ["Descripción", "Unidad", "Cantidad", "Precio unitario (COP)", ""]):
         col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
 
     nuevos_items = []
@@ -802,21 +1005,49 @@ elif pagina == "Cotizacion AIU":
         nuevos_items.append({"desc": desc, "und": und, "cant": cant, "punit": punit})
     st.session_state.aiu_items = nuevos_items
 
-    if st.button("+ Agregar item"):
-        st.session_state.aiu_items.append({"desc": "Nuevo item", "und": "glb", "cant": 1.0, "punit": 100_000})
+    if st.button("+ Agregar ítem"):
+        st.session_state.aiu_items.append({"desc": "Nuevo ítem", "und": "glb", "cant": 1.0, "punit": 100_000})
         st.rerun()
 
-    st.markdown(f"<div style='font-size:1.2rem;font-weight:900;color:#1B5FA8;margin:14px 0'>Costo Directo Total: {numero_completo(cd_total)}</div>", unsafe_allow_html=True)
-    
+    st.markdown(f"<div style='font-size:1.2rem;font-weight:900;color:{CC_COLORS['secondary']};margin:14px 0'>Costo Directo Total: {numero_completo(cd_total)}</div>", unsafe_allow_html=True)
+
     st.markdown("---")
-    seccion_titulo("Porcentajes AIU y Logística")
+    seccion_titulo("Porcentajes AIU")
+
+    # Mostrar fórmula AIU claramente
+    st.info(
+        "**Fórmula AIU (norma colombiana):**  "
+        "Precio = CD + A + I + U + IVA(19% solo sobre U) + Logística + Viáticos\n\n"
+        "El IVA **NO** aplica sobre el Costo Directo ni sobre A+I — solo sobre la Utilidad (U).",
+        icon="📋"
+    )
+
     c1, c2, c3, c4 = st.columns(4)
-    with c1: pct_a = st.number_input("Admin (%)", value=float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])), step=0.5)
-    with c2: pct_i = st.number_input("Imprevistos (%)", value=float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])), step=0.5)
-    with c3: pct_u = st.number_input("Utilidad (%)", value=float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])), step=0.5)
+    with c1: pct_a = st.number_input("A — Administración (%)", value=float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])), step=0.5)
+    with c2: pct_i = st.number_input("I — Imprevistos (%)", value=float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])), step=0.5)
+    with c3: pct_u = st.number_input("U — Utilidad (%)", value=float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])), step=0.5)
     with c4:
         veh_aiu_lbl = st.selectbox("Vehículo", list(VEHICULOS.keys()), index=list(VEHICULOS.values()).index(st.session_state.pre.get("vehiculo_entrega", "frontier")) if st.session_state.pre.get("vehiculo_entrega", "frontier") in list(VEHICULOS.values()) else 0)
-    
+
+    # Preview en tiempo real del AIU
+    if cd_total > 0:
+        _val_a_prev = cd_total * (pct_a / 100)
+        _val_i_prev = cd_total * (pct_i / 100)
+        _val_u_prev = cd_total * (pct_u / 100)
+        _iva_prev   = _val_u_prev * 0.19
+        _total_prev = cd_total + _val_a_prev + _val_i_prev + _val_u_prev + _iva_prev
+        st.markdown(
+            f'<div style="background:{CC_COLORS["ultralight"]};border:1px solid {CC_COLORS["light"]};border-radius:8px;padding:12px 16px;margin:8px 0;font-size:0.85rem">'
+            f'CD: {numero_completo(cd_total)} + '
+            f'A({pct_a}%): {numero_completo(_val_a_prev)} + '
+            f'I({pct_i}%): {numero_completo(_val_i_prev)} + '
+            f'U({pct_u}%): {numero_completo(_val_u_prev)} + '
+            f'IVA s/U(19%): {numero_completo(_iva_prev)} = '
+            f'<b style="color:{CC_COLORS["secondary"]}">≈ {numero_completo(_total_prev)}</b>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
     vehiculo_aiu = VEHICULOS[veh_aiu_lbl]
     col1, col2, col3 = st.columns(3)
     km_aiu = col1.number_input("Km (Ida)", value=float(st.session_state.pre.get("km", 10.0)))
@@ -836,8 +1067,7 @@ elif pagina == "Cotizacion AIU":
 
     if st.button("Calcular y Guardar AIU", type="primary", use_container_width=True):
         res_aiu = calcular_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu, agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu)
-        
-        # Preparación exacta para la base de datos
+
         res_aiu["tipo_proyecto"] = "Licitación AIU"
         res_aiu["categoria"] = "Proyecto Constructora"
         res_aiu["referencia"] = "Múltiple"
@@ -845,14 +1075,18 @@ elif pagina == "Cotizacion AIU":
         res_aiu["ml_proyecto"] = 0
         res_aiu["costo_total"] = cd_total
         res_aiu["precio_sugerido"] = res_aiu['precio_total']
-        
+        res_aiu["anticipo_pct"] = anticipo_pct_aiu
+        res_aiu["dias_entrega"] = dias_entrega_aiu
+        res_aiu["dias_validez"] = dias_validez_aiu
+
         res_aiu["_estado_guardado"] = {
             "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
             "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
             "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu, "agente_externo_taller": agente_aiu,
-            "foraneo_activo": foraneo_aiu, "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu
+            "foraneo_activo": foraneo_aiu, "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu,
+            "anticipo_pct": anticipo_pct_aiu, "dias_entrega": dias_entrega_aiu, "dias_validez": dias_validez_aiu,
         }
-        
+
         st.session_state.cotizacion = res_aiu
         import random as _r
         _num_auto = f"AIU-{date.today().strftime('%Y%m%d')}-{_r.randint(100,999)}"
@@ -861,23 +1095,34 @@ elif pagina == "Cotizacion AIU":
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU":
         r = st.session_state.cotizacion
-        
+        _anticipo_pct_r = r.get("anticipo_pct", 60)
+        _anticipo_val_r = r['precio_total'] * (_anticipo_pct_r / 100)
+
         st.markdown(f"""
-        <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
-          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio total del contrato (AIU)</div>
+        <div class="precio-hero">
+          <div style="color:{CC_COLORS['accent']};font-size:0.65rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio total del contrato (AIU)</div>
           <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">{numero_completo(r['precio_total'])}</div>
           <div style="opacity:0.8;font-size:0.85rem">Margen Efectivo: {r['margen_pct']:.1f}%</div>
+          <div style="margin-top:10px;background:rgba(201,168,76,0.12);border-radius:8px;padding:10px 14px">
+            <span style="color:{CC_COLORS['accent']};font-weight:700">
+              💰 Anticipo ({_anticipo_pct_r}%): {numero_completo(_anticipo_val_r)}
+            </span>
+            <span style="opacity:0.75;font-size:0.82rem;margin-left:12px">
+              · Saldo: {numero_completo(r['precio_total'] - _anticipo_val_r)}
+            </span>
+          </div>
         </div>""", unsafe_allow_html=True)
 
         c_res, _ = st.columns([1.5, 1])
         with c_res:
             bloque_costos([
                 ("Costo Directo Base (CD)", r['cd']),
-                (f"A — Administración ({r.get('pct_a', pct_a)}%)", r['val_a']),
-                (f"I — Imprevistos ({r.get('pct_i', pct_i)}%)", r['val_i']),
-                (f"U — Utilidad ({r.get('pct_u', pct_u)}%)", r['val_u']),
+                (f"A — Administración ({r.get('pct_a', pct_a):.1f}%)", r['val_a']),
+                (f"I — Imprevistos ({r.get('pct_i', pct_i):.1f}%)", r['val_i']),
+                (f"U — Utilidad ({r.get('pct_u', pct_u):.1f}%)", r['val_u']),
                 ("IVA 19% exclusivo sobre Utilidad (U)", r['val_iva']),
                 ("Gastos Logísticos Integrados", r['logistica']),
+                ("Viáticos", r.get('viaticos', 0)),
             ], "PRECIO TOTAL", r['precio_total'])
 
         st.markdown("---")
@@ -887,7 +1132,8 @@ elif pagina == "Cotizacion AIU":
         with cp1:
             num_cot_a = st.text_input("Número de Cotización AIU", value=f"COT-AIU-{datetime.today().strftime('%Y')}-001")
             if st.button("📄 Generar Cotización AIU (PDF)", type="primary", use_container_width=True):
-                pdf_bytes = generar_pdf_cotizacion(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
+                from generador_pdf import generar_pdf_cotizacion_aiu
+                pdf_bytes = generar_pdf_cotizacion_aiu(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes or _LOGO_BYTES)
                 st.download_button("⬇ Descargar Cotización", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
         with cp2:
             num_cc_a = st.text_input("Número de Cuenta de Cobro", value=f"CC-AIU-{datetime.today().strftime('%Y')}-001")
@@ -896,7 +1142,7 @@ elif pagina == "Cotizacion AIU":
             if st.button("📄 Generar Cobro AIU (PDF)", type="primary", use_container_width=True):
                 datos_prest = st.session_state.empresa_info.copy()
                 datos_pag = {"nombre": nom_pag_a, "nit": nit_pag_a, "direccion": ""}
-                cc_bytes = generar_cuenta_cobro(r, datos_prest, datos_pag, numero=num_cc_a, logo_bytes=st.session_state.logo_bytes)
+                cc_bytes = generar_cuenta_cobro(r, datos_prest, datos_pag, numero=num_cc_a, logo_bytes=st.session_state.logo_bytes or _LOGO_BYTES)
                 st.download_button("⬇ Descargar Cobro", cc_bytes, file_name=f"{num_cc_a}.pdf", mime="application/pdf", use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -906,16 +1152,16 @@ elif pagina == "Historial":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Historial de cotizaciones</h2>", unsafe_allow_html=True)
     _bus = st.text_input("Buscar", placeholder="Cliente, número o material...")
     _rows = _listar_cotizaciones(_bus)
-    
+
     if not _rows:
         alerta("No hay cotizaciones guardadas aún.", "info")
     else:
         _ESTADOS = ["Pendiente", "Aprobada", "Rechazada", "En revision"]
         _hdr = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.6, 0.6])
-        for _col, _lbl in zip(_hdr, ["Numero", "Fecha", "Cliente", "Material", "Precio", "Estado", "✏️", "🗑️"]):
+        for _col, _lbl in zip(_hdr, ["Número", "Fecha", "Cliente", "Material", "Precio", "Estado", "✏️", "🗑️"]):
             _col.markdown(f"<div style='font-size:0.75rem;font-weight:700;opacity:0.7'>{_lbl}</div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin:4px 0 8px'>", unsafe_allow_html=True)
-        
+
         for _row in _rows:
             _rid, _rnum, _rfec, _rcli, _rmat, _rml, _rpre, _rmrg, _rest, _rjson = _row
             _cols = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.6, 0.6])
@@ -924,17 +1170,16 @@ elif pagina == "Historial":
             _cols[2].markdown(f"<span style='font-size:0.85rem'>{_rcli}</span>", unsafe_allow_html=True)
             _cols[3].caption(_rmat)
             _cols[4].markdown(f"<span style='font-size:0.85rem;font-weight:700'>{numero_completo(_rpre)}</span>", unsafe_allow_html=True)
-            
+
             _est_sel = _cols[5].selectbox("Estado", _ESTADOS, index=_ESTADOS.index(_rest) if _rest in _ESTADOS else 0, key=f"est_{_rid}", label_visibility="collapsed")
             if _est_sel != _rest:
                 _actualizar_estado(_rid, _est_sel)
                 st.rerun()
-                
-            if _cols[6].button("✏️", key=f"ed_{_rid}", help="Recargar en la calculadora para editar o generar PDF"):
+
+            if _cols[6].button("✏️", key=f"ed_{_rid}", help="Recargar en la calculadora"):
                 try:
                     datos = json.loads(_rjson)
-                    estado_guardado = datos.get("_estado_guardado", datos) 
-                    
+                    estado_guardado = datos.get("_estado_guardado", datos)
                     if "AIU" in _rnum or datos.get("tipo_proyecto") == "Licitación AIU" or estado_guardado.get("tipo_proyecto") == "Licitación AIU":
                         st.session_state.aiu_items = estado_guardado.get("aiu_items", st.session_state.aiu_items)
                         st.session_state.pre = estado_guardado
@@ -945,25 +1190,23 @@ elif pagina == "Historial":
                         st.session_state.nav_radio = "Cotizacion Directa"
                         st.session_state._radio_ui = "Cotizacion Directa"
                     st.rerun()
-                except Exception as e:
+                except Exception:
                     st.error("No se pudo cargar el archivo antiguo.")
-            
-            # Botón borrar con confirmación
+
             if f"confirmar_borrar_{_rid}" not in st.session_state:
                 st.session_state[f"confirmar_borrar_{_rid}"] = False
-            
+
             if not st.session_state[f"confirmar_borrar_{_rid}"]:
-                if _cols[7].button("🗑️", key=f"del_{_rid}", help="Eliminar esta cotización del historial"):
+                if _cols[7].button("🗑️", key=f"del_{_rid}"):
                     st.session_state[f"confirmar_borrar_{_rid}"] = True
                     st.rerun()
             else:
                 with st.container():
-                    st.warning(f"⚠️ ¿Eliminar **{_rnum}** ({_rcli})? Esta acción no se puede deshacer.")
+                    st.warning(f"⚠️ ¿Eliminar **{_rnum}** ({_rcli})?")
                     _c1, _c2 = st.columns(2)
                     if _c1.button("✅ Sí, eliminar", key=f"conf_si_{_rid}", type="primary", use_container_width=True):
                         _eliminar_cotizacion(_rid)
                         st.session_state.pop(f"confirmar_borrar_{_rid}", None)
-                        st.success("Cotización eliminada.")
                         st.rerun()
                     if _c2.button("❌ Cancelar", key=f"conf_no_{_rid}", use_container_width=True):
                         st.session_state[f"confirmar_borrar_{_rid}"] = False
@@ -979,7 +1222,7 @@ elif pagina == "Dashboard":
         _m1.metric("Total cotizaciones", _s["total"])
         _m2.metric("Aprobadas", _s["aprobadas"])
         _m3.metric("Pendientes", _s["pendientes"])
-        _m4.metric("Facturacion (aprobadas)", numero_completo(_s["facturacion"]))
+        _m4.metric("Facturación (aprobadas)", numero_completo(_s["facturacion"]))
         st.markdown("---")
         _da, _db = st.columns(2)
         with _da:
@@ -993,107 +1236,57 @@ elif pagina == "Dashboard":
             for _mes, _cnt, _tot in (_s["por_mes"] or []):
                 st.markdown(f"**{_mes}** — {numero_completo(_tot)} ({_cnt} cotizaciones)")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# PARÁMETROS, ASISTENTE IA Y CONFIGURACIÓN
-# ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Parametros":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Parámetros de costos</h2>", unsafe_allow_html=True)
     t_ia, t1, t2 = st.tabs(["🤖 Asistente IA", "Tarifas y Producción", "Logística y Vehículos"])
 
     with t_ia:
-        # ── Inicializar historial del chat de parámetros ──────────────────────
         if "params_wizard_chat" not in st.session_state:
             st.session_state.params_wizard_chat = []
         chat_wizard = st.session_state.params_wizard_chat
 
-        # ── Encabezado con estado IA ──────────────────────────────────────────
         _ia_ok = ia_disponible()
         if _ia_ok:
             st.markdown(
                 '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">'
                 '<div style="width:9px;height:9px;border-radius:50%;background:#22c55e;flex-shrink:0"></div>'
                 '<span style="font-size:0.82rem;font-weight:600;color:#16a34a">Asistente activo</span>'
-                '<span style="font-size:0.8rem;opacity:0.55;margin-left:4px">— Dime qué cambió y actualizaré los valores por ti</span>'
                 '</div>', unsafe_allow_html=True
             )
         else:
-            st.warning("⚠️ La IA no está configurada. Actívala añadiendo tu API key en **Configuración**.", icon="🔑")
+            st.warning("⚠️ La IA no está configurada.", icon="🔑")
 
-        # ── Historial de mensajes (estilo chat) ───────────────────────────────
-        chat_container = st.container()
-        with chat_container:
-            if not chat_wizard:
-                st.markdown(
-                    '<div style="text-align:center;padding:32px 16px;opacity:0.45;">'
-                    '<div style="font-size:2rem;margin-bottom:8px">💬</div>'
-                    '<div style="font-size:0.88rem">Aún no hay mensajes.<br>'
-                    'Puedes escribir cosas como:<br>'
-                    '<em>"La gasolina subió a $16.500"</em> &nbsp;·&nbsp; '
-                    '<em>"El flete externo ahora vale $190.000"</em> &nbsp;·&nbsp; '
-                    '<em>"¿Cuánto debería cobrar por m² de Sinterizado?"</em>'
-                    '</div></div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                for _m in chat_wizard:
-                    _es_user = _m["role"] == "user"
-                    _bg   = "var(--secondary-background-color)" if _es_user else "transparent"
-                    _bord = "1px solid var(--border-color)" if _es_user else "1px solid transparent"
-                    _pfx  = "🧑‍💼 **Tú**" if _es_user else "🤖 **Asistente**"
-                    st.markdown(
-                        f'<div style="background:{_bg};border:{_bord};border-radius:10px;'
-                        f'padding:10px 14px;margin-bottom:8px">'
-                        f'<div style="font-size:0.72rem;font-weight:700;opacity:0.55;margin-bottom:4px">'
-                        f'{"TÚ" if _es_user else "ASISTENTE IA"}</div>'
-                        f'<div style="font-size:0.9rem">{_m["content"]}</div>'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
+        for _m in chat_wizard:
+            _es_user = _m["role"] == "user"
+            _bg = "var(--secondary-background-color)" if _es_user else "transparent"
+            st.markdown(
+                f'<div style="background:{_bg};border:1px solid var(--border-color);border-radius:10px;padding:10px 14px;margin-bottom:8px">'
+                f'<div style="font-size:0.72rem;font-weight:700;opacity:0.55;margin-bottom:4px">{"TÚ" if _es_user else "ASISTENTE IA"}</div>'
+                f'<div style="font-size:0.9rem">{_m["content"]}</div>'
+                f'</div>', unsafe_allow_html=True
+            )
 
-        st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
-
-        # ── Input de mensaje ──────────────────────────────────────────────────
         _col_input, _col_btn = st.columns([5, 1])
         with _col_input:
-            _nuevo_msg = st.text_input(
-                "Escribe tu mensaje",
-                key="params_chat_input",
-                placeholder="Ej: El precio del disco para mármol subió a $3.000...",
-                label_visibility="collapsed",
-                disabled=not _ia_ok,
-            )
+            _nuevo_msg = st.text_input("Escribe tu mensaje", key="params_chat_input",
+                placeholder="Ej: La gasolina subió a $16.500...", label_visibility="collapsed", disabled=not _ia_ok)
         with _col_btn:
-            _enviar = st.button(
-                "Enviar ➤",
-                key="params_chat_send",
-                type="primary",
-                use_container_width=True,
-                disabled=not _ia_ok,
-            )
+            _enviar = st.button("Enviar ➤", key="params_chat_send", type="primary", use_container_width=True, disabled=not _ia_ok)
 
-        # ── Procesar envío ────────────────────────────────────────────────────
         if _enviar and _nuevo_msg.strip():
-            with st.spinner("El asistente está analizando tu solicitud…"):
+            with st.spinner("Analizando…"):
                 _resp = _chat_parametros(chat_wizard, _nuevo_msg.strip())
-            st.session_state.params_wizard_chat.append({"role": "user",      "content": _nuevo_msg.strip()})
+            st.session_state.params_wizard_chat.append({"role": "user", "content": _nuevo_msg.strip()})
             st.session_state.params_wizard_chat.append({"role": "assistant", "content": _resp})
             st.rerun()
 
-        # ── Botón limpiar conversación ────────────────────────────────────────
         if chat_wizard:
-            st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-            if st.button("🗑️ Limpiar conversación", key="params_clear", help="Borra el historial de este chat"):
+            if st.button("🗑️ Limpiar conversación", key="params_clear"):
                 st.session_state.params_wizard_chat = []
                 st.rerun()
 
     with t1:
-        # ── TARIFAS Y PRODUCCIÓN ──────────────────────────────────────────────
-        # Permite editar todas las tarifas de producción por material
-        # Los cambios se guardan en st.session_state.tarifas_custom y se propagan
-        # a todos los cálculos de la app via get_tarifas()
         st.markdown("#### Tarifas de producción por material")
-        st.caption("Edita los costos de mano de obra, insumos y maquinaria. Los cambios aplican de inmediato a nuevas cotizaciones.")
-
         if st.session_state.tarifas_custom is None:
             import copy
             st.session_state.tarifas_custom = copy.deepcopy(TARIFAS)
@@ -1102,183 +1295,78 @@ elif pagina == "Parametros":
         for mat, tar in st.session_state.tarifas_custom.items():
             with st.expander(f"📌 {mat}", expanded=False):
                 c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    prod_ml = st.number_input(
-                        "Producción (COP/ml)",
-                        min_value=0, value=int(tar.get("prod_ml", 60_000)),
-                        step=1_000, key=f"tar_prodml_{mat}",
-                        help="Lo que cobra el operario por cada metro lineal cortado e instalado"
-                    )
-                with c2:
-                    zocalo = st.number_input(
-                        "Zócalo (COP/ml)",
-                        min_value=0, value=int(tar.get("zocalo", 12_000)),
-                        step=500, key=f"tar_zoc_{mat}",
-                        help="Costo por metro lineal de zócalo instalado"
-                    )
-                with c3:
-                    disco = st.number_input(
-                        "Disco (COP/m²)",
-                        min_value=0, value=int(tar.get("disco", 2_200)),
-                        step=100, key=f"tar_disco_{mat}",
-                        help="Costo del disco diamantado por m² cortado"
-                    )
-                with c4:
-                    maquina = st.number_input(
-                        "Máquina (COP/día)",
-                        min_value=0, value=int(tar.get("maquina", 20_000)),
-                        step=1_000, key=f"tar_maq_{mat}",
-                        help="Depreciación + mantenimiento de la cortadora por día de uso"
-                    )
-                tarifas_editadas[mat] = {
-                    "prod_ml": prod_ml,
-                    "zocalo":  zocalo,
-                    "disco":   disco,
-                    "maquina": maquina,
-                }
+                prod_ml = c1.number_input("Producción (COP/ml)", min_value=0, value=int(tar.get("prod_ml", 60_000)), step=1_000, key=f"tar_prodml_{mat}")
+                zocalo  = c2.number_input("Zócalo (COP/ml)", min_value=0, value=int(tar.get("zocalo", 12_000)), step=500, key=f"tar_zoc_{mat}")
+                disco   = c3.number_input("Disco (COP/m²)", min_value=0, value=int(tar.get("disco", 2_200)), step=100, key=f"tar_disco_{mat}")
+                maquina = c4.number_input("Máquina (COP/día)", min_value=0, value=int(tar.get("maquina", 20_000)), step=1_000, key=f"tar_maq_{mat}")
+                tarifas_editadas[mat] = {"prod_ml": prod_ml, "zocalo": zocalo, "disco": disco, "maquina": maquina}
 
         col_g1, col_g2 = st.columns(2)
         with col_g1:
             if st.button("💾 Guardar tarifas", type="primary", use_container_width=True, key="save_tarifas"):
                 st.session_state.tarifas_custom = tarifas_editadas
-                st.success("✅ Tarifas actualizadas. Se aplicarán en las próximas cotizaciones.")
+                st.success("✅ Tarifas actualizadas.")
         with col_g2:
             if st.button("↩ Restablecer valores por defecto", use_container_width=True, key="reset_tarifas"):
                 import copy
                 st.session_state.tarifas_custom = copy.deepcopy(TARIFAS)
-                st.info("Valores restablecidos a los predeterminados del sistema.")
                 st.rerun()
 
     with t2:
-        # ── LOGÍSTICA Y VEHÍCULOS ─────────────────────────────────────────────
-        # Permite editar gasolina, peajes, herramientas y flete externo,
-        # así como la configuración de cada vehículo propio.
-        # Los cambios se guardan en st.session_state.logistica_custom / vehiculos_custom
         st.markdown("#### Costos de logística y transporte")
-        st.caption("Actualiza los costos de gasolina, peajes y flete cuando cambien los precios del mercado.")
-
         if st.session_state.logistica_custom is None:
             import copy
-            st.session_state.logistica_custom = {
-                k: v for k, v in LOGISTICA.items()
-                if not isinstance(v, dict)   # solo campos escalares
-            }
+            st.session_state.logistica_custom = {k: v for k, v in LOGISTICA.items() if not isinstance(v, dict)}
         if st.session_state.viaticos_custom is None:
-            import copy
             st.session_state.viaticos_custom = dict(VIATICOS)
 
-        # Costos escalares de logística
-        st.markdown("**Costos base**")
         lc1, lc2, lc3, lc4 = st.columns(4)
-        with lc1:
-            gasolina = st.number_input(
-                "Gasolina (COP/galón)",
-                min_value=0, value=int(st.session_state.logistica_custom.get("gasolina", 16_000)),
-                step=500, key="log_gasolina",
-                help="Precio corriente del galón en Barranquilla"
-            )
-        with lc2:
-            peaje = st.number_input(
-                "Peaje promedio (COP)",
-                min_value=0, value=int(st.session_state.logistica_custom.get("peaje", 19_500)),
-                step=500, key="log_peaje"
-            )
-        with lc3:
-            herram = st.number_input(
-                "Desgaste herramientas / viaje",
-                min_value=0, value=int(st.session_state.logistica_custom.get("herram", 4_500)),
-                step=500, key="log_herram"
-            )
-        with lc4:
-            agente = st.number_input(
-                "Flete agente externo (COP)",
-                min_value=0, value=int(st.session_state.logistica_custom.get("agente", 85_000)),
-                step=5_000, key="log_agente",
-                help="Costo que cobra el agente por traer el material al taller"
-            )
+        gasolina = lc1.number_input("Gasolina (COP/galón)", min_value=0, value=int(st.session_state.logistica_custom.get("gasolina", 16_000)), step=500, key="log_gasolina")
+        peaje    = lc2.number_input("Peaje promedio (COP)", min_value=0, value=int(st.session_state.logistica_custom.get("peaje", 19_500)), step=500, key="log_peaje")
+        herram   = lc3.number_input("Desgaste herramientas / viaje", min_value=0, value=int(st.session_state.logistica_custom.get("herram", 4_500)), step=500, key="log_herram")
+        agente   = lc4.number_input("Flete agente externo (COP)", min_value=0, value=int(st.session_state.logistica_custom.get("agente", 85_000)), step=5_000, key="log_agente")
 
-        st.markdown("**Vehículo externo / tercero**")
-        flete_ext = st.number_input(
-            "Flete externo fijo (COP/viaje)",
-            min_value=0,
-            value=int((st.session_state.vehiculos_custom or {}).get("externo", {}).get("flete",
-                       VEHICULOS_CONFIG["externo"].get("flete", 165_000))),
-            step=5_000, key="log_flete_ext",
-            help="Precio fijo que cobra el tercero por viaje, sin importar la distancia"
-        )
+        flete_ext = st.number_input("Flete externo fijo (COP/viaje)", min_value=0,
+            value=int((st.session_state.vehiculos_custom or {}).get("externo", {}).get("flete", VEHICULOS_CONFIG["externo"].get("flete", 165_000))),
+            step=5_000, key="log_flete_ext")
 
-        # Vehículos propios
         st.markdown("**Vehículos propios**")
         if st.session_state.vehiculos_custom is None:
-            import copy
             st.session_state.vehiculos_custom = {}
 
         vehiculos_editados = {}
         for vk, vcfg in VEHICULOS_CONFIG.items():
-            if vcfg.get("tipo") != "propio":
-                continue
+            if vcfg.get("tipo") != "propio": continue
             custom_v = (st.session_state.vehiculos_custom or {}).get(vk, vcfg)
             with st.expander(f"🚛 {vcfg['nombre']}", expanded=False):
                 vc1, vc2, vc3 = st.columns(3)
-                with vc1:
-                    rend_v = st.number_input(
-                        "Rendimiento (km/galón)",
-                        min_value=0.1, value=float(custom_v.get("rend", vcfg["rend"])),
-                        step=0.1, key=f"veh_rend_{vk}"
-                    )
-                with vc2:
-                    desg_v = st.number_input(
-                        "Desgaste (COP/km)",
-                        min_value=0, value=int(custom_v.get("desgaste", vcfg["desgaste"])),
-                        step=10, key=f"veh_desg_{vk}"
-                    )
-                with vc3:
-                    base_v = st.number_input(
-                        "Base mínima (COP/viaje)",
-                        min_value=0, value=int(custom_v.get("base", vcfg["base"])),
-                        step=5_000, key=f"veh_base_{vk}"
-                    )
+                rend_v = vc1.number_input("Rendimiento (km/galón)", min_value=0.1, value=float(custom_v.get("rend", vcfg["rend"])), step=0.1, key=f"veh_rend_{vk}")
+                desg_v = vc2.number_input("Desgaste (COP/km)", min_value=0, value=int(custom_v.get("desgaste", vcfg["desgaste"])), step=10, key=f"veh_desg_{vk}")
+                base_v = vc3.number_input("Base mínima (COP/viaje)", min_value=0, value=int(custom_v.get("base", vcfg["base"])), step=5_000, key=f"veh_base_{vk}")
                 vehiculos_editados[vk] = {**vcfg, "rend": rend_v, "desgaste": desg_v, "base": base_v}
         vehiculos_editados["externo"] = {**VEHICULOS_CONFIG["externo"], "flete": flete_ext}
 
-        st.markdown("**Viáticos**")
         vt1, vt2 = st.columns(2)
-        with vt1:
-            v_pueblo = st.number_input(
-                "Pueblo / Corregimiento (COP/noche/persona)",
-                min_value=0, value=int(st.session_state.viaticos_custom.get("pueblo", 145_000)),
-                step=5_000, key="viat_pueblo"
-            )
-        with vt2:
-            v_ciudad = st.number_input(
-                "Ciudad Capital (COP/noche/persona)",
-                min_value=0, value=int(st.session_state.viaticos_custom.get("ciudad", 178_000)),
-                step=5_000, key="viat_ciudad"
-            )
+        v_pueblo = vt1.number_input("Pueblo (COP/noche/persona)", min_value=0, value=int(st.session_state.viaticos_custom.get("pueblo", 145_000)), step=5_000, key="viat_pueblo")
+        v_ciudad = vt2.number_input("Ciudad Capital (COP/noche/persona)", min_value=0, value=int(st.session_state.viaticos_custom.get("ciudad", 178_000)), step=5_000, key="viat_ciudad")
 
         col_l1, col_l2 = st.columns(2)
         with col_l1:
             if st.button("💾 Guardar logística y vehículos", type="primary", use_container_width=True, key="save_logistica"):
-                st.session_state.logistica_custom = {
-                    "gasolina": gasolina,
-                    "peaje":    peaje,
-                    "herram":   herram,
-                    "agente":   agente,
-                }
+                st.session_state.logistica_custom = {"gasolina": gasolina, "peaje": peaje, "herram": herram, "agente": agente}
                 st.session_state.viaticos_custom = {"pueblo": v_pueblo, "ciudad": v_ciudad}
                 st.session_state.vehiculos_custom = vehiculos_editados
-                st.success("✅ Logística y vehículos actualizados correctamente.")
+                st.success("✅ Logística y vehículos actualizados.")
         with col_l2:
             if st.button("↩ Restablecer logística por defecto", use_container_width=True, key="reset_logistica"):
                 st.session_state.logistica_custom = None
                 st.session_state.viaticos_custom  = None
                 st.session_state.vehiculos_custom  = None
-                st.info("Logística restablecida a valores por defecto.")
                 st.rerun()
 
 elif pagina == "Asistente IA":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
-    st.write("Escribe un mensaje en lenguaje natural describiendo tu proyecto. La IA lo interpretará y pre-llenará la calculadora.")
+    st.write("Describe tu proyecto en lenguaje natural. La IA lo interpretará y pre-llenará la calculadora.")
     desc = st.text_area("Describe tu proyecto:", placeholder="Ej: Mesón en granito san gabriel, 3 metros por 60cm...")
     if st.button("Procesar"):
         if ia_disponible():
@@ -1292,10 +1380,40 @@ elif pagina == "Asistente IA":
             st.error("Configura tu API Key en Configuración.")
 
 elif pagina == "Configuracion":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Configuracion</h2>", unsafe_allow_html=True)
-    tab_emp, tab_logo = st.tabs(["Datos Empresa", "Logo"])
+    st.markdown("<h2 style='font-family:Playfair Display,serif'>Configuración</h2>", unsafe_allow_html=True)
+    tab_emp, tab_logo, tab_pago = st.tabs(["Datos Empresa", "Logo", "Condiciones de Pago"])
     with tab_emp:
-        st.session_state.empresa_info["nombre"] = st.text_input("Empresa", st.session_state.empresa_info["nombre"])
+        for campo, label in [
+            ("nombre", "Razón Social"), ("nit", "NIT"), ("tel", "Teléfono"),
+            ("email", "Email"), ("ciudad", "Ciudad"), ("banco", "Banco"),
+            ("cuenta_tipo", "Tipo de Cuenta"), ("cuenta_numero", "Número de Cuenta"),
+        ]:
+            st.session_state.empresa_info[campo] = st.text_input(label, st.session_state.empresa_info.get(campo, ""))
     with tab_logo:
-        logo = st.file_uploader("Sube tu logo (PNG/JPG)", type=["png","jpg"])
-        if logo: st.session_state.logo_bytes = logo.read()
+        st.info("El logo corporativo de MARMOLES COLLANTE & CASTRO LTDA. ya está integrado en la app. Si deseas usar otro logo personalizado, súbelo aquí.", icon="ℹ️")
+        if _logo_b64:
+            st.markdown(
+                f'<div style="text-align:center;padding:16px;background:white;border-radius:8px;display:inline-block">'
+                f'<img src="data:image/jpeg;base64,{_logo_b64}" style="max-width:200px"/>'
+                f'<p style="font-size:0.75rem;color:#666;margin-top:8px">Logo corporativo activo</p>'
+                f'</div>', unsafe_allow_html=True
+            )
+        logo = st.file_uploader("Subir logo personalizado (PNG/JPG)", type=["png", "jpg"])
+        if logo:
+            st.session_state.logo_bytes = logo.read()
+            st.success("Logo personalizado cargado. Se usará en los PDFs.")
+        if st.session_state.logo_bytes and st.session_state.logo_bytes != _LOGO_BYTES:
+            if st.button("↩ Volver al logo corporativo"):
+                st.session_state.logo_bytes = _LOGO_BYTES
+                st.rerun()
+    with tab_pago:
+        st.markdown("**Condiciones de pago por defecto** (se usan como valores iniciales en las cotizaciones)")
+        emp = st.session_state.empresa_info
+        emp["anticipo_pct"] = st.number_input("% de anticipo predeterminado", min_value=0, max_value=100,
+            value=int(emp.get("anticipo_pct", 60)), step=5)
+        emp["dias_entrega"] = st.number_input("Días de entrega predeterminados", min_value=1,
+            value=int(emp.get("dias_entrega", 10)), step=1)
+        emp["dias_validez"] = st.number_input("Días de validez predeterminados", min_value=1,
+            value=int(emp.get("dias_validez", 30)), step=5)
+        if st.button("💾 Guardar condiciones", type="primary"):
+            st.success("✅ Condiciones de pago guardadas.")
