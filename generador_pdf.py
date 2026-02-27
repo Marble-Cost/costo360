@@ -227,7 +227,7 @@ def _tabla_desglose(E, P, r, incluir_iva: bool = True):
     precio_base = r.get("precio_sugerido", 0)
 
     if incluir_iva:
-        iva         = utilidad * 0.19
+        iva         = precio_base * 0.19   # IVA sobre el total de la cotización
         precio_final = precio_base + iva
     else:
         iva         = 0.0
@@ -407,7 +407,7 @@ def generar_cuenta_cobro(resultado: dict, datos_prestador: dict, datos_pagador: 
 
     precio_base = resultado.get("precio_sugerido", resultado.get("precio_total", 0))
     utilidad    = resultado.get("utilidad", 0)
-    iva         = utilidad * 0.19 if incluir_iva else 0.0
+    iva         = precio_base * 0.19 if incluir_iva else 0.0   # IVA sobre total
     valor_total = precio_base + iva
 
     # Construir empresa_info desde datos_prestador
