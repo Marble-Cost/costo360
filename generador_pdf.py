@@ -1,444 +1,486 @@
-# generador_pdf.py — CostoMármol v2
-# Genera PDF de cotización y cuenta de cobro usando reportlab
+# generador_pdf.py — CostoMarmol v5
+# PDF 1 pagina fija · paleta extraida del logo del usuario · mismo diseno cot y cuenta cobro
 
 import io
 from datetime import date
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, KeepTogether,
+    HRFlowable, Image, KeepTogether,
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from calculos import cop
 
+# ── Paleta por defecto (azul marino corporativo) ─────────────────────────────
+_DEFAULT_PALETTE = {
+    "primary":   "#0D2137",
+    "secondary": "#1B5FA8",
+    "accent":    "#C9A84C",
+    "light":     "#D6E8FA",
+    "ultralight":"#EEF5FD",
+    "gray":      "#6B85A0",
+    "text":      "#0D2137",
+    "white":     "#FFFFFF",
+}
 
-# ── Paleta de colores ─────────────────────────────────────────────────────────
-NAVY    = colors.HexColor("#0d2744")
-BLUE    = colors.HexColor("#1a6bb5")
-BLUE_L  = colors.HexColor("#deeefa")
-BLUE_UL = colors.HexColor("#f0f7ff")
-WHITE   = colors.white
-GRAY    = colors.HexColor("#5a7a9a")
-GRAY_L  = colors.HexColor("#e8f0f8")
-GREEN   = colors.HexColor("#0f7a4a")
-BLACK   = colors.HexColor("#0d2744")
+
+def _extraer_paleta_logo(logo_bytes: bytes | None) -> dict:
+    """
+    Extrae la paleta dominante del logo usando PIL.
+    Retorna dict con primary, secondary, accent, light, ultralight, gray, text, white.
+    Si no hay logo o falla, retorna la paleta por defecto.
+    """
+    if not logo_bytes:
+        return _DEFAULT_PALETTE.copy()
+    try:
+        from PIL import Image as PILImage
+        import io as _io
+        img = PILImage.open(_io.BytesIO(logo_bytes)).convert("RGB")
+        img.thumbnail((100, 100))
+        pixels = list(img.getdata())
+        # Filtrar pixeles muy claros (fondo blanco) y muy oscuros
+        filtered = [
+            p for p in pixels
+            if not (p[0] > 230 and p[1] > 230 and p[2] > 230)  # no blanco
+            and not (p[0] < 15 and p[1] < 15 and p[2] < 15)    # no negro puro
+        ]
+        if len(filtered) < 50:
+            return _DEFAULT_PALETTE.copy()
+
+        # Calcular color dominante (promedio ponderado por saturacion)
+        def saturation(r, g, b):
+            mx, mn = max(r,g,b)/255, min(r,g,b)/255
+            return (mx - mn) / mx if mx > 0 else 0
+
+        # Ordenar por saturacion y tomar los mas saturados
+        saturated = sorted(filtered, key=lambda p: saturation(*p), reverse=True)
+        top = saturated[:max(len(saturated)//4, 1)]
+        avg_r = int(sum(p[0] for p in top) / len(top))
+        avg_g = int(sum(p[1] for p in top) / len(top))
+        avg_b = int(sum(p[2] for p in top) / len(top))
+
+        # Color primario: version oscura del dominante
+        def darken(r, g, b, factor=0.55):
+            return (int(r*factor), int(g*factor), int(b*factor))
+        def lighten(r, g, b, factor=0.88):
+            return (
+                min(255, int(r + (255-r)*factor)),
+                min(255, int(g + (255-g)*factor)),
+                min(255, int(b + (255-b)*factor)),
+            )
+        def to_hex(r, g, b):
+            return f"#{r:02X}{g:02X}{b:02X}"
+
+        pr = darken(avg_r, avg_g, avg_b, 0.45)
+        sec = (int(avg_r*0.7), int(avg_g*0.7), int(avg_b*0.7))
+        lt  = lighten(avg_r, avg_g, avg_b, 0.82)
+        ult = lighten(avg_r, avg_g, avg_b, 0.92)
+
+        # Acento dorado si el dominante es azul/frio; sino usar complementario
+        is_cool = avg_b > avg_r and avg_b > avg_g
+        accent = "#C9A84C" if is_cool else to_hex(
+            min(255, int(avg_b*0.8 + 100)),
+            min(255, int(avg_g*0.6 + 80)),
+            min(255, int(avg_r*0.3))
+        )
+
+        return {
+            "primary":    to_hex(*pr),
+            "secondary":  to_hex(*sec),
+            "accent":     accent,
+            "light":      to_hex(*lt),
+            "ultralight": to_hex(*ult),
+            "gray":       "#6B85A0",
+            "text":       to_hex(*pr),
+            "white":      "#FFFFFF",
+        }
+    except Exception:
+        return _DEFAULT_PALETTE.copy()
 
 
-def _estilos():
-    s = getSampleStyleSheet()
-    base = dict(fontName="Helvetica", leading=14)
+def _colores(palette: dict):
+    """Convierte dict de paleta a objetos HexColor de reportlab."""
+    return {k: colors.HexColor(v) for k, v in palette.items()}
+
+
+def _num(valor: float) -> str:
+    return f"${int(round(valor)):,}".replace(",", ".")
+
+
+def _fecha_es():
+    f = date.today()
+    meses = ["enero","febrero","marzo","abril","mayo","junio",
+             "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+    return f"{f.day} de {meses[f.month-1]} de {f.year}"
+
+
+def _estilos(P):
+    """Crea estilos usando la paleta P (dict de HexColor)."""
+    b13 = dict(leading=13)
+    b11 = dict(leading=11)
     return {
-        "titulo":    ParagraphStyle("titulo",    **base, fontSize=22, fontName="Helvetica-Bold", textColor=WHITE,    alignment=TA_LEFT),
-        "subtitulo": ParagraphStyle("subtitulo", **base, fontSize=10, textColor=colors.HexColor("#93c5fd"), alignment=TA_LEFT),
-        "empresa":   ParagraphStyle("empresa",   **base, fontSize=9,  textColor=WHITE, alignment=TA_RIGHT),
-        "seccion":   ParagraphStyle("seccion",   **base, fontSize=8,  fontName="Helvetica-Bold", textColor=GRAY, letterSpacing=1),
-        "normal":    ParagraphStyle("normal",    **base, fontSize=9,  textColor=BLACK),
-        "bold":      ParagraphStyle("bold",      **base, fontSize=9,  fontName="Helvetica-Bold", textColor=BLACK),
-        "precio":    ParagraphStyle("precio",    **base, fontSize=20, fontName="Helvetica-Bold", textColor=NAVY, alignment=TA_RIGHT),
-        "label":     ParagraphStyle("label",     **base, fontSize=7,  textColor=GRAY, alignment=TA_RIGHT),
-        "footer":    ParagraphStyle("footer",    **base, fontSize=7,  textColor=GRAY, alignment=TA_CENTER),
-        "aviso":     ParagraphStyle("aviso",     **base, fontSize=8,  textColor=GRAY),
+        "titulo":   ParagraphStyle("titulo",   **b13, fontSize=18, fontName="Helvetica-Bold",  textColor=P["white"]),
+        "subtit":   ParagraphStyle("subtit",   **b11, fontSize=8,  fontName="Helvetica",       textColor=colors.HexColor("#B8D4F0"), alignment=TA_LEFT),
+        "empresa":  ParagraphStyle("empresa",  **b11, fontSize=8,  fontName="Helvetica",       textColor=P["white"],    alignment=TA_RIGHT),
+        "seccion":  ParagraphStyle("seccion",  **b11, fontSize=7,  fontName="Helvetica-Bold",  textColor=P["gray"],     letterSpacing=1.2),
+        "normal":   ParagraphStyle("normal",   **b13, fontSize=8.5,fontName="Helvetica",       textColor=P["text"]),
+        "bold":     ParagraphStyle("bold",     **b13, fontSize=8.5,fontName="Helvetica-Bold",  textColor=P["text"]),
+        "footer":   ParagraphStyle("footer",   **b11, fontSize=7,  fontName="Helvetica",       textColor=P["gray"],     alignment=TA_CENTER),
+        "aviso":    ParagraphStyle("aviso",     leading=10, fontSize=7,  fontName="Helvetica", textColor=P["gray"]),
+        "accent_s": ParagraphStyle("accent_s", **b11, fontSize=7.5,fontName="Helvetica-Bold",  textColor=P["accent"]),
+        "white_s":  ParagraphStyle("white_s",  **b11, fontSize=8,  fontName="Helvetica",       textColor=P["white"]),
+        "price":    ParagraphStyle("price",    leading=28, fontSize=22, fontName="Helvetica-Bold", textColor=P["white"]),
     }
 
 
-def _header_cotizacion(E, numero, fecha_str):
-    """Bloque de encabezado azul marino para cotización."""
-    col1 = [
-        Paragraph("COTIZACIÓN DE PROYECTO", E["subtitulo"]),
+def _logo_img(logo_bytes: bytes | None, max_h: float = 1.5*cm) -> Image | None:
+    if not logo_bytes:
+        return None
+    try:
+        buf = io.BytesIO(logo_bytes)
+        img = Image(buf)
+        ratio = img.imageWidth / img.imageHeight
+        img.drawWidth  = max_h * ratio
+        img.drawHeight = max_h
+        return img
+    except Exception:
+        return None
+
+
+def _header_bloque(E, P, doc_type, numero, fecha_str, empresa_info, logo_bytes):
+    """Encabezado identico para cotizacion y cuenta de cobro. Solo cambia el titulo."""
+    emp = empresa_info or {}
+    nombre_emp = emp.get("nombre", "MARMOLES COLLANTE & CASTRO LTDA.")
+
+    logo_img = _logo_img(logo_bytes, max_h=1.4*cm)
+
+    # Columna izquierda: logo + nombre empresa
+    col_izq = []
+    if logo_img:
+        col_izq.append(logo_img)
+        col_izq.append(Spacer(1, 4))
+    col_izq.append(Paragraph(nombre_emp, ParagraphStyle("ne", leading=12, fontSize=9, fontName="Helvetica-Bold", textColor=P["white"])))
+    col_izq.append(Paragraph(emp.get("nit", ""), E["white_s"]))
+    col_izq.append(Paragraph(emp.get("ciudad", "Barranquilla, Colombia"), E["white_s"]))
+    col_izq.append(Paragraph(emp.get("tel", ""), E["white_s"]))
+
+    # Columna derecha: tipo doc + numero + fecha
+    col_der = [
+        Paragraph(doc_type, E["accent_s"]),
+        Spacer(1, 3),
+        Paragraph(f"<b>{numero}</b>", ParagraphStyle("num", leading=18, fontSize=13, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
         Spacer(1, 4),
-        Paragraph("CostoMármol Pro", E["titulo"]),
-        Spacer(1, 2),
-        Paragraph("Sistema de Cotización Profesional · Colombia", E["subtitulo"]),
+        Paragraph(fecha_str, ParagraphStyle("fch", leading=11, fontSize=8, fontName="Helvetica", textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)),
+        Paragraph(emp.get("email", ""), ParagraphStyle("eml", leading=10, fontSize=7, fontName="Helvetica", textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)),
     ]
-    col2 = [
-        Paragraph(f"N° <b>{numero}</b>", E["empresa"]),
-        Paragraph(fecha_str, E["empresa"]),
-        Spacer(1, 6),
-        Paragraph("costomarmpol.streamlit.app", E["empresa"]),
-    ]
-    tbl = Table([[col1, col2]], colWidths=[11*cm, 7*cm])
+
+    tbl = Table([[col_izq, col_der]], colWidths=[10*cm, 7*cm])
     tbl.setStyle(TableStyle([
-        ("BACKGROUND",  (0,0), (-1,-1), NAVY),
-        ("VALIGN",      (0,0), (-1,-1), "TOP"),
-        ("TOPPADDING",  (0,0), (-1,-1), 18),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 18),
-        ("LEFTPADDING", (0,0), (0,-1),  20),
-        ("RIGHTPADDING",(-1,0),(-1,-1), 20),
+        ("BACKGROUND",   (0,0), (-1,-1), P["primary"]),
+        ("VALIGN",       (0,0), (-1,-1), "TOP"),
+        ("TOPPADDING",   (0,0), (-1,-1), 14),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 14),
+        ("LEFTPADDING",  (0,0), (0, -1), 16),
+        ("RIGHTPADDING", (-1,0),(-1,-1), 16),
     ]))
     return tbl
 
 
-def _fila_dato(E, label, valor):
-    return [Paragraph(label, E["normal"]), Paragraph(f"<b>{valor}</b>", E["bold"])]
-
-
-def _tabla_datos_proyecto(E, r):
-    """Tabla de datos del proyecto (2 columnas)."""
-    filas = [
-        [Paragraph("DATOS DEL PROYECTO", E["seccion"]), ""],
-        _fila_dato(E, "Tipo de proyecto",   r.get("tipo_proyecto",  "—")),
-        _fila_dato(E, "Material",            f"{r.get('categoria','—')} — {r.get('referencia','—')}"),
-        _fila_dato(E, "m² del proyecto",     f"{r.get('m2_real', 0):.2f} m²"),
-        _fila_dato(E, "Área material comprado", f"{r.get('area_placa', 0):.2f} m²"),
-        _fila_dato(E, "m² usados",           f"{r.get('m2_usados', 0):.2f} m²"),
-        _fila_dato(E, "Retal estimado",      f"{r.get('retal', 0):.2f} m²"),
-        _fila_dato(E, "Aprovechamiento",     f"{r.get('aprovechamiento', 0):.0f}%"),
-        _fila_dato(E, "Días en obra",        str(r.get("dias", "—"))),
-        _fila_dato(E, "Personas",            str(r.get("personas", "—"))),
-    ]
-    if r.get("nombre_cliente"):
-        filas.insert(2, _fila_dato(E, "Cliente", r["nombre_cliente"]))
-    tbl = Table(filas, colWidths=[7*cm, 11*cm])
+def _tabla_2col(E, P, filas_datos, bg_header=None):
+    """Tabla de 2 columnas label/valor con diseño consistente."""
+    filas = []
+    for label, valor in filas_datos:
+        filas.append([Paragraph(label, E["normal"]), Paragraph(f"<b>{valor}</b>", E["bold"])])
+    tbl = Table(filas, colWidths=[6*cm, 11*cm])
     tbl.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0), (-1,0), BLUE_L),
-        ("FONTNAME",     (0,0), (-1,0), "Helvetica-Bold"),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1),[WHITE, BLUE_UL]),
-        ("TOPPADDING",   (0,0), (-1,-1), 6),
-        ("BOTTOMPADDING",(0,0), (-1,-1), 6),
-        ("LEFTPADDING",  (0,0), (-1,-1), 10),
-        ("LINEBELOW",    (0,0), (-1,-1), 0.3, BLUE_L),
-        ("ROUNDEDCORNERS", [4]),
+        ("ROWBACKGROUNDS", (0,0), (-1,-1), [P["white"], P["ultralight"]]),
+        ("TOPPADDING",     (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",  (0,0), (-1,-1), 5),
+        ("LEFTPADDING",    (0,0), (-1,-1), 10),
+        ("LINEBELOW",      (0,0), (-1,-1), 0.3, P["light"]),
     ]))
     return tbl
 
 
-def _tabla_desglose(E, r):
-    """Tabla de desglose de costos con totales."""
+def _tabla_desglose(E, P, r):
     items = [
-        ("① Material (área comprada × precio/m²)", r.get("c1_material", 0)),
-        ("② Mano de obra (corte + elaboración)",    r.get("c2_mano_obra", 0)),
-        ("③ Zócalos",                               r.get("c3_zocalos", 0)),
-        ("④ Insumos (disco + desgaste maquinaria)", r.get("c4_insumos", 0)),
-        ("⑤ Transporte proveedor → taller",         r.get("c5_taller", 0)),
-        ("⑥ Transporte taller → cliente",           r.get("c5_entrega", 0)),
-        ("⑦ Viáticos foráneos",                     r.get("c6_viaticos", 0)),
-        ("⑧ Costos adicionales en obra",            r.get("c7_adicionales", 0)),
+        ("Material (area comprada x precio/m2)", r.get("c1_material", 0)),
+        ("Mano de obra (corte + elaboracion)",   r.get("c2_mano_obra", 0)),
+        ("Zocalos",                               r.get("c3_zocalos", 0)),
+        ("Insumos (disco + desgaste maquinaria)", r.get("c4_insumos", 0)),
+        ("Logistica (transporte + peajes)",       r.get("c5_logistica", 0)),
+        ("Viaticos foraneos",                     r.get("c6_viaticos", 0)),
+        ("Costos adicionales en obra",            r.get("c7_adicionales", 0)),
     ]
-    # Encabezado
+    # Solo mostrar items con valor > 0 para ahorrar espacio
+    items = [(c, v) for c, v in items if v > 0]
+
+    header_style = ParagraphStyle("dh", leading=11, fontSize=7, fontName="Helvetica-Bold", textColor=P["gray"], letterSpacing=1)
     filas = [[
-        Paragraph("CONCEPTO", E["seccion"]),
-        Paragraph("VALOR (COP)", ParagraphStyle("sh", fontName="Helvetica-Bold", fontSize=8, textColor=GRAY, alignment=TA_RIGHT, leading=14)),
+        Paragraph("CONCEPTO", header_style),
+        Paragraph("VALOR (COP)", ParagraphStyle("dhv", leading=11, fontSize=7, fontName="Helvetica-Bold", textColor=P["gray"], alignment=TA_RIGHT)),
     ]]
     for concepto, valor in items:
-        c = GRAY if valor == 0 else BLACK
         filas.append([
-            Paragraph(concepto, ParagraphStyle("c", fontName="Helvetica", fontSize=9, textColor=c, leading=13)),
-            Paragraph(cop(valor), ParagraphStyle("v", fontName="Helvetica", fontSize=9, textColor=c, alignment=TA_RIGHT, leading=13)),
+            Paragraph(concepto, ParagraphStyle("dc", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"])),
+            Paragraph(_num(valor), ParagraphStyle("dv", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_RIGHT)),
         ])
-    # Subtotal costos
     filas.append([
-        Paragraph("COSTO VARIABLE TOTAL", ParagraphStyle("ct", fontName="Helvetica-Bold", fontSize=9, textColor=NAVY, leading=14)),
-        Paragraph(cop(r.get("costo_total", 0)), ParagraphStyle("cv", fontName="Helvetica-Bold", fontSize=9, textColor=NAVY, alignment=TA_RIGHT, leading=14)),
+        Paragraph("COSTO DIRECTO TOTAL", ParagraphStyle("dct", leading=12, fontSize=9, fontName="Helvetica-Bold", textColor=P["primary"])),
+        Paragraph(_num(r.get("costo_total", 0)), ParagraphStyle("dcv", leading=12, fontSize=9, fontName="Helvetica-Bold", textColor=P["primary"], alignment=TA_RIGHT)),
     ])
-    tbl = Table(filas, colWidths=[13*cm, 5*cm])
-    style = TableStyle([
-        ("BACKGROUND",    (0,0),  (-1,0),  BLUE_L),
-        ("ROWBACKGROUNDS",(0,1),  (-1,-2), [WHITE, BLUE_UL]),
-        ("BACKGROUND",    (0,-1), (-1,-1), BLUE_L),
-        ("FONTNAME",      (0,-1), (-1,-1), "Helvetica-Bold"),
-        ("TOPPADDING",    (0,0),  (-1,-1), 7),
-        ("BOTTOMPADDING", (0,0),  (-1,-1), 7),
+    tbl = Table(filas, colWidths=[12.5*cm, 4.5*cm])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),  (-1,0),  P["light"]),
+        ("ROWBACKGROUNDS",(0,1),  (-1,-2), [P["white"], P["ultralight"]]),
+        ("BACKGROUND",    (0,-1), (-1,-1), P["light"]),
+        ("TOPPADDING",    (0,0),  (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0),  (-1,-1), 5),
         ("LEFTPADDING",   (0,0),  (-1,-1), 10),
         ("RIGHTPADDING",  (0,0),  (-1,-1), 10),
-        ("LINEBELOW",     (0,0),  (-1,-1), 0.3, BLUE_L),
-        ("LINEABOVE",     (0,-1), (-1,-1), 1.5, NAVY),
-    ])
-    tbl.setStyle(style)
+        ("LINEBELOW",     (0,0),  (-1,-1), 0.3, P["light"]),
+        ("LINEABOVE",     (0,-1), (-1,-1), 1.2, P["primary"]),
+    ]))
     return tbl
 
 
-def _bloque_precio_final(E, r):
-    """Bloque visual con precio sugerido y margen."""
-    precio = cop(r.get("precio_sugerido", 0))
-    margen = r.get("margen_pct", 40)
-    utilidad = cop(r.get("utilidad", 0))
-
-    datos = Table(
-        [[
-            Paragraph("PRECIO DE VENTA SUGERIDO", ParagraphStyle("pl", fontName="Helvetica-Bold", fontSize=8, textColor=colors.HexColor("#93c5fd"), leading=12)),
-            "",
-        ],[
-            Paragraph(precio, ParagraphStyle("pv", fontName="Helvetica-Bold", fontSize=22, textColor=WHITE, leading=26)),
-            "",
-        ],[
-            Paragraph(f"Margen: {margen:.0f}%  ·  Utilidad proyectada: {utilidad}", ParagraphStyle("ps", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("93c5fd"), leading=12, textColor=colors.HexColor("#93c5fd"))),
-            "",
-        ]],
-        colWidths=[14*cm, 4*cm],
-    )
-    datos.setStyle(TableStyle([
-        ("BACKGROUND",  (0,0), (-1,-1), NAVY),
-        ("TOPPADDING",  (0,0), (-1,-1), 12),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 12),
-        ("LEFTPADDING", (0,0), (-1,-1), 20),
-        ("SPAN",        (0,0), (-1,0)),
-        ("SPAN",        (0,1), (-1,1)),
-        ("SPAN",        (0,2), (-1,2)),
+def _bloque_precio(E, P, precio, margen, utilidad, label="PRECIO DE VENTA SUGERIDO"):
+    tbl = Table([
+        [Paragraph(label, ParagraphStyle("pl", leading=10, fontSize=7.5, fontName="Helvetica-Bold", textColor=P["accent"], letterSpacing=1)), ""],
+        [Paragraph(_num(precio), E["price"]), ""],
+        [Paragraph(f"Margen: {margen:.0f}%   ·   Utilidad: {_num(utilidad)}", E["white_s"]), ""],
+    ], colWidths=[14*cm, 3*cm])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0), (-1,-1), P["primary"]),
+        ("TOPPADDING",   (0,0), (-1,-1), 10),
+        ("BOTTOMPADDING",(0,0), (-1,-1), 10),
+        ("LEFTPADDING",  (0,0), (-1,-1), 16),
+        ("SPAN",         (0,0), (-1,0)),
+        ("SPAN",         (0,1), (-1,1)),
+        ("SPAN",         (0,2), (-1,2)),
     ]))
-    return datos
+    return tbl
 
 
-def _nota_validez(E):
-    return Paragraph(
-        "Esta cotización tiene una validez de 15 días calendario. Los precios pueden variar "
-        "según disponibilidad de material y condiciones del mercado. "
-        "No incluye IVA a menos que se especifique.",
-        E["aviso"],
-    )
+def _footer(E, P, emp_nombre, fecha_str):
+    return [
+        HRFlowable(width="100%", thickness=0.5, color=P["light"]),
+        Spacer(1, 4),
+        Paragraph(f"{emp_nombre}   ·   {fecha_str}   ·   Barranquilla, Colombia   ·   Generado con CostoMarmol Pro", E["footer"]),
+    ]
 
 
-def generar_pdf_cotizacion(resultado: dict, numero: str = None, empresa_info: dict = None) -> bytes:
-    """
-    Genera el PDF de cotización profesional.
-    Retorna bytes del PDF para descarga directa en Streamlit.
-    """
+# ═══════════════════════════════════════════════════════════════════════════════
+# COTIZACION — 1 PAGINA FIJA
+# ═══════════════════════════════════════════════════════════════════════════════
+def generar_pdf_cotizacion(resultado: dict, numero: str = None,
+                            empresa_info: dict = None, logo_bytes: bytes = None) -> bytes:
     if numero is None:
         numero = f"COT-{date.today().strftime('%Y%m%d')}-001"
-    fecha_str = date.today().strftime("%d de %B de %Y").replace(
-        "January","enero").replace("February","febrero").replace("March","marzo").replace(
-        "April","abril").replace("May","mayo").replace("June","junio").replace(
-        "July","julio").replace("August","agosto").replace("September","septiembre").replace(
-        "October","octubre").replace("November","noviembre").replace("December","diciembre")
+    fecha_str = _fecha_es()
+    emp = empresa_info or {}
+
+    palette = _extraer_paleta_logo(logo_bytes)
+    P = _colores(palette)
+    E = _estilos(P)
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=letter,
-        leftMargin=1.8*cm, rightMargin=1.8*cm,
-        topMargin=1.5*cm, bottomMargin=2*cm,
-        title=f"Cotización {numero}",
-    )
-    E = _estilos()
+    # Margenes ajustados para 1 pagina
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+        leftMargin=1.6*cm, rightMargin=1.6*cm,
+        topMargin=1.2*cm, bottomMargin=1.4*cm,
+        title=f"Cotizacion {numero}")
+
+    r = resultado
     story = []
 
     # Encabezado
-    story.append(_header_cotizacion(E, numero, fecha_str))
-    story.append(Spacer(1, 16))
+    story.append(_header_bloque(E, P, "COTIZACION DE PROYECTO", numero, fecha_str, emp, logo_bytes))
+    story.append(Spacer(1, 8))
 
-    # Datos del proyecto
-    story.append(_tabla_datos_proyecto(E, resultado))
-    story.append(Spacer(1, 14))
+    # Datos del proyecto + desglose side by side para ahorrar espacio
+    datos_filas = []
+    if r.get("nombre_cliente"):
+        datos_filas.append(("Cliente", r["nombre_cliente"]))
+    datos_filas += [
+        ("Tipo de proyecto",    r.get("tipo_proyecto", "—")),
+        ("Material",             f"{r.get('categoria','—')} — {r.get('referencia','—')}"),
+        ("m² del proyecto",      f"{r.get('m2_real', 0):.3f} m²"),
+        ("Area material comprado",f"{r.get('area_placa', 0):.3f} m²"),
+        ("Aprovechamiento",      f"{r.get('aprovechamiento', 0):.0f}%  ·  Retal: {r.get('retal',0):.3f} m²"),
+        ("Dias en obra",         f"{r.get('dias', '—')} dia(s)  ·  {r.get('personas', '—')} persona(s)"),
+    ]
 
-    # Desglose
+    # Layout 2 columnas: datos izq, desglose der
+    col_datos = _tabla_2col(E, P, datos_filas)
+    col_desglose = _tabla_desglose(E, P, r)
+
+    story.append(Paragraph("DATOS DEL PROYECTO", E["seccion"]))
+    story.append(Spacer(1, 4))
+    story.append(col_datos)
+    story.append(Spacer(1, 8))
+
     story.append(Paragraph("DESGLOSE DE COSTOS", E["seccion"]))
-    story.append(Spacer(1, 6))
-    story.append(_tabla_desglose(E, resultado))
-    story.append(Spacer(1, 14))
+    story.append(Spacer(1, 4))
+    story.append(col_desglose)
+    story.append(Spacer(1, 8))
 
     # Precio final
-    story.append(_bloque_precio_final(E, resultado))
-    story.append(Spacer(1, 12))
+    story.append(_bloque_precio(E, P, r.get("precio_sugerido",0), r.get("margen_pct",40), r.get("utilidad",0)))
+    story.append(Spacer(1, 8))
 
-    # Nota de validez
-    story.append(_nota_validez(E))
-    story.append(Spacer(1, 20))
-
-    # Footer
-    story.append(HRFlowable(width="100%", thickness=0.5, color=BLUE_L))
-    story.append(Spacer(1, 6))
+    # Nota de validez (compacta)
     story.append(Paragraph(
-        f"Generado con CostoMármol Pro · {fecha_str} · Barranquilla, Colombia",
-        E["footer"],
-    ))
+        "Cotizacion valida por 15 dias calendario. Abarca exclusivamente los materiales y servicios detallados. "
+        "Cualquier requerimiento adicional o modificacion posterior requiere nueva cotizacion. "
+        "Precios sujetos a disponibilidad de material.",
+        E["aviso"]))
+    story.append(Spacer(1, 10))
 
+    story.extend(_footer(E, P, emp.get("nombre","CostoMarmol Pro"), fecha_str))
     doc.build(story)
     return buf.getvalue()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# CUENTA DE COBRO
-# ─────────────────────────────────────────────────────────────────────────────
-
-def generar_cuenta_cobro(
-    resultado: dict,
-    datos_prestador: dict,    # quien cobra
-    datos_pagador: dict,      # quien paga
-    numero: str = None,
-    descripcion_servicio: str = None,
-) -> bytes:
-    """
-    Genera PDF de cuenta de cobro.
-    datos_prestador: {nombre, nit_cc, direccion, telefono, banco, cuenta_tipo, cuenta_numero}
-    datos_pagador:   {nombre, nit, direccion}
-    """
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUENTA DE COBRO — 1 PAGINA FIJA, MISMO DISENO
+# ═══════════════════════════════════════════════════════════════════════════════
+def generar_cuenta_cobro(resultado: dict, datos_prestador: dict, datos_pagador: dict,
+                          numero: str = None, descripcion_servicio: str = None,
+                          logo_bytes: bytes = None) -> bytes:
     if numero is None:
         numero = f"CC-{date.today().strftime('%Y%m%d')}-001"
-    fecha_str = date.today().strftime("%d/%m/%Y")
+    fecha_str = _fecha_es()
     valor_total = resultado.get("precio_sugerido", resultado.get("precio_total", 0))
 
+    # Construir empresa_info desde datos_prestador
+    emp = {
+        "nombre":  datos_prestador.get("nombre", ""),
+        "nit":     datos_prestador.get("nit_cc", ""),
+        "ciudad":  datos_prestador.get("direccion", ""),
+        "tel":     datos_prestador.get("telefono", ""),
+        "email":   datos_prestador.get("email", ""),
+    }
+
+    palette = _extraer_paleta_logo(logo_bytes)
+    P = _colores(palette)
+    E = _estilos(P)
+
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=letter,
-        leftMargin=2*cm, rightMargin=2*cm,
-        topMargin=1.5*cm, bottomMargin=2*cm,
-        title=f"Cuenta de Cobro {numero}",
-    )
-    E = _estilos()
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+        leftMargin=1.6*cm, rightMargin=1.6*cm,
+        topMargin=1.2*cm, bottomMargin=1.4*cm,
+        title=f"Cuenta de Cobro {numero}")
+
     story = []
 
-    # ── ENCABEZADO ──
-    header = Table(
-        [[
-            Paragraph("CUENTA DE COBRO", ParagraphStyle("cct", fontName="Helvetica-Bold", fontSize=18, textColor=WHITE, leading=22)),
-            Paragraph(f"N° <b>{numero}</b><br/>Fecha: {fecha_str}", E["empresa"]),
-        ]],
-        colWidths=[10*cm, 8*cm],
-    )
-    header.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0), (-1,-1), NAVY),
-        ("TOPPADDING",   (0,0), (-1,-1), 20),
-        ("BOTTOMPADDING",(0,0), (-1,-1), 20),
-        ("LEFTPADDING",  (0,0), (0,-1),  20),
-        ("RIGHTPADDING", (-1,0),(-1,-1), 20),
-        ("VALIGN",       (0,0), (-1,-1), "MIDDLE"),
-    ]))
-    story.append(header)
-    story.append(Spacer(1, 16))
+    # Encabezado identico al de cotizacion
+    story.append(_header_bloque(E, P, "CUENTA DE COBRO", numero, fecha_str, emp, logo_bytes))
+    story.append(Spacer(1, 10))
 
-    # ── DATOS PRESTADOR ──
-    story.append(Paragraph("DATOS DE QUIEN COBRA", E["seccion"]))
-    story.append(Spacer(1, 5))
-    prestador_filas = [
-        [Paragraph("Nombre / Razón Social:", E["normal"]),
-         Paragraph(f"<b>{datos_prestador.get('nombre','—')}</b>", E["bold"])],
-        [Paragraph("NIT / CC:",              E["normal"]),
-         Paragraph(datos_prestador.get('nit_cc','—'),              E["normal"])],
-        [Paragraph("Dirección:",             E["normal"]),
-         Paragraph(datos_prestador.get('direccion','—'),           E["normal"])],
-        [Paragraph("Teléfono:",              E["normal"]),
-         Paragraph(datos_prestador.get('telefono','—'),            E["normal"])],
-    ]
-    t_prestador = Table(prestador_filas, colWidths=[5*cm, 13*cm])
-    t_prestador.setStyle(TableStyle([
-        ("ROWBACKGROUNDS",(0,0),(-1,-1),[BLUE_UL, WHITE]),
-        ("TOPPADDING",   (0,0),(-1,-1),6), ("BOTTOMPADDING",(0,0),(-1,-1),6),
-        ("LEFTPADDING",  (0,0),(-1,-1),10), ("LINEBELOW",(0,0),(-1,-1),0.3,BLUE_L),
+    # Prestador y pagador en 2 columnas
+    story.append(Paragraph("QUIEN COBRA", E["seccion"]))
+    story.append(Spacer(1, 4))
+    story.append(_tabla_2col(E, P, [
+        ("Nombre / Razon Social", datos_prestador.get("nombre","—")),
+        ("NIT / CC",              datos_prestador.get("nit_cc","—")),
+        ("Direccion",             datos_prestador.get("direccion","—")),
+        ("Telefono",              datos_prestador.get("telefono","—")),
     ]))
-    story.append(t_prestador)
-    story.append(Spacer(1, 12))
+    story.append(Spacer(1, 8))
 
-    # ── DATOS PAGADOR ──
-    story.append(Paragraph("DATOS DE QUIEN PAGA", E["seccion"]))
-    story.append(Spacer(1, 5))
-    pagador_filas = [
-        [Paragraph("Nombre / Razón Social:", E["normal"]),
-         Paragraph(f"<b>{datos_pagador.get('nombre','—')}</b>", E["bold"])],
-        [Paragraph("NIT / CC:",              E["normal"]),
-         Paragraph(datos_pagador.get('nit','—'),  E["normal"])],
-        [Paragraph("Dirección:",             E["normal"]),
-         Paragraph(datos_pagador.get('direccion','—'), E["normal"])],
-    ]
-    t_pagador = Table(pagador_filas, colWidths=[5*cm, 13*cm])
-    t_pagador.setStyle(TableStyle([
-        ("ROWBACKGROUNDS",(0,0),(-1,-1),[BLUE_UL, WHITE]),
-        ("TOPPADDING",   (0,0),(-1,-1),6), ("BOTTOMPADDING",(0,0),(-1,-1),6),
-        ("LEFTPADDING",  (0,0),(-1,-1),10), ("LINEBELOW",(0,0),(-1,-1),0.3,BLUE_L),
+    story.append(Paragraph("QUIEN PAGA", E["seccion"]))
+    story.append(Spacer(1, 4))
+    story.append(_tabla_2col(E, P, [
+        ("Nombre / Razon Social", datos_pagador.get("nombre","—")),
+        ("NIT / CC",              datos_pagador.get("nit","—")),
+        ("Direccion",             datos_pagador.get("direccion","—")),
     ]))
-    story.append(t_pagador)
-    story.append(Spacer(1, 14))
+    story.append(Spacer(1, 8))
 
-    # ── DESCRIPCIÓN DEL SERVICIO ──
-    story.append(Paragraph("DESCRIPCIÓN DEL SERVICIO", E["seccion"]))
-    story.append(Spacer(1, 5))
+    # Descripcion del servicio
     if descripcion_servicio is None:
         descripcion_servicio = (
-            f"Fabricación e instalación de {resultado.get('tipo_proyecto','proyecto')} "
-            f"en {resultado.get('categoria','material')} — {resultado.get('referencia','')}, "
-            f"{resultado.get('m2_real',0):.2f} m²."
+            f"Fabricacion e instalacion de {resultado.get('tipo_proyecto','proyecto')} "
+            f"en {resultado.get('categoria','material')} — {resultado.get('referencia','')}. "
+            f"Area: {resultado.get('m2_real',0):.3f} m²."
         )
-    t_servicio = Table(
-        [[Paragraph(descripcion_servicio, E["normal"])]],
-        colWidths=[18*cm],
-    )
-    t_servicio.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), BLUE_UL),
-        ("TOPPADDING",   (0,0),(-1,-1), 10), ("BOTTOMPADDING",(0,0),(-1,-1),10),
-        ("LEFTPADDING",  (0,0),(-1,-1), 12), ("RIGHTPADDING", (0,0),(-1,-1),12),
-        ("LINEBELOW",    (0,0),(-1,-1), 0.5, BLUE),
+    story.append(Paragraph("DESCRIPCION DEL SERVICIO", E["seccion"]))
+    story.append(Spacer(1, 4))
+    t_serv = Table([[Paragraph(descripcion_servicio, E["normal"])]], colWidths=[17*cm])
+    t_serv.setStyle(TableStyle([
+        ("BACKGROUND",   (0,0),(-1,-1), P["ultralight"]),
+        ("TOPPADDING",   (0,0),(-1,-1), 8), ("BOTTOMPADDING",(0,0),(-1,-1),8),
+        ("LEFTPADDING",  (0,0),(-1,-1),10), ("RIGHTPADDING", (0,0),(-1,-1),10),
+        ("LINEBELOW",    (0,0),(-1,-1), 0.5, P["secondary"]),
     ]))
-    story.append(t_servicio)
-    story.append(Spacer(1, 14))
+    story.append(t_serv)
+    story.append(Spacer(1, 8))
 
-    # ── VALOR TOTAL ──
+    # Valor total (mismo diseno que precio sugerido)
     valor_letras = _numero_a_letras(int(round(valor_total)))
-    t_valor = Table(
-        [[
-            Paragraph("VALOR TOTAL A COBRAR", ParagraphStyle("vl", fontName="Helvetica-Bold", fontSize=10, textColor=WHITE, leading=14)),
-            Paragraph(cop(valor_total), ParagraphStyle("vv", fontName="Helvetica-Bold", fontSize=18, textColor=WHITE, alignment=TA_RIGHT, leading=22)),
-        ],[
-            Paragraph(f"Son: {valor_letras} pesos M/CTE", ParagraphStyle("vlt", fontName="Helvetica", fontSize=8, textColor=colors.HexColor("#93c5fd"), leading=12)),
-            "",
-        ]],
-        colWidths=[10*cm, 8*cm],
-    )
-    t_valor.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), NAVY),
-        ("TOPPADDING",   (0,0),(-1,-1),14), ("BOTTOMPADDING",(0,0),(-1,-1),14),
-        ("LEFTPADDING",  (0,0),(-1,-1),16), ("RIGHTPADDING", (0,0),(-1,-1),16),
-        ("VALIGN",       (0,0),(-1,-1),"MIDDLE"),
-        ("SPAN",         (0,1),(-1,1)),
-    ]))
-    story.append(t_valor)
-    story.append(Spacer(1, 14))
-
-    # ── DATOS BANCARIOS ──
-    if any([datos_prestador.get("banco"), datos_prestador.get("cuenta_numero")]):
-        story.append(Paragraph("DATOS PARA PAGO", E["seccion"]))
-        story.append(Spacer(1, 5))
-        banco_filas = []
-        if datos_prestador.get("banco"):
-            banco_filas.append([Paragraph("Banco:", E["normal"]), Paragraph(f"<b>{datos_prestador['banco']}</b>", E["bold"])])
-        if datos_prestador.get("cuenta_tipo") and datos_prestador.get("cuenta_numero"):
-            banco_filas.append([Paragraph("Tipo de cuenta:", E["normal"]), Paragraph(datos_prestador["cuenta_tipo"], E["normal"])])
-            banco_filas.append([Paragraph("N° de cuenta:", E["normal"]), Paragraph(f"<b>{datos_prestador['cuenta_numero']}</b>", E["bold"])])
-        if datos_prestador.get("nombre"):
-            banco_filas.append([Paragraph("A nombre de:", E["normal"]), Paragraph(datos_prestador["nombre"], E["normal"])])
-        if banco_filas:
-            t_banco = Table(banco_filas, colWidths=[5*cm, 13*cm])
-            t_banco.setStyle(TableStyle([
-                ("ROWBACKGROUNDS",(0,0),(-1,-1),[BLUE_UL, WHITE]),
-                ("TOPPADDING",(0,0),(-1,-1),6),("BOTTOMPADDING",(0,0),(-1,-1),6),
-                ("LEFTPADDING",(0,0),(-1,-1),10),("LINEBELOW",(0,0),(-1,-1),0.3,BLUE_L),
-            ]))
-            story.append(t_banco)
-        story.append(Spacer(1, 14))
-
-    # ── FIRMA ──
-    firma = Table(
-        [[
-            Table([[Paragraph("_" * 45, E["normal"])],[Paragraph(datos_prestador.get("nombre",""), E["normal"])],[Paragraph("Firma del Prestador del Servicio", E["aviso"])]]),
-            "",
-            Table([[Paragraph("_" * 40, E["normal"])],[Paragraph("Sello / Firma del Pagador", E["aviso"])]])
-        ]],
-        colWidths=[8*cm, 2*cm, 8*cm],
-    )
-    firma.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),20),("VALIGN",(0,0),(-1,-1),"BOTTOM")]))
-    story.append(firma)
-    story.append(Spacer(1, 20))
-
-    # Footer
-    story.append(HRFlowable(width="100%", thickness=0.5, color=BLUE_L))
-    story.append(Spacer(1, 5))
-    story.append(Paragraph(
-        f"Documento generado con CostoMármol Pro · {fecha_str} · Barranquilla, Colombia",
-        E["footer"],
+    story.append(_bloque_precio(E, P, valor_total, 0, 0, label="VALOR TOTAL A COBRAR"))
+    # Corregir: mostrar valor en letras debajo
+    story.append(Table(
+        [[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["white_s"])]],
+        colWidths=[17*cm],
+        style=TableStyle([
+            ("BACKGROUND",(0,0),(-1,-1),P["primary"]),
+            ("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),8),
+            ("LEFTPADDING",(0,0),(-1,-1),16),
+        ])
     ))
+    story.append(Spacer(1, 8))
 
+    # Datos bancarios
+    banco_filas = []
+    if datos_prestador.get("banco"):
+        banco_filas.append(("Banco", datos_prestador["banco"]))
+    if datos_prestador.get("cuenta_tipo"):
+        banco_filas.append(("Tipo de cuenta", datos_prestador["cuenta_tipo"]))
+    if datos_prestador.get("cuenta_numero"):
+        banco_filas.append(("N de cuenta", datos_prestador["cuenta_numero"]))
+    if datos_prestador.get("nombre"):
+        banco_filas.append(("A nombre de", datos_prestador["nombre"]))
+    if banco_filas:
+        story.append(Paragraph("DATOS PARA PAGO", E["seccion"]))
+        story.append(Spacer(1, 4))
+        story.append(_tabla_2col(E, P, banco_filas))
+        story.append(Spacer(1, 8))
+
+    # Firmas
+    firma = Table([[
+        Table([
+            [Paragraph("_" * 40, E["normal"])],
+            [Paragraph(datos_prestador.get("nombre",""), E["aviso"])],
+            [Paragraph("Firma del Prestador", E["aviso"])],
+        ]),
+        "",
+        Table([
+            [Paragraph("_" * 35, E["normal"])],
+            [Paragraph("", E["aviso"])],
+            [Paragraph("Sello / Firma del Pagador", E["aviso"])],
+        ]),
+    ]], colWidths=[8*cm, 1.5*cm, 7.5*cm])
+    firma.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),14),("VALIGN",(0,0),(-1,-1),"BOTTOM")]))
+    story.append(firma)
+    story.append(Spacer(1, 12))
+
+    story.extend(_footer(E, P, datos_prestador.get("nombre",""), fecha_str))
     doc.build(story)
     return buf.getvalue()
 
 
-# ── Conversión básica de número a letras (para la cuenta de cobro) ────────────
+# ── Conversion de numero a letras ─────────────────────────────────────────────
 def _numero_a_letras(n: int) -> str:
-    if n == 0:
-        return "cero"
+    if n == 0: return "cero"
     unidades = ["","uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve",
-                "diez","once","doce","trece","catorce","quince","dieciséis","diecisiete","dieciocho","diecinueve"]
+                "diez","once","doce","trece","catorce","quince","dieciseis","diecisiete","dieciocho","diecinueve"]
     decenas  = ["","diez","veinte","treinta","cuarenta","cincuenta","sesenta","setenta","ochenta","noventa"]
     centenas = ["","ciento","doscientos","trescientos","cuatrocientos","quinientos","seiscientos","setecientos","ochocientos","novecientos"]
-
     def _menor_mil(x):
         if x == 0: return ""
         if x == 100: return "cien"
@@ -453,7 +495,6 @@ def _numero_a_letras(n: int) -> str:
             if u: p += " y " + unidades[u]
             partes.append(p)
         return " ".join(partes)
-
     if n < 0: return "menos " + _numero_a_letras(-n)
     if n < 1000: return _menor_mil(n)
     if n < 1_000_000:
@@ -462,6 +503,6 @@ def _numero_a_letras(n: int) -> str:
         return (pre + " " + _menor_mil(r)).strip()
     if n < 1_000_000_000:
         m, r = divmod(n, 1_000_000)
-        pre = "un millón" if m == 1 else _menor_mil(m) + " millones"
+        pre = "un millon" if m == 1 else _menor_mil(m) + " millones"
         return (pre + " " + _numero_a_letras(r)).strip()
     return str(n)
