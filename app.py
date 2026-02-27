@@ -558,6 +558,33 @@ elif pagina == "Cotizacion Directa":
 
     st.markdown("---")
 
+    # ── PASO 7: IVA ──────────────────────────────────────────────────────────
+    seccion_titulo("Paso 7 — IVA en la cotización")
+
+    _col_iva1, _col_iva2 = st.columns([1.4, 2])
+    with _col_iva1:
+        incluir_iva = st.toggle(
+            "Incluir IVA 19% en la cotización",
+            value=pre.get("incluir_iva", True),
+            help="Activa si tu empresa es responsable del régimen común (ventas > 3.500 UVT ≈ $166 M/año). Desactiva si eres régimen simplificado.",
+        )
+    with _col_iva2:
+        if incluir_iva:
+            st.info(
+                "**IVA activo.** Se calculará el 19% exclusivamente sobre la **utilidad** (norma colombiana para servicios). "
+                "El precio final y el PDF incluirán el IVA desglosado.",
+                icon="🧾"
+            )
+        else:
+            st.warning(
+                "**IVA desactivado.** La cotización y el PDF se entregarán sin IVA. "
+                "Aplica si eres **régimen simplificado** o si el cliente es no responsable de IVA. "
+                "Confirma con tu contador.",
+                icon="⚠️"
+            )
+
+    st.markdown("---")
+
     # ── CALCULAR ─────────────────────────────────────────────────────────────
     if st.button("Calcular cotizacion", type="primary", use_container_width=True):
         _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", [])) if "Por piezas" in modo_medida else (m2_real/0.60)
@@ -582,10 +609,11 @@ elif pagina == "Cotizacion Directa":
             "zocalo_activo": zocalo_activo, "zocalo_ml": zocalo_ml, "agente_externo_taller": agente_ext_taller,
             "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes, "foraneo_activo": foraneo_activo,
             "viaticos_activos": viaticos_activos, "noches": noches, "adicionales_activos": adicionales_activos,
-            "cantidades_add": cantidades_add
+            "cantidades_add": cantidades_add, "incluir_iva": incluir_iva,
         }
         
         st.session_state.cotizacion = resultado
+        resultado["incluir_iva"] = incluir_iva
         import random as _rand
         _num_auto = f"COT-{date.today().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
         _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
@@ -596,40 +624,75 @@ elif pagina == "Cotizacion Directa":
         st.markdown("---")
         st.markdown("<h3 style='font-family:Playfair Display,serif'>Resultado</h3>", unsafe_allow_html=True)
 
-        # ── Cálculo de IVA (19% sobre la utilidad, norma colombiana) ─────────
-        _iva_sobre_utilidad = r['utilidad'] * 0.19
-        _precio_con_iva     = r['precio_sugerido'] + _iva_sobre_utilidad
-        _margen_efectivo    = (r['utilidad'] / _precio_con_iva * 100) if _precio_con_iva > 0 else 0
+        # ── IVA: condicional según elección del usuario ───────────────────────
+        _iva_activo        = r.get("incluir_iva", incluir_iva)
+        _iva_sobre_utilidad = r['utilidad'] * 0.19 if _iva_activo else 0.0
+        _precio_final       = r['precio_sugerido'] + _iva_sobre_utilidad
+
+        # ── Hero card ─────────────────────────────────────────────────────────
+        if _iva_activo:
+            _iva_line = (
+                f'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)">'
+                f'<span style="color:#C9A84C;font-weight:700">+ IVA 19% sobre utilidad: {numero_completo(_iva_sobre_utilidad)}</span>'
+                f'&nbsp;&nbsp;→&nbsp;&nbsp;'
+                f'<span style="font-size:1.15rem;font-weight:900">Total con IVA: {numero_completo(_precio_final)}</span>'
+                f'</div>'
+            )
+        else:
+            _iva_line = (
+                f'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)'
+                f';font-size:0.8rem;opacity:0.7">Sin IVA — cotización entregada en régimen simplificado</div>'
+            )
 
         st.markdown(f"""
         <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
-          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio de venta sugerido (sin IVA)</div>
-          <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">{numero_completo(r['precio_sugerido'])}</div>
-          <div style="opacity:0.8;font-size:0.85rem">Margen: {r['margen_pct']:.0f}%   ·   Utilidad: {numero_completo(r['utilidad'])}</div>
-          <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)">
-            <span style="color:#C9A84C;font-weight:700">+ IVA 19% (sobre utilidad): {numero_completo(_iva_sobre_utilidad)}</span>
-            &nbsp;&nbsp;→&nbsp;&nbsp;
-            <span style="font-size:1.15rem;font-weight:900">Total con IVA: {numero_completo(_precio_con_iva)}</span>
+          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">
+            Precio de venta sugerido {'(sin IVA)' if _iva_activo else '— Sin IVA'}
           </div>
+          <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
+            {numero_completo(r['precio_sugerido'])}
+          </div>
+          <div style="opacity:0.8;font-size:0.85rem">
+            Margen: {r['margen_pct']:.0f}%   ·   Utilidad: {numero_completo(r['utilidad'])}
+          </div>
+          {_iva_line}
         </div>""", unsafe_allow_html=True)
 
-        alerta(
-            "ℹ️ **¿Cuándo cobrar IVA?** En Colombia, el IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
-            "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Si eres **régimen simplificado**, NO cobras IVA. "
-            "Consulta a tu contador para confirmar tu situación.",
-            "info"
-        )
+        # ── Nota contextual ───────────────────────────────────────────────────
+        if _iva_activo:
+            alerta(
+                "ℹ️ **¿Cuándo cobrar IVA?** El IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
+                "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Si eres **régimen simplificado**, NO cobras IVA. "
+                "Consulta a tu contador para confirmar.",
+                "info"
+            )
+        else:
+            alerta(
+                "ℹ️ **Cotización sin IVA.** Si en algún momento cambias de régimen o el cliente lo requiere, "
+                "activa el IVA en el Paso 7 y recalcula.",
+                "info"
+            )
 
+        # ── Desglose de costos ────────────────────────────────────────────────
         col_res, col_det = st.columns([1, 1])
         with col_res:
-            bloque_costos([
-                ("Material", r['c1_material']), ("Producción", r['c2_mano_obra']),
-                ("Zócalos", r['c3_zocalos']), ("Insumos", r['c4_insumos']),
-                ("Logística", r['c5_logistica']), ("Viáticos", r['c6_viaticos']),
+            _items_desglose = [
+                ("Material",    r['c1_material']),
+                ("Producción",  r['c2_mano_obra']),
+                ("Zócalos",     r['c3_zocalos']),
+                ("Insumos",     r['c4_insumos']),
+                ("Logística",   r['c5_logistica']),
+                ("Viáticos",    r['c6_viaticos']),
                 ("Adicionales", r['c7_adicionales']),
-                ("Subtotal antes de IVA", r['precio_sugerido']),
-                (f"IVA 19% s/utilidad ({numero_completo(r['utilidad'])})", _iva_sobre_utilidad),
-            ], "TOTAL CON IVA", _precio_con_iva)
+            ]
+            if _iva_activo:
+                _items_desglose.append(("Subtotal antes de IVA", r['precio_sugerido']))
+                _items_desglose.append((f"IVA 19% s/utilidad ({numero_completo(r['utilidad'])})", _iva_sobre_utilidad))
+                _total_label = "TOTAL CON IVA"
+            else:
+                _total_label = "PRECIO TOTAL (SIN IVA)"
+            bloque_costos(_items_desglose, _total_label, _precio_final)
+
         with col_det:
             c1a, c2a = st.columns(2)
             c1a.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {r['retal']:.3f} m²")
@@ -638,8 +701,11 @@ elif pagina == "Cotizacion Directa":
             _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
             _sim_ut = _sim_p - r["costo_total"]
-            _sim_iva = _sim_ut * 0.19
-            alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA: **{numero_completo(_sim_p + _sim_iva)}**", "info")
+            _sim_iva = _sim_ut * 0.19 if _iva_activo else 0.0
+            if _iva_activo:
+                alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA: **{numero_completo(_sim_p + _sim_iva)}**", "info")
+            else:
+                alerta(f"Precio total (sin IVA): **{numero_completo(_sim_p)}**", "info")
 
         st.markdown("---")
         st.markdown("#### Exportar documentos comerciales")
@@ -648,7 +714,12 @@ elif pagina == "Cotizacion Directa":
         with colp1:
             num_cot = st.text_input("Número de Cotización", value=f"COT-{datetime.today().strftime('%Y')}-001", key="num_cot")
             if st.button("📄 Generar Cotización PDF", type="primary", use_container_width=True):
-                pdf_bytes = generar_pdf_cotizacion(r, numero=num_cot, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
+                pdf_bytes = generar_pdf_cotizacion(
+                    r, numero=num_cot,
+                    empresa_info=st.session_state.empresa_info,
+                    logo_bytes=st.session_state.logo_bytes,
+                    incluir_iva=_iva_activo,
+                )
                 st.download_button("⬇ Descargar PDF", pdf_bytes, file_name=f"{num_cot}_Cotizacion.pdf", mime="application/pdf", use_container_width=True)
         with colp2:
             num_cc = st.text_input("Número de Cuenta", value=f"CC-{datetime.today().strftime('%Y')}-001", key="num_cc")
@@ -658,7 +729,12 @@ elif pagina == "Cotizacion Directa":
             if st.button("📄 Generar Cuenta de Cobro PDF", type="primary", use_container_width=True):
                 datos_prest = st.session_state.empresa_info.copy()
                 datos_pag = {"nombre": nom_pag, "nit": nit_pag, "direccion": dir_pag}
-                cc_bytes = generar_cuenta_cobro(r, datos_prest, datos_pag, numero=num_cc, logo_bytes=st.session_state.logo_bytes)
+                cc_bytes = generar_cuenta_cobro(
+                    r, datos_prest, datos_pag,
+                    numero=num_cc,
+                    logo_bytes=st.session_state.logo_bytes,
+                    incluir_iva=_iva_activo,
+                )
                 st.download_button("⬇ Descargar PDF", cc_bytes, file_name=f"{num_cc}_CuentaCobro.pdf", mime="application/pdf", use_container_width=True)
 
 
