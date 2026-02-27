@@ -888,23 +888,94 @@ elif pagina == "Dashboard":
 # PARÁMETROS, ASISTENTE IA Y CONFIGURACIÓN
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Parametros":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Parametros de costos</h2>", unsafe_allow_html=True)
-    st.info("💡 **Tip UX:** Usa la pestaña 'Asistente IA' aquí mismo. Escribe 'La gasolina subió a 16000' y la IA ajustará los valores por ti sin tocar números.")
-    t_ia, t1, t2 = st.tabs(["Asistente IA", "Tarifas y Produccion", "Logistica y Vehiculos"])
-    
+    st.markdown("<h2 style='font-family:Playfair Display,serif'>Parámetros de costos</h2>", unsafe_allow_html=True)
+    t_ia, t1, t2 = st.tabs(["🤖 Asistente IA", "Tarifas y Producción", "Logística y Vehículos"])
+
     with t_ia:
-        chat_wizard = st.session_state.get("params_wizard_chat", [])
-        if not chat_wizard: st.caption("Habla con la IA para actualizar precios rápidamente.")
-        with st.form("wizard_form"):
-            _msg = st.text_input("Mensaje", placeholder="Ej: El flete externo ahora cuesta $180.000")
-            if st.form_submit_button("Actualizar") and _msg:
-                resp = _chat_parametros(chat_wizard, _msg)
-                chat_wizard.append({"role":"user", "content":_msg})
-                chat_wizard.append({"role":"assistant", "content":resp})
-                st.session_state.params_wizard_chat = chat_wizard
+        # ── Inicializar historial del chat de parámetros ──────────────────────
+        if "params_wizard_chat" not in st.session_state:
+            st.session_state.params_wizard_chat = []
+        chat_wizard = st.session_state.params_wizard_chat
+
+        # ── Encabezado con estado IA ──────────────────────────────────────────
+        _ia_ok = ia_disponible()
+        if _ia_ok:
+            st.markdown(
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">'
+                '<div style="width:9px;height:9px;border-radius:50%;background:#22c55e;flex-shrink:0"></div>'
+                '<span style="font-size:0.82rem;font-weight:600;color:#16a34a">Asistente activo</span>'
+                '<span style="font-size:0.8rem;opacity:0.55;margin-left:4px">— Dime qué cambió y actualizaré los valores por ti</span>'
+                '</div>', unsafe_allow_html=True
+            )
+        else:
+            st.warning("⚠️ La IA no está configurada. Actívala añadiendo tu API key en **Configuración**.", icon="🔑")
+
+        # ── Historial de mensajes (estilo chat) ───────────────────────────────
+        chat_container = st.container()
+        with chat_container:
+            if not chat_wizard:
+                st.markdown(
+                    '<div style="text-align:center;padding:32px 16px;opacity:0.45;">'
+                    '<div style="font-size:2rem;margin-bottom:8px">💬</div>'
+                    '<div style="font-size:0.88rem">Aún no hay mensajes.<br>'
+                    'Puedes escribir cosas como:<br>'
+                    '<em>"La gasolina subió a $16.500"</em> &nbsp;·&nbsp; '
+                    '<em>"El flete externo ahora vale $190.000"</em> &nbsp;·&nbsp; '
+                    '<em>"¿Cuánto debería cobrar por m² de Sinterizado?"</em>'
+                    '</div></div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                for _m in chat_wizard:
+                    _es_user = _m["role"] == "user"
+                    _bg   = "var(--secondary-background-color)" if _es_user else "transparent"
+                    _bord = "1px solid var(--border-color)" if _es_user else "1px solid transparent"
+                    _pfx  = "🧑‍💼 **Tú**" if _es_user else "🤖 **Asistente**"
+                    st.markdown(
+                        f'<div style="background:{_bg};border:{_bord};border-radius:10px;'
+                        f'padding:10px 14px;margin-bottom:8px">'
+                        f'<div style="font-size:0.72rem;font-weight:700;opacity:0.55;margin-bottom:4px">'
+                        f'{"TÚ" if _es_user else "ASISTENTE IA"}</div>'
+                        f'<div style="font-size:0.9rem">{_m["content"]}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+
+        st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
+
+        # ── Input de mensaje ──────────────────────────────────────────────────
+        _col_input, _col_btn = st.columns([5, 1])
+        with _col_input:
+            _nuevo_msg = st.text_input(
+                "Escribe tu mensaje",
+                key="params_chat_input",
+                placeholder="Ej: El precio del disco para mármol subió a $3.000...",
+                label_visibility="collapsed",
+                disabled=not _ia_ok,
+            )
+        with _col_btn:
+            _enviar = st.button(
+                "Enviar ➤",
+                key="params_chat_send",
+                type="primary",
+                use_container_width=True,
+                disabled=not _ia_ok,
+            )
+
+        # ── Procesar envío ────────────────────────────────────────────────────
+        if _enviar and _nuevo_msg.strip():
+            with st.spinner("El asistente está analizando tu solicitud…"):
+                _resp = _chat_parametros(chat_wizard, _nuevo_msg.strip())
+            st.session_state.params_wizard_chat.append({"role": "user",      "content": _nuevo_msg.strip()})
+            st.session_state.params_wizard_chat.append({"role": "assistant", "content": _resp})
+            st.rerun()
+
+        # ── Botón limpiar conversación ────────────────────────────────────────
+        if chat_wizard:
+            st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+            if st.button("🗑️ Limpiar conversación", key="params_clear", help="Borra el historial de este chat"):
+                st.session_state.params_wizard_chat = []
                 st.rerun()
-        for m in chat_wizard:
-            st.markdown(f"**{'Tú' if m['role']=='user' else 'IA'}:** {m['content']}")
 
     with t1: st.write("Sección de tarifas en construcción (manteniendo valores por defecto).")
     with t2: st.write("Sección de logística en construcción (manteniendo valores por defecto).")
