@@ -66,6 +66,36 @@ VEHICULOS = {
     "Externo / Tercero":          "externo",
 }
 
+# Configuración detallada de vehículos propios (editable en Parámetros)
+# Cada vehículo tiene: nombre_display, tipo ("propio"|"externo"), rend, desgaste, base / flete
+VEHICULOS_CONFIG = {
+    "frontier": {
+        "nombre": "Frontier NP300",
+        "tipo": "propio",
+        "combustible": "gasolina",
+        "rend": 7.2,
+        "desgaste": 148,
+        "base": 65_000,
+        "descripcion": "Camioneta pickup — carga media, ideal transporte losa",
+    },
+    "cheyenne": {
+        "nombre": "Cheyenne V8",
+        "tipo": "propio",
+        "combustible": "gasolina",
+        "rend": 4.1,
+        "desgaste": 340,
+        "base": 85_000,
+        "descripcion": "Camión grande — carga pesada, varios proyectos",
+    },
+    "externo": {
+        "nombre": "Externo / Tercero",
+        "tipo": "externo",
+        "combustible": None,
+        "flete": 165_000,
+        "descripcion": "Flete contratado — precio fijo por viaje",
+    },
+}
+
 ALOJAMIENTO = {"Pueblo / Corregimiento": "pueblo", "Ciudad Capital": "ciudad"}
 
 ICONOS = {"Mármol": "🤍", "Granito": "🪨", "Sinterizado": "⬜", "Quarztone": "💎", "Cuarcita": "🔷"}
