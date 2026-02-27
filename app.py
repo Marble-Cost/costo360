@@ -10,12 +10,13 @@ from datetime import date, datetime
 from calculos import (
     calcular_cotizacion_directa, analizar_precio_real,
     calcular_aiu, calcular_logistica, ml_a_m2, cop,
+    calcular_totales_piezas,
 )
 from parametros import (
     CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA, VEHICULOS,
     ALOJAMIENTO, AIU_DEFAULTS, TARIFAS, LOGISTICA, VIATICOS,
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
-    ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS,
+    ANCHOS_ESTANDAR, TIPOS_ML, TIPOS_M2, VEHICULOS_CONFIG, TOUR_PASOS,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
 
@@ -601,96 +602,181 @@ elif pagina == "Cotizacion Directa":
     st.markdown("---")
 
     # ── PASO 2: DIMENSIONES ──────────────────────────────────────────────────
-    seccion_titulo("Paso 2 — Dimensiones del proyecto", "Ingresa cada pieza por metros lineales — la app convierte a m² automáticamente")
+    seccion_titulo("Paso 2 — Piezas del proyecto",
+                   "ML = mesones, baños, escaleras  |  m² = pisos, revestimientos, fachadas")
 
     if "piezas" not in st.session_state or not st.session_state.piezas:
-        st.session_state.piezas = pre.get("piezas", [{"nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}])
+        st.session_state.piezas = pre.get("piezas", [
+            {"nombre": "Mesón de cocina", "largo": 2.0, "ancho": 0.60,
+             "tipo_sup": "Mesón de cocina", "unidad_venta": "ml", "precio_unitario": 0.0}
+        ])
 
     _mostrar_avanzado = st.session_state.get("modo_avanzado_medidas", False)
     if not _mostrar_avanzado:
-        modo_medida = "Por piezas (ML × Ancho) — recomendado"
-        if st.button("Opciones avanzadas (ingresar m² directamente)"):
+        if st.button("⚙️ Modo avanzado (m² directo)", key="btn_avanzado"):
             st.session_state.modo_avanzado_medidas = True
             st.rerun()
     else:
-        modo_medida = st.radio("Modo de ingreso", ["Por piezas (ML × Ancho) — recomendado", "Ingresar m² directamente"], horizontal=True)
-        if st.button("Volver al modo simplificado"):
+        if st.button("← Volver al modo por piezas", key="btn_simple"):
             st.session_state.modo_avanzado_medidas = False
             st.rerun()
+
+    TODOS_TIPOS = list(ANCHOS_ESTANDAR.keys())
 
     m2_real = 0.0
     m2_cortados_total = 0.0
 
-    if "Por piezas" in modo_medida:
-        alerta("Agrega cada pieza del proyecto. Largo en ML × ancho estándar = m² calculados.", "info")
-        hdr = st.columns([3, 1.2, 2.5, 1.5, 1.6, 0.6])
-        for col, lbl in zip(hdr, ["Pieza / Descripción", "ML largo", "Tipo de superficie", "Ancho (m)", "m² calculados", ""]):
-            col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
+    if not _mostrar_avanzado:
+        # ── CABECERA DE TABLA ──────────────────────────────────────────────
+        hdr = st.columns([2.8, 1.1, 2.6, 1.2, 1.3, 1.8, 0.5])
+        for col, lbl in zip(hdr, ["Descripción", "Largo", "Tipo de pieza", "Ancho m", "Unidad venta", "Cantidad / m²", ""]):
+            col.markdown(
+                f"<div style='font-size:0.68rem;font-weight:700;opacity:0.55;text-transform:uppercase;padding-bottom:2px'>{lbl}</div>",
+                unsafe_allow_html=True)
 
-        tipos_superficie = list(ANCHOS_ESTANDAR.keys())
         piezas_nuevas = []
-        total_m2_piezas = 0.0
-
         for idx, pieza in enumerate(st.session_state.piezas):
-            c0, c1, c2, c3, c4, c5 = st.columns([3, 1.2, 2.5, 1.5, 1.6, 0.6])
-            with c0: nombre_p = st.text_input("Nombre", value=pieza.get("nombre", ""), key=f"pnom_{idx}", label_visibility="collapsed")
-            with c1: ml_p = st.number_input("ML", value=float(pieza.get("ml", 1.0)), min_value=0.01, step=0.1, key=f"pml_{idx}", label_visibility="collapsed")
+            c0, c1, c2, c3, c4, c5, c6 = st.columns([2.8, 1.1, 2.6, 1.2, 1.3, 1.8, 0.5])
+            with c0:
+                nombre_p = st.text_input("Desc", value=pieza.get("nombre", ""), key=f"pnom_{idx}",
+                                         label_visibility="collapsed", placeholder="Ej: Mesón cocina")
+            with c1:
+                largo_p = st.number_input("Largo", value=float(pieza.get("largo", pieza.get("ml", 1.0))),
+                                          min_value=0.01, step=0.1, format="%.2f",
+                                          key=f"plargo_{idx}", label_visibility="collapsed")
             with c2:
-                tipo_idx = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
-                ancho_tipo_p = st.selectbox("Tipo", tipos_superficie, index=tipo_idx, key=f"ptip_{idx}", label_visibility="collapsed")
+                tipo_idx = TODOS_TIPOS.index(pieza.get("tipo_sup", TODOS_TIPOS[0])) \
+                           if pieza.get("tipo_sup") in TODOS_TIPOS else 0
+                tipo_p = st.selectbox("Tipo", TODOS_TIPOS, index=tipo_idx,
+                                      key=f"ptip_{idx}", label_visibility="collapsed")
             with c3:
-                ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
-                ancho_p = st.number_input("Ancho", value=float(ancho_def), min_value=0.01, step=0.01, key=f"panc_{idx}", label_visibility="collapsed")
-            m2_p = ml_a_m2(ml_p, ancho_p)
-            total_m2_piezas += m2_p
-            with c4: st.markdown(f"<div style='padding:8px 4px;font-weight:700;'>{m2_p:.3f} m²</div>", unsafe_allow_html=True)
+                cfg_tipo = ANCHOS_ESTANDAR[tipo_p]
+                ancho_default = cfg_tipo["ancho"] if cfg_tipo["ancho"] is not None \
+                                else float(pieza.get("ancho", 0.60))
+                ancho_p = st.number_input("Ancho", value=float(ancho_default),
+                                          min_value=0.01, step=0.01, format="%.2f",
+                                          key=f"panc_{idx}", label_visibility="collapsed")
+            with c4:
+                uv_default = cfg_tipo.get("unidad_venta", pieza.get("unidad_venta", "ml"))
+                uv_idx = 0 if uv_default == "ml" else 1
+                uv_p = st.selectbox("UV", ["ml", "m²"], index=uv_idx,
+                                    key=f"puv_{idx}", label_visibility="collapsed")
+            m2_p = ml_a_m2(largo_p, ancho_p)
             with c5:
-                if st.button("X", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
+                if uv_p == "ml":
+                    st.markdown(
+                        f"<div style='padding:6px 4px;font-size:0.82rem'>"
+                        f"<b style='color:{CC_COLORS['secondary']}'>{largo_p:.2f} ml</b>"
+                        f"<br><span style='opacity:0.5;font-size:0.7rem'>{m2_p:.3f} m²</span></div>",
+                        unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        f"<div style='padding:6px 4px;font-size:0.82rem'>"
+                        f"<b style='color:{CC_COLORS['accent']}'>{m2_p:.3f} m²</b>"
+                        f"<br><span style='opacity:0.5;font-size:0.7rem'>{largo_p:.2f}×{ancho_p:.2f}</span></div>",
+                        unsafe_allow_html=True)
+            with c6:
+                if st.button("✕", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
                     st.session_state.piezas.pop(idx)
                     st.rerun()
-            piezas_nuevas.append({"nombre": nombre_p, "ml": ml_p, "ancho_tipo": ancho_tipo_p, "ancho_custom": ancho_p})
+
+            piezas_nuevas.append({
+                "nombre":        nombre_p,
+                "largo":         largo_p,
+                "ancho":         ancho_p,
+                "tipo_sup":      tipo_p,
+                "unidad_venta":  uv_p,
+                "precio_unitario": pieza.get("precio_unitario", 0.0),
+            })
 
         st.session_state.piezas = piezas_nuevas
-        m2_real = total_m2_piezas
-        m2_cortados_total = total_m2_piezas
 
-        col_add, col_sum = st.columns([1, 2])
-        with col_add:
-            if st.button("+ Agregar pieza", use_container_width=True):
-                st.session_state.piezas.append({"nombre": f"Pieza {len(st.session_state.piezas)+1}", "ml": 1.0, "ancho_tipo": tipos_superficie[0], "ancho_custom": 0.60})
+        # ── BOTONES AGREGAR ────────────────────────────────────────────────
+        col_addml, col_addm2, col_sum = st.columns([1.1, 1.1, 2])
+        with col_addml:
+            if st.button("＋ Pieza ML", use_container_width=True,
+                         help="Mesón, baño, lavamanos, escalón, salpicadero…"):
+                st.session_state.piezas.append({
+                    "nombre": f"Pieza {len(st.session_state.piezas)+1}",
+                    "largo": 1.0, "ancho": 0.60,
+                    "tipo_sup": "Mesón de cocina", "unidad_venta": "ml", "precio_unitario": 0.0
+                })
                 st.rerun()
+        with col_addm2:
+            if st.button("＋ Pieza m²", use_container_width=True,
+                         help="Piso, revestimiento de pared, fachada, terraza…"):
+                st.session_state.piezas.append({
+                    "nombre": f"Piso {len(st.session_state.piezas)+1}",
+                    "largo": 3.0, "ancho": 2.0,
+                    "tipo_sup": "Piso / Pavimento", "unidad_venta": "m²", "precio_unitario": 0.0
+                })
+                st.rerun()
+
+        # ── RESUMEN VISUAL ─────────────────────────────────────────────────
+        tots = calcular_totales_piezas(st.session_state.piezas)
+        ml_t   = tots["ml_total"]
+        m2v_t  = tots["m2_total"]
+        m2mat_t = tots["m2_material"]
+
         with col_sum:
-            if m2_real > 0:
-                _ml_total = sum(p.get("ml", 0) for p in st.session_state.piezas)
-                st.markdown(
-                    f'''<div style="background:var(--secondary-background-color); border:2px solid {CC_COLORS['secondary']}; border-radius:10px;padding:12px 18px;text-align:center">
-                  <div style="font-size:0.7rem;color:{CC_COLORS['secondary']};text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total del proyecto</div>
-                  <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{_ml_total:.2f} ml</div>
-                  <div style="font-size:0.85rem;opacity:0.7;margin-top:2px">{m2_real:.3f} m² de material</div>
-                </div>''', unsafe_allow_html=True)
-        extra_corte = st.number_input("m² adicionales cortados no aprovechados (desperdicios manuales)", min_value=0.0, value=0.0, step=0.05)
-        m2_cortados_total += extra_corte
+            partes_html = ""
+            if ml_t > 0:
+                partes_html += (
+                    f'<div style="font-size:1.55rem;font-weight:900;font-family:Playfair Display,serif;'
+                    f'color:{CC_COLORS["secondary"]}">{ml_t:.2f} '
+                    f'<span style="font-size:0.85rem;font-weight:600">ml</span></div>'
+                )
+            if m2v_t > 0:
+                partes_html += (
+                    f'<div style="font-size:1.55rem;font-weight:900;font-family:Playfair Display,serif;'
+                    f'color:{CC_COLORS["accent"]}">{m2v_t:.3f} '
+                    f'<span style="font-size:0.85rem;font-weight:600">m²</span></div>'
+                )
+            partes_html += f'<div style="font-size:0.75rem;opacity:0.6;margin-top:3px">Material a comprar: <b>{m2mat_t:.3f} m²</b></div>'
+
+            st.markdown(
+                f'<div style="background:var(--secondary-background-color);'
+                f'border:2px solid {CC_COLORS["secondary"]};'
+                f'border-radius:10px;padding:10px 16px;text-align:center">'
+                f'<div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.09em;'
+                f'font-weight:700;opacity:0.55;margin-bottom:4px">Total del proyecto</div>'
+                f'{partes_html}'
+                f'</div>',
+                unsafe_allow_html=True)
+
+        extra_corte = st.number_input(
+            "m² adicionales de desperdicios / recortes imprevistos",
+            min_value=0.0, value=0.0, step=0.05, key="extra_corte")
+
+        m2_real          = m2mat_t
+        m2_cortados_total = m2mat_t + extra_corte
 
     else:
+        # ── MODO AVANZADO: m² directo ─────────────────────────────────────
+        alerta("Modo avanzado: ingresa m² directamente. Mano de obra estimada con ancho promedio.", "acepta")
         c1, c2 = st.columns(2)
         with c1:
-            m2_real = st.number_input("m² reales del proyecto", min_value=0.01, value=float(pre.get("m2_proyecto", 4.0)), step=0.05)
+            m2_real = st.number_input("m² reales del proyecto", min_value=0.01,
+                                      value=float(pre.get("m2_proyecto", 4.0)), step=0.05)
         with c2:
-            m2_cortados_input = st.number_input("m² cortados de la placa (mayor por desperdicios)", min_value=0.0, value=float(m2_real), step=0.05)
+            m2_cortados_input = st.number_input("m² cortados con desperdicios", min_value=0.0,
+                                                value=float(m2_real), step=0.05)
             m2_cortados_total = m2_cortados_input if m2_cortados_input > 0 else m2_real
 
     st.markdown("---")
     c1, c2, c3 = st.columns(3)
     with c1:
-        m2_usados = st.number_input("m² finalmente instalados", min_value=0.0, value=float(pre.get("m2_usados", m2_real)), step=0.05)
+        m2_usados = st.number_input("m² finalmente instalados", min_value=0.0,
+                                    value=float(pre.get("m2_usados", m2_real)), step=0.05)
     with c2:
-        margen_pct = st.slider("Margen de utilidad (%)", min_value=5, max_value=80, value=int(pre.get("margen_pct", 40)), step=1)
+        margen_pct = st.slider("Margen de utilidad (%)", min_value=5, max_value=80,
+                               value=int(pre.get("margen_pct", 40)), step=1)
     with c3:
         if area_placa > 0 and m2_usados > 0:
-            aprv = min(100, m2_usados / area_placa * 100)
-            retal = max(0, area_placa - m2_usados)
+            aprv     = min(100, m2_usados / area_placa * 100)
+            retal_v  = max(0, area_placa - m2_usados)
             estado_a = "bueno" if aprv >= 80 else "acepta" if aprv >= 50 else "bajo"
-            alerta(f"Aprovechamiento: **{aprv:.1f}%** — Retal: {retal:.3f} m²", estado_a)
+            alerta(f"Aprovechamiento: **{aprv:.1f}%** — Retal: {retal_v:.3f} m²", estado_a)
 
     st.markdown("---")
 
@@ -814,7 +900,8 @@ elif pagina == "Cotizacion Directa":
 
     # ── CALCULAR ─────────────────────────────────────────────────────────────
     if st.button("Calcular cotización", type="primary", use_container_width=True):
-        _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", [])) if "Por piezas" in modo_medida else (m2_real/0.60)
+        _piezas_calc = st.session_state.get("piezas", []) if not _mostrar_avanzado else []
+        _tots = calcular_totales_piezas(_piezas_calc) if _piezas_calc else {"ml_total": m2_real/0.60, "m2_total": 0.0, "m2_material": m2_real}
         resultado = calcular_cotizacion_directa(
             categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo, area_placa_comprada=area_placa,
             m2_real=m2_real, m2_cortados=m2_cortados_total, m2_usados=m2_usados, margen_pct=margen_pct,
@@ -823,7 +910,9 @@ elif pagina == "Cotizacion Directa":
             foraneo_activo=foraneo_activo, viaticos_activos=viaticos_activos, tipo_aloj=tipo_aloj, noches=noches,
             adicionales_activos=adicionales_activos, cantidades_add=cantidades_add, etapa=etapa,
             adicionales_lista=ADICIONALES, tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
-            ml_proyecto=_ml_tot, logistica_override=st.session_state.get("logistica_custom"),
+            piezas=_piezas_calc,
+            ml_proyecto=_tots["ml_total"],
+            logistica_override=st.session_state.get("logistica_custom"),
             vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
             tarifas_override=st.session_state.get("tarifas_custom"),
         )
@@ -919,7 +1008,23 @@ elif pagina == "Cotizacion Directa":
             c1a, c2a = st.columns(2)
             c1a.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {r['retal']:.3f} m²")
             c2a.metric("Costo/m² instalado", numero_completo(r['costo_total']/max(r['m2_real'],0.001)))
-            st.markdown(f"<div style='font-weight:700;margin:14px 0 8px'>Simulador en tiempo real</div>", unsafe_allow_html=True)
+
+            # ── Precio unitario de venta ───────────────────────────────────
+            _ml_proy  = r.get("ml_proyecto", 0.0)
+            _m2v_proy = r.get("m2_proyecto_m2", 0.0)
+            if _ml_proy > 0 or _m2v_proy > 0:
+                st.markdown(f"<div style='font-weight:700;margin:12px 0 6px;font-size:0.88rem'>Precio unitario de venta al cliente</div>", unsafe_allow_html=True)
+                _cu1, _cu2 = st.columns(2)
+                if _ml_proy > 0:
+                    _pml = _precio_final / _ml_proy
+                    _cu1.metric("Precio / ML", numero_completo(_pml), f"{_ml_proy:.2f} ml totales")
+                if _m2v_proy > 0:
+                    _pm2 = _precio_final / _m2v_proy
+                    _cu2.metric("Precio / m²", numero_completo(_pm2), f"{_m2v_proy:.3f} m² totales")
+                if _ml_proy > 0 and _m2v_proy <= 0:
+                    _cu2.metric("Precio / m²", numero_completo(_precio_final / max(r['m2_real'],0.001)), "referencia interna")
+
+            st.markdown(f"<div style='font-weight:700;margin:14px 0 8px;font-size:0.88rem'>Simulador de margen</div>", unsafe_allow_html=True)
             _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
             _sim_iva = _sim_p * 0.19 if _iva_activo else 0.0
