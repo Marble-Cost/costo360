@@ -5,7 +5,7 @@
 #   - Mano de obra calculada sobre m² de material trabajado (no solo m² instalados)
 #   - Función ml_a_m2 para convertir metros lineales a m²
 
-from parametros import LOGISTICA, VIATICOS, TARIFAS
+from parametros import LOGISTICA, VIATICOS, TARIFAS, VEHICULOS_CONFIG
 
 
 # ── Conversor ML → m² ────────────────────────────────────────────────────────
@@ -28,49 +28,52 @@ def horas_traslado_estimadas(km: float) -> float:
 
 
 def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo: bool,
-                       personas: int = 2, categoria: str = "Mármol") -> dict:
+                       personas: int = 2, categoria: str = "Mármol",
+                       logistica_override: dict = None,
+                       vehiculos_custom: dict = None) -> dict:
     """
-    Calcula costo logístico completo desglosado.
-    
-    CORREGIDO v3:
-    - Externo solo paga flete fijo, no km propios
-    - Se incluye costo de tiempo de operarios en traslado
-    - Devuelve dict con desglose para transparencia
+    Calcula costo logístico completo desglosado. v4:
+    - Soporta vehículos personalizados via vehiculos_custom
+    - logistica_override permite usar parámetros editados
+    - Externo solo paga flete fijo
+    - Traslado operarios estimado como % del jornal diario (no por hora)
     """
-    p = LOGISTICA
-    tar = TARIFAS.get(categoria, TARIFAS["Mármol"])
+    p = logistica_override or LOGISTICA
+
+    # Resolver config del vehículo
+    veh_cfg = (vehiculos_custom or {}).get(vehiculo) or VEHICULOS_CONFIG.get(vehiculo, VEHICULOS_CONFIG["externo"])
+    es_externo = veh_cfg.get("tipo") == "externo"
 
     # ── Costo vehículo ────────────────────────────────────────────────────────
-    if vehiculo == "externo":
-        # Flete fijo. No hay costo de gasolina propio ni desgaste del vehículo.
-        costo_vehiculo = p["externo"]["flete"]
-        costo_km = 0.0
+    if es_externo:
+        flete_ext = veh_cfg.get("flete", p.get("externo", {}).get("flete", 165_000))
+        costo_vehiculo = flete_ext
+        costo_km   = 0.0
         costo_base = 0.0
     else:
-        vh = p[vehiculo]
-        # Costo por km = gasolina + desgaste mecánico
-        # gasolina en COP/galón ÷ rendimiento km/galón = COP/km
-        costo_por_km = (p["gasolina"] / vh["rend"]) + vh["desgaste"]
-        # ida y vuelta (el vehículo regresa vacío)
-        costo_km = costo_por_km * km * 2
-        costo_base = vh["base"]
+        gasolina   = p.get("gasolina", LOGISTICA["gasolina"])
+        rend       = veh_cfg.get("rend",     7.2)
+        desg       = veh_cfg.get("desgaste", 148)
+        costo_base = veh_cfg.get("base",  65_000)
+        costo_por_km = (gasolina / rend) + desg
+        costo_km     = costo_por_km * km * 2
         costo_vehiculo = costo_base + costo_km
 
-    # ── Peajes ────────────────────────────────────────────────────────────────
-    costo_peajes = num_peajes * p["peaje"]
-
-    # ── Herramientas ─────────────────────────────────────────────────────────
-    costo_herram = p["herram"]
-
-    # ── Flete agente externo (proveedor → taller) ─────────────────────────────
-    costo_agente = p["agente"] if agente_externo else 0.0
+    # ── Peajes, herramientas, agente ──────────────────────────────────────────
+    costo_peajes = num_peajes * p.get("peaje", LOGISTICA["peaje"])
+    costo_herram = p.get("herram", LOGISTICA["herram"])
+    costo_agente = p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
 
     # ── Costo de tiempo de operarios en traslado ─────────────────────────────
-    # Los operarios no trabajan material mientras viajan: ese tiempo tiene costo real
-    # Solo aplica para vehículo propio (si es externo el transportador no es tu operario)
-    if vehiculo != "externo" and km > 0:
+    # En Colombia se paga producción por ml, no por hora. Pero el tiempo de
+    # traslado sí tiene costo real (operarios viajan sin producir).
+    # Se estima como un porcentaje del jornal diario:
+    #   jornal_base = $100.000/día. Traslado corto = 12.5%, largo = 25%, foráneo = 50%
+    JORNAL_BASE = 100_000
+    if not es_externo and km > 0:
         horas = horas_traslado_estimadas(km)
-        costo_traslado_mo = horas * personas * tar["mo_hora"]
+        pct_jornal = 0.125 if horas <= 1 else 0.25 if horas <= 2 else 0.50
+        costo_traslado_mo = pct_jornal * personas * JORNAL_BASE
     else:
         costo_traslado_mo = 0.0
 
@@ -79,12 +82,12 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     return {
         "total":           costo_total,
         "vehiculo":        costo_vehiculo,
-        "base":            costo_base if vehiculo != "externo" else 0,
+        "base":        costo_base if not es_externo else 0,
         "km_costo":        costo_km,
         "peajes":          costo_peajes,
         "herram":          costo_herram,
         "agente":          costo_agente,
-        "traslado_mo":     costo_traslado_mo,
+        "traslado_mo": costo_traslado_mo,
     }
 
 
@@ -132,18 +135,21 @@ def calcular_cotizacion_directa(
     adicionales_lista: list,
     tipo_proyecto: str = "",
     nombre_cliente: str = "",
+    **kwargs,
 ) -> dict:
     tar = TARIFAS.get(categoria, TARIFAS["Mármol"])
 
     # ── ① Costo del material ──────────────────────────────────────────────────
     costo_material = precio_m2 * area_placa_comprada
 
-    # ── ② Mano de obra ────────────────────────────────────────────────────────
-    # CORRECCIÓN v3: la mano de obra (corte + elaboración) se aplica sobre
-    # los m² CORTADOS de la placa, no solo sobre los m² instalados.
-    # Si cortaste 4.2 m² para un proyecto de 3.6 m², pagas por 4.2 m² de trabajo.
-    m2_mo = m2_cortados if m2_cortados > 0 else m2_real
-    c2 = m2_mo * (tar["corte"] + tar["elab"])
+    # ── ② Producción (se paga por metro lineal, no por m² ni por hora) ─────────
+    # En Colombia la producción en marmolería se paga por ML cortado e instalado.
+    # ml_proyecto viene de la suma de todas las piezas ingresadas.
+    # Si no se tienen ML (modo m² directo), se estima: ml ≈ m²_proyecto / ancho_promedio (0.60m)
+    ml_proyecto = kwargs.get("ml_proyecto", 0.0)
+    if ml_proyecto <= 0:
+        ml_proyecto = m2_real / 0.60  # estimado con ancho promedio mesón
+    c2 = ml_proyecto * tar.get("prod_ml", tar.get("corte", 25_000) + tar.get("elab", 75_000))
 
     # ── ③ Zócalos ─────────────────────────────────────────────────────────────
     c3 = (zocalo_ml * tar["zocalo"]) if zocalo_activo else 0.0
@@ -151,7 +157,7 @@ def calcular_cotizacion_directa(
     # ── ④ Insumos ─────────────────────────────────────────────────────────────
     # Disco se calcula sobre m² cortados (el disco se gasta al cortar, no al instalar)
     m2_disco = m2_cortados if m2_cortados > 0 else m2_real
-    c4 = (m2_disco * tar["disco"]) + (dias * tar["desgaste"])
+    c4 = (m2_disco * tar.get("disco", 2_200)) + (dias * tar.get("maquina", tar.get("desgaste", 20_000)))
 
     # ── ⑤ Logística ──────────────────────────────────────────────────────────
     log_dict = calcular_logistica(
@@ -161,6 +167,8 @@ def calcular_cotizacion_directa(
         agente_externo=agente_externo_taller,
         personas=personas,
         categoria=categoria,
+        logistica_override=kwargs.get("logistica_override"),
+        vehiculos_custom=kwargs.get("vehiculos_custom"),
     )
     c5 = log_dict["total"]
 
@@ -193,6 +201,7 @@ def calcular_cotizacion_directa(
         "area_placa":        area_placa_comprada,
         "m2_real":           m2_real,
         "m2_cortados":       m2_mo,
+        "ml_proyecto":       ml_proyecto,
         "m2_usados":         m2_ref,
         "margen_pct":        margen_pct,
         "dias":              dias,
@@ -230,14 +239,13 @@ def analizar_precio_real(precio_real: float, costo_total: float, precio_sugerido
 
 
 def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
-                 agente_externo, foraneo_activo, tipo_aloj, noches, personas,
-                 logistica_override=None, vehiculos_custom=None):
+                 agente_externo, foraneo_activo, tipo_aloj, noches, personas):
     val_a   = cd * (pct_a / 100)
     val_i   = cd * (pct_i / 100)
     val_u   = cd * (pct_u / 100)
     val_iva = val_u * 0.19
     sub_aiu = val_a + val_i + val_u + val_iva
-    log_dict = calcular_logistica(vehiculo, km, num_peajes, agente_externo, logistica_override=logistica_override, vehiculos_custom=vehiculos_custom)
+    log_dict = calcular_logistica(vehiculo, km, num_peajes, agente_externo)
     logistica = log_dict["total"]
     viaticos  = calcular_viaticos(foraneo_activo, tipo_aloj, noches, personas)
     precio_total = cd + sub_aiu + logistica + viaticos
