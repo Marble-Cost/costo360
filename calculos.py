@@ -115,7 +115,8 @@ def calcular_cotizacion_directa(
     nombre_cliente: str = "",
     **kwargs,
 ) -> dict:
-    tar = TARIFAS.get(categoria, TARIFAS["Mármol"])
+    _tarifas_src = kwargs.get("tarifas_override") or TARIFAS
+    tar = _tarifas_src.get(categoria, TARIFAS["Mármol"])
 
     # ── ① Costo del material ──────────────────────────────────────────────────
     costo_material = precio_m2 * area_placa_comprada
@@ -178,7 +179,7 @@ def calcular_cotizacion_directa(
         "precio_m2":         precio_m2,
         "area_placa":        area_placa_comprada,
         "m2_real":           m2_real,
-        "m2_cortados":       m2_mo,
+        "m2_cortados":       m2_cortados,
         "ml_proyecto":       ml_proyecto,
         "m2_usados":         m2_ref,
         "margen_pct":        margen_pct,
