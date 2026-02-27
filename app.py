@@ -200,6 +200,7 @@ def numero_completo(valor):
 # ── SESSION STATE DATA ────────────────────────────────────────────────────────
 _defaults = {
     "chat": [], "cotizacion": None, "contexto_cot": {}, "resumen_ia": "",
+    "materiales_proyecto": [],
     "aiu_items": [
         {"desc": "Material pétreo (suministro)", "und": "m²",  "cant": 10.0, "punit": 250_000},
         {"desc": "Mano de obra corte y elaboración", "und": "m²", "cant": 10.0, "punit": 100_000},
@@ -342,57 +343,80 @@ elif pagina == "Cotizacion Directa":
         if st.button("Limpiar formulario"):
             st.session_state.pre = {}
             st.session_state.piezas = []
+            st.session_state.materiales_proyecto = []
             st.rerun()
 
     TARIFAS_ACT = get_tarifas()
     LOG_ACT = get_logistica()
     VIA_ACT = get_viaticos()
 
-    # ── PASO 1: MATERIAL ──────────────────────────────────────────────────────
-    seccion_titulo("Paso 1 — Material", "Selecciona el tipo de piedra e ingresa el precio del proveedor")
+    # ── PASO 1: MATERIAL(ES) ─────────────────────────────────────────────────
+    seccion_titulo("Paso 1 — Material(es)", "Puedes agregar uno o más materiales si el proyecto mezcla referencias")
 
-    cat_sel = st.session_state.get("cat_sel", pre.get("categoria", "Mármol"))
-    cols_cat = st.columns(len(CATEGORIAS_MATERIAL))
-    for i, cat in enumerate(CATEGORIAS_MATERIAL):
-        activo = cat_sel == cat
-        borde = f"2px solid #1B5FA8" if activo else f"1px solid var(--border-color)"
-        bg = "var(--secondary-background-color)" if activo else "transparent"
-        with cols_cat[i]:
-            st.markdown(f"""<div style="border:{borde};border-radius:10px;padding:14px 8px;background:{bg};text-align:center">
-              <div style="font-weight:700;font-size:0.8rem;margin-top:2px">{'▶ ' if activo else ''}{cat}</div>
-              <div style="font-size:0.65rem;opacity:0.6;margin-top:4px;line-height:1.3">{DESCRIPCIONES_CATEGORIA.get(cat,'')}</div>
-            </div>""", unsafe_allow_html=True)
-            if st.button(f"Elegir {cat}", key=f"cat_{i}", use_container_width=True):
-                st.session_state.cat_sel = cat
-                st.rerun()
-    cat_sel = st.session_state.get("cat_sel", "Mármol")
-    st.divider()
+    # Inicializar lista de materiales si no existe
+    if "materiales_proyecto" not in st.session_state or not st.session_state.materiales_proyecto:
+        st.session_state.materiales_proyecto = pre.get("materiales_proyecto", [
+            {"cat": pre.get("categoria", "Mármol"), "ref": pre.get("referencia", ""), "precio_m2": pre.get("precio_m2", 220_000), "area_placa": pre.get("area_placa_comprada", 5.94)}
+        ])
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        refs_cat = [m["nombre"] for m in MATERIALES_CATALOGO if m["categoria"] == cat_sel]
-        refs_cat = ["Otra referencia..."] + refs_cat
-        pre_ref = pre.get("referencia", "")
-        idx_ref = refs_cat.index(pre_ref) if pre_ref in refs_cat else 0
-        ref_sel = st.selectbox("Referencia del material", refs_cat, index=idx_ref)
-        if ref_sel == "Otra referencia...":
-            referencia = st.text_input("Nombre de la referencia", value=pre_ref if pre_ref not in refs_cat else "", placeholder="Ej: Calacatta Gold")
-        else:
-            referencia = ref_sel
-            m_cat = next((m for m in MATERIALES_CATALOGO if m["nombre"] == ref_sel), None)
-            if m_cat and "precio_m2_default" not in st.session_state:
-                st.session_state["precio_m2_default"] = m_cat["precio_m2"]
-    with c2:
-        precio_m2_default = pre.get("precio_m2") or st.session_state.pop("precio_m2_default", 220_000)
-        precio_m2 = st.number_input("Precio por m² — COP", min_value=10_000, max_value=5_000_000,
-            value=int(precio_m2_default), step=1_000, help="El valor por m² que está en la factura del proveedor")
-    with c3:
-        area_placa_default = pre.get("area_placa_comprada", 5.94)
-        area_placa = st.number_input("Area total comprada (m²)", min_value=0.01, max_value=200.0,
-            value=float(area_placa_default), step=0.1, format="%.3f")
+    mats = st.session_state.materiales_proyecto
+    mats_nuevos = []
 
-    costo_mat = precio_m2 * area_placa
-    alerta(f"Costo total del material: **{numero_completo(precio_m2)}/m²** x {area_placa} m² = **{numero_completo(costo_mat)}**", "info")
+    for midx, mat_item in enumerate(mats):
+        with st.container(border=True):
+            lbl = f"Material {midx + 1}" if len(mats) > 1 else "Material del proyecto"
+            cola, colb, colc, cold = st.columns([1.8, 1.5, 1.5, 0.4])
+            with cola:
+                cats_opts = CATEGORIAS_MATERIAL
+                cat_i = cats_opts.index(mat_item.get("cat", "Mármol")) if mat_item.get("cat") in cats_opts else 0
+                cat_sel_m = st.selectbox("Categoría", cats_opts, index=cat_i, key=f"mcat_{midx}", label_visibility="collapsed" if midx > 0 else "visible")
+            with colb:
+                refs_m = ["Otra referencia..."] + [m["nombre"] for m in MATERIALES_CATALOGO if m["categoria"] == cat_sel_m]
+                pre_ref_m = mat_item.get("ref", "")
+                idx_ref_m = refs_m.index(pre_ref_m) if pre_ref_m in refs_m else 0
+                ref_sel_m = st.selectbox("Referencia", refs_m, index=idx_ref_m, key=f"mref_{midx}", label_visibility="visible" if midx == 0 else "collapsed")
+                if ref_sel_m == "Otra referencia...":
+                    referencia_m = st.text_input("Nombre", value=pre_ref_m if pre_ref_m not in refs_m else "", key=f"mrefcust_{midx}", placeholder="Ej: Calacatta Gold")
+                else:
+                    referencia_m = ref_sel_m
+                    m_cat_data = next((m for m in MATERIALES_CATALOGO if m["nombre"] == ref_sel_m), None)
+            with colc:
+                precio_m2_m = st.number_input("Precio/m² (COP)", min_value=10_000, max_value=5_000_000,
+                    value=int(mat_item.get("precio_m2", 220_000)), step=1_000, key=f"mpm2_{midx}",
+                    label_visibility="visible" if midx == 0 else "collapsed")
+                area_placa_m = st.number_input("Área comprada (m²)", min_value=0.01, max_value=200.0,
+                    value=float(mat_item.get("area_placa", 5.94)), step=0.1, key=f"maplaca_{midx}", format="%.3f",
+                    label_visibility="visible" if midx == 0 else "collapsed")
+            with cold:
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                if len(mats) > 1 and st.button("✕", key=f"mdel_{midx}"):
+                    st.session_state.materiales_proyecto.pop(midx)
+                    st.rerun()
+
+            costo_m = precio_m2_m * area_placa_m
+            st.caption(f"Costo: {numero_completo(precio_m2_m)}/m² × {area_placa_m} m² = **{numero_completo(costo_m)}**")
+            mats_nuevos.append({"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m})
+
+    st.session_state.materiales_proyecto = mats_nuevos
+
+    col_addmat, _ = st.columns([1, 3])
+    with col_addmat:
+        if st.button("+ Agregar otro material", use_container_width=True):
+            st.session_state.materiales_proyecto.append({"cat": "Mármol", "ref": "", "precio_m2": 220_000, "area_placa": 5.94})
+            st.rerun()
+
+    # Para el cálculo usamos el primer material como principal (categoría determina tarifas de MO)
+    # El costo total de material suma todos
+    cat_sel = mats_nuevos[0]["cat"] if mats_nuevos else "Mármol"
+    referencia = " + ".join([m["ref"] or m["cat"] for m in mats_nuevos]) if len(mats_nuevos) > 1 else (mats_nuevos[0]["ref"] if mats_nuevos else "")
+    precio_m2 = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
+    # Área total y costo total de todos los materiales
+    area_placa = sum(m["area_placa"] for m in mats_nuevos)
+    costo_mat_total = sum(m["precio_m2"] * m["area_placa"] for m in mats_nuevos)
+    # Precio_m2 efectivo para que calcular_cotizacion_directa compute correctamente c1
+    precio_m2_efectivo = costo_mat_total / area_placa if area_placa > 0 else precio_m2
+
+    alerta(f"Total material: **{numero_completo(costo_mat_total)}** en {area_placa:.2f} m² comprados", "info")
 
     st.markdown("---")
 
@@ -495,7 +519,15 @@ elif pagina == "Cotizacion Directa":
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         tipo_opts = ["Mesón", "Cocina", "Baño", "Piso", "Escalera", "Fachada", "Mueble de cocina", "Otro"]
-        tipo = st.selectbox("Tipo de proyecto", tipo_opts, index=tipo_opts.index(pre.get("tipo_proyecto", "Mesón")) if pre.get("tipo_proyecto", "Mesón") in tipo_opts else 0)
+        # Multi-select para tipo de proyecto
+        pre_tipos = pre.get("tipos_proyecto", [pre.get("tipo_proyecto", "Mesón")] if pre.get("tipo_proyecto") else ["Mesón"])
+        tipos_sel = st.multiselect(
+            "Tipo(s) de proyecto",
+            tipo_opts,
+            default=[t for t in pre_tipos if t in tipo_opts] or ["Mesón"],
+            help="Selecciona uno o varios si el proyecto combina espacios (ej: Cocina + Baño)"
+        )
+        tipo = " + ".join(tipos_sel) if tipos_sel else "Otro"
     with c2:
         etapa = ETAPAS_OBRA[st.selectbox("Etapa de la obra", list(ETAPAS_OBRA.keys()))]
     with c3:
@@ -571,7 +603,7 @@ elif pagina == "Cotizacion Directa":
     with _col_iva2:
         if incluir_iva:
             st.info(
-                "**IVA activo.** Se calculará el 19% exclusivamente sobre la **utilidad** (norma colombiana para servicios). "
+                "**IVA activo.** Se calculará el 19% sobre el **total de la cotización** (precio sugerido). "
                 "El precio final y el PDF incluirán el IVA desglosado.",
                 icon="🧾"
             )
@@ -589,7 +621,7 @@ elif pagina == "Cotizacion Directa":
     if st.button("Calcular cotizacion", type="primary", use_container_width=True):
         _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", [])) if "Por piezas" in modo_medida else (m2_real/0.60)
         resultado = calcular_cotizacion_directa(
-            categoria=cat_sel, referencia=referencia, precio_m2=precio_m2, area_placa_comprada=area_placa,
+            categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo, area_placa_comprada=area_placa,
             m2_real=m2_real, m2_cortados=m2_cortados_total, m2_usados=m2_usados, margen_pct=margen_pct,
             dias=dias, personas=personas, zocalo_activo=zocalo_activo, zocalo_ml=zocalo_ml,
             agente_externo_taller=agente_ext_taller, vehiculo_entrega=vehiculo, km=km, num_peajes=peajes,
@@ -605,7 +637,7 @@ elif pagina == "Cotizacion Directa":
         resultado["_estado_guardado"] = {
             "categoria": cat_sel, "referencia": referencia, "precio_m2": precio_m2, "area_placa_comprada": area_placa,
             "piezas": st.session_state.piezas, "m2_proyecto": m2_real, "m2_usados": m2_usados, "margen_pct": margen_pct,
-            "tipo_proyecto": tipo, "dias_obra": dias, "personas": personas, "nombre_cliente": nombre_cliente,
+            "tipos_proyecto": tipos_sel, "tipo_proyecto": tipo, "dias_obra": dias, "personas": personas, "nombre_cliente": nombre_cliente,
             "zocalo_activo": zocalo_activo, "zocalo_ml": zocalo_ml, "agente_externo_taller": agente_ext_taller,
             "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes, "foraneo_activo": foraneo_activo,
             "viaticos_activos": viaticos_activos, "noches": noches, "adicionales_activos": adicionales_activos,
@@ -625,15 +657,16 @@ elif pagina == "Cotizacion Directa":
         st.markdown("<h3 style='font-family:Playfair Display,serif'>Resultado</h3>", unsafe_allow_html=True)
 
         # ── IVA: condicional según elección del usuario ───────────────────────
-        _iva_activo        = r.get("incluir_iva", incluir_iva)
-        _iva_sobre_utilidad = r['utilidad'] * 0.19 if _iva_activo else 0.0
-        _precio_final       = r['precio_sugerido'] + _iva_sobre_utilidad
+        # IVA se calcula sobre el TOTAL de la cotización (precio_sugerido), no sobre utilidad
+        _iva_activo   = r.get("incluir_iva", incluir_iva)
+        _iva_monto    = r['precio_sugerido'] * 0.19 if _iva_activo else 0.0
+        _precio_final = r['precio_sugerido'] + _iva_monto
 
         # ── Hero card ─────────────────────────────────────────────────────────
         if _iva_activo:
             _iva_line = (
                 f'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)">'
-                f'<span style="color:#C9A84C;font-weight:700">+ IVA 19% sobre utilidad: {numero_completo(_iva_sobre_utilidad)}</span>'
+                f'<span style="color:#C9A84C;font-weight:700">+ IVA 19% sobre total: {numero_completo(_iva_monto)}</span>'
                 f'&nbsp;&nbsp;→&nbsp;&nbsp;'
                 f'<span style="font-size:1.15rem;font-weight:900">Total con IVA: {numero_completo(_precio_final)}</span>'
                 f'</div>'
@@ -662,7 +695,7 @@ elif pagina == "Cotizacion Directa":
         if _iva_activo:
             alerta(
                 "ℹ️ **¿Cuándo cobrar IVA?** El IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
-                "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Si eres **régimen simplificado**, NO cobras IVA. "
+                "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Se aplica sobre el total de la cotización. "
                 "Consulta a tu contador para confirmar.",
                 "info"
             )
@@ -687,7 +720,7 @@ elif pagina == "Cotizacion Directa":
             ]
             if _iva_activo:
                 _items_desglose.append(("Subtotal antes de IVA", r['precio_sugerido']))
-                _items_desglose.append((f"IVA 19% s/utilidad ({numero_completo(r['utilidad'])})", _iva_sobre_utilidad))
+                _items_desglose.append((f"IVA 19% s/total cotización", _iva_monto))
                 _total_label = "TOTAL CON IVA"
             else:
                 _total_label = "PRECIO TOTAL (SIN IVA)"
@@ -701,9 +734,9 @@ elif pagina == "Cotizacion Directa":
             _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
             _sim_ut = _sim_p - r["costo_total"]
-            _sim_iva = _sim_ut * 0.19 if _iva_activo else 0.0
+            _sim_iva = _sim_p * 0.19 if _iva_activo else 0.0
             if _iva_activo:
-                alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA: **{numero_completo(_sim_p + _sim_iva)}**", "info")
+                alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA 19% s/total: **{numero_completo(_sim_p + _sim_iva)}**", "info")
             else:
                 alerta(f"Precio total (sin IVA): **{numero_completo(_sim_p)}**", "info")
 
