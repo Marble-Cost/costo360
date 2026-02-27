@@ -876,7 +876,7 @@ elif pagina == "Cotizacion AIU":
                 (f"A — Administración ({r.get('pct_a', pct_a)}%)", r['val_a']),
                 (f"I — Imprevistos ({r.get('pct_i', pct_i)}%)", r['val_i']),
                 (f"U — Utilidad ({r.get('pct_u', pct_u)}%)", r['val_u']),
-                ("IVA 19% exclusivo sobre Utilidad", r['val_iva']),
+                ("IVA 19% exclusivo sobre Utilidad (U)", r['val_iva']),
                 ("Gastos Logísticos Integrados", r['logistica']),
             ], "PRECIO TOTAL", r['precio_total'])
 
@@ -885,12 +885,12 @@ elif pagina == "Cotizacion AIU":
         from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
         cp1, cp2 = st.columns(2)
         with cp1:
-            num_cot_a = st.text_input("Número de Oferta", value=f"OFE-AIU-{datetime.today().strftime('%Y')}-001")
-            if st.button("📄 Generar Oferta AIU (PDF)", type="primary", use_container_width=True):
+            num_cot_a = st.text_input("Número de Cotización AIU", value=f"COT-AIU-{datetime.today().strftime('%Y')}-001")
+            if st.button("📄 Generar Cotización AIU (PDF)", type="primary", use_container_width=True):
                 pdf_bytes = generar_pdf_cotizacion(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
-                st.download_button("⬇ Descargar Oferta", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
+                st.download_button("⬇ Descargar Cotización", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
         with cp2:
-            num_cc_a = st.text_input("Número de Cuenta / Factura", value=f"FAC-AIU-{datetime.today().strftime('%Y')}-001")
+            num_cc_a = st.text_input("Número de Cuenta de Cobro", value=f"CC-AIU-{datetime.today().strftime('%Y')}-001")
             nom_pag_a = st.text_input("Facturar a:", value=nombre_cliente_aiu)
             nit_pag_a = st.text_input("NIT / Rut", value="")
             if st.button("📄 Generar Cobro AIU (PDF)", type="primary", use_container_width=True):
@@ -1086,8 +1086,195 @@ elif pagina == "Parametros":
                 st.session_state.params_wizard_chat = []
                 st.rerun()
 
-    with t1: st.write("Sección de tarifas en construcción (manteniendo valores por defecto).")
-    with t2: st.write("Sección de logística en construcción (manteniendo valores por defecto).")
+    with t1:
+        # ── TARIFAS Y PRODUCCIÓN ──────────────────────────────────────────────
+        # Permite editar todas las tarifas de producción por material
+        # Los cambios se guardan en st.session_state.tarifas_custom y se propagan
+        # a todos los cálculos de la app via get_tarifas()
+        st.markdown("#### Tarifas de producción por material")
+        st.caption("Edita los costos de mano de obra, insumos y maquinaria. Los cambios aplican de inmediato a nuevas cotizaciones.")
+
+        if st.session_state.tarifas_custom is None:
+            import copy
+            st.session_state.tarifas_custom = copy.deepcopy(TARIFAS)
+
+        tarifas_editadas = {}
+        for mat, tar in st.session_state.tarifas_custom.items():
+            with st.expander(f"📌 {mat}", expanded=False):
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    prod_ml = st.number_input(
+                        "Producción (COP/ml)",
+                        min_value=0, value=int(tar.get("prod_ml", 60_000)),
+                        step=1_000, key=f"tar_prodml_{mat}",
+                        help="Lo que cobra el operario por cada metro lineal cortado e instalado"
+                    )
+                with c2:
+                    zocalo = st.number_input(
+                        "Zócalo (COP/ml)",
+                        min_value=0, value=int(tar.get("zocalo", 12_000)),
+                        step=500, key=f"tar_zoc_{mat}",
+                        help="Costo por metro lineal de zócalo instalado"
+                    )
+                with c3:
+                    disco = st.number_input(
+                        "Disco (COP/m²)",
+                        min_value=0, value=int(tar.get("disco", 2_200)),
+                        step=100, key=f"tar_disco_{mat}",
+                        help="Costo del disco diamantado por m² cortado"
+                    )
+                with c4:
+                    maquina = st.number_input(
+                        "Máquina (COP/día)",
+                        min_value=0, value=int(tar.get("maquina", 20_000)),
+                        step=1_000, key=f"tar_maq_{mat}",
+                        help="Depreciación + mantenimiento de la cortadora por día de uso"
+                    )
+                tarifas_editadas[mat] = {
+                    "prod_ml": prod_ml,
+                    "zocalo":  zocalo,
+                    "disco":   disco,
+                    "maquina": maquina,
+                }
+
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            if st.button("💾 Guardar tarifas", type="primary", use_container_width=True, key="save_tarifas"):
+                st.session_state.tarifas_custom = tarifas_editadas
+                st.success("✅ Tarifas actualizadas. Se aplicarán en las próximas cotizaciones.")
+        with col_g2:
+            if st.button("↩ Restablecer valores por defecto", use_container_width=True, key="reset_tarifas"):
+                import copy
+                st.session_state.tarifas_custom = copy.deepcopy(TARIFAS)
+                st.info("Valores restablecidos a los predeterminados del sistema.")
+                st.rerun()
+
+    with t2:
+        # ── LOGÍSTICA Y VEHÍCULOS ─────────────────────────────────────────────
+        # Permite editar gasolina, peajes, herramientas y flete externo,
+        # así como la configuración de cada vehículo propio.
+        # Los cambios se guardan en st.session_state.logistica_custom / vehiculos_custom
+        st.markdown("#### Costos de logística y transporte")
+        st.caption("Actualiza los costos de gasolina, peajes y flete cuando cambien los precios del mercado.")
+
+        if st.session_state.logistica_custom is None:
+            import copy
+            st.session_state.logistica_custom = {
+                k: v for k, v in LOGISTICA.items()
+                if not isinstance(v, dict)   # solo campos escalares
+            }
+        if st.session_state.viaticos_custom is None:
+            import copy
+            st.session_state.viaticos_custom = dict(VIATICOS)
+
+        # Costos escalares de logística
+        st.markdown("**Costos base**")
+        lc1, lc2, lc3, lc4 = st.columns(4)
+        with lc1:
+            gasolina = st.number_input(
+                "Gasolina (COP/galón)",
+                min_value=0, value=int(st.session_state.logistica_custom.get("gasolina", 16_000)),
+                step=500, key="log_gasolina",
+                help="Precio corriente del galón en Barranquilla"
+            )
+        with lc2:
+            peaje = st.number_input(
+                "Peaje promedio (COP)",
+                min_value=0, value=int(st.session_state.logistica_custom.get("peaje", 19_500)),
+                step=500, key="log_peaje"
+            )
+        with lc3:
+            herram = st.number_input(
+                "Desgaste herramientas / viaje",
+                min_value=0, value=int(st.session_state.logistica_custom.get("herram", 4_500)),
+                step=500, key="log_herram"
+            )
+        with lc4:
+            agente = st.number_input(
+                "Flete agente externo (COP)",
+                min_value=0, value=int(st.session_state.logistica_custom.get("agente", 85_000)),
+                step=5_000, key="log_agente",
+                help="Costo que cobra el agente por traer el material al taller"
+            )
+
+        st.markdown("**Vehículo externo / tercero**")
+        flete_ext = st.number_input(
+            "Flete externo fijo (COP/viaje)",
+            min_value=0,
+            value=int((st.session_state.vehiculos_custom or {}).get("externo", {}).get("flete",
+                       VEHICULOS_CONFIG["externo"].get("flete", 165_000))),
+            step=5_000, key="log_flete_ext",
+            help="Precio fijo que cobra el tercero por viaje, sin importar la distancia"
+        )
+
+        # Vehículos propios
+        st.markdown("**Vehículos propios**")
+        if st.session_state.vehiculos_custom is None:
+            import copy
+            st.session_state.vehiculos_custom = {}
+
+        vehiculos_editados = {}
+        for vk, vcfg in VEHICULOS_CONFIG.items():
+            if vcfg.get("tipo") != "propio":
+                continue
+            custom_v = (st.session_state.vehiculos_custom or {}).get(vk, vcfg)
+            with st.expander(f"🚛 {vcfg['nombre']}", expanded=False):
+                vc1, vc2, vc3 = st.columns(3)
+                with vc1:
+                    rend_v = st.number_input(
+                        "Rendimiento (km/galón)",
+                        min_value=0.1, value=float(custom_v.get("rend", vcfg["rend"])),
+                        step=0.1, key=f"veh_rend_{vk}"
+                    )
+                with vc2:
+                    desg_v = st.number_input(
+                        "Desgaste (COP/km)",
+                        min_value=0, value=int(custom_v.get("desgaste", vcfg["desgaste"])),
+                        step=10, key=f"veh_desg_{vk}"
+                    )
+                with vc3:
+                    base_v = st.number_input(
+                        "Base mínima (COP/viaje)",
+                        min_value=0, value=int(custom_v.get("base", vcfg["base"])),
+                        step=5_000, key=f"veh_base_{vk}"
+                    )
+                vehiculos_editados[vk] = {**vcfg, "rend": rend_v, "desgaste": desg_v, "base": base_v}
+        vehiculos_editados["externo"] = {**VEHICULOS_CONFIG["externo"], "flete": flete_ext}
+
+        st.markdown("**Viáticos**")
+        vt1, vt2 = st.columns(2)
+        with vt1:
+            v_pueblo = st.number_input(
+                "Pueblo / Corregimiento (COP/noche/persona)",
+                min_value=0, value=int(st.session_state.viaticos_custom.get("pueblo", 145_000)),
+                step=5_000, key="viat_pueblo"
+            )
+        with vt2:
+            v_ciudad = st.number_input(
+                "Ciudad Capital (COP/noche/persona)",
+                min_value=0, value=int(st.session_state.viaticos_custom.get("ciudad", 178_000)),
+                step=5_000, key="viat_ciudad"
+            )
+
+        col_l1, col_l2 = st.columns(2)
+        with col_l1:
+            if st.button("💾 Guardar logística y vehículos", type="primary", use_container_width=True, key="save_logistica"):
+                st.session_state.logistica_custom = {
+                    "gasolina": gasolina,
+                    "peaje":    peaje,
+                    "herram":   herram,
+                    "agente":   agente,
+                }
+                st.session_state.viaticos_custom = {"pueblo": v_pueblo, "ciudad": v_ciudad}
+                st.session_state.vehiculos_custom = vehiculos_editados
+                st.success("✅ Logística y vehículos actualizados correctamente.")
+        with col_l2:
+            if st.button("↩ Restablecer logística por defecto", use_container_width=True, key="reset_logistica"):
+                st.session_state.logistica_custom = None
+                st.session_state.viaticos_custom  = None
+                st.session_state.vehiculos_custom  = None
+                st.info("Logística restablecida a valores por defecto.")
+                st.rerun()
 
 elif pagina == "Asistente IA":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
