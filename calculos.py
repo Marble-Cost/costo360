@@ -220,15 +220,32 @@ def analizar_precio_real(precio_real: float, costo_total: float, precio_sugerido
 
 def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
                  agente_externo, foraneo_activo, tipo_aloj, noches, personas):
+    """
+    Cálculo AIU normativo colombiano.
+
+    CORRECCIÓN MATEMÁTICA — IVA SOBRE UTILIDAD:
+    Según la norma tributaria colombiana para contratos de obra (Art. 3° Decreto 1372/92
+    y concepto DIAN), el IVA (19%) en el modelo AIU se calcula exclusivamente sobre
+    la componente de Utilidad (U), NO sobre el Costo Directo ni sobre A+I.
+
+    Fórmula:
+        A  = CD × (pct_a / 100)
+        I  = CD × (pct_i / 100)
+        U  = CD × (pct_u / 100)
+        IVA = U × 0.19          ← SOLO sobre Utilidad
+        Precio = CD + A + I + U + IVA + Logística + Viáticos
+    """
     val_a   = cd * (pct_a / 100)
     val_i   = cd * (pct_i / 100)
     val_u   = cd * (pct_u / 100)
+    # IVA exclusivamente sobre la Utilidad (U)
     val_iva = val_u * 0.19
     sub_aiu = val_a + val_i + val_u + val_iva
     log_dict = calcular_logistica(vehiculo, km, num_peajes, agente_externo)
     logistica = log_dict["total"]
     viaticos  = calcular_viaticos(foraneo_activo, tipo_aloj, noches, personas)
     precio_total = cd + sub_aiu + logistica + viaticos
+    # Margen efectivo = (U + IVA_sobre_U) / Precio Total
     margen_pct   = ((val_u + val_iva) / precio_total * 100) if precio_total > 0 else 0
     return {
         "cd": cd, "val_a": val_a, "val_i": val_i, "val_u": val_u,
