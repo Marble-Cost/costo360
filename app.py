@@ -4,6 +4,9 @@
 import io
 import base64
 import streamlit as st
+import psycopg2
+import json, os
+from datetime import date, datetime
 from calculos import (
     calcular_cotizacion_directa, analizar_precio_real,
     calcular_aiu, calcular_logistica, ml_a_m2, cop,
@@ -15,29 +18,32 @@ from parametros import (
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
-import sqlite3, json, os
-from datetime import date, datetime
 
-# ── BASE DE DATOS SQLite ──────────────────────────────────────────────────────
-_DB_PATH = os.path.join(os.path.dirname(__file__), "cotizaciones.db")
+# ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
+def _get_db_connection():
+    return psycopg2.connect(st.secrets["DATABASE_URL"])
 
 def _init_db():
-    conn = sqlite3.connect(_DB_PATH)
-    conn.execute("""
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS cotizaciones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             numero TEXT, fecha TEXT, cliente TEXT, material TEXT,
             tipo TEXT, m2 REAL, ml REAL, costo REAL, precio REAL,
             margen REAL, estado TEXT DEFAULT 'Pendiente', datos_json TEXT
         )
     """)
-    conn.commit(); conn.close()
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def _guardar_cotizacion(numero, cliente, resultado):
     _init_db()
-    conn = sqlite3.connect(_DB_PATH)
-    conn.execute(
-        "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (numero, date.today().isoformat(), cliente or "Sin nombre",
          resultado.get("categoria",""), resultado.get("tipo_proyecto",""),
          resultado.get("m2_real",0), resultado.get("ml_proyecto",0),
@@ -45,33 +51,52 @@ def _guardar_cotizacion(numero, cliente, resultado):
          resultado.get("margen_pct",0), "Pendiente",
          json.dumps(resultado, ensure_ascii=False, default=str))
     )
-    conn.commit(); conn.close()
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def _listar_cotizaciones(busqueda=""):
     _init_db()
-    conn = sqlite3.connect(_DB_PATH)
-    q = "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado FROM cotizaciones WHERE cliente LIKE ? OR numero LIKE ? OR material LIKE ? ORDER BY id DESC LIMIT 200" if busqueda else "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado FROM cotizaciones ORDER BY id DESC LIMIT 200"
-    rows = conn.execute(q, (f"%{busqueda}%",)*3 if busqueda else ()).fetchall()
-    conn.close(); return rows
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    q = "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado FROM cotizaciones WHERE cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s ORDER BY id DESC LIMIT 200" if busqueda else "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado FROM cotizaciones ORDER BY id DESC LIMIT 200"
+    cur.execute(q, (f"%{busqueda}%",)*3 if busqueda else ())
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
 
 def _actualizar_estado(cot_id, nuevo_estado):
     _init_db()
-    conn = sqlite3.connect(_DB_PATH)
-    conn.execute("UPDATE cotizaciones SET estado=? WHERE id=?", (nuevo_estado, cot_id))
-    conn.commit(); conn.close()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE cotizaciones SET estado=%s WHERE id=%s", (nuevo_estado, cot_id))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 def _stats_db():
     _init_db()
-    conn = sqlite3.connect(_DB_PATH)
+    conn = _get_db_connection()
+    cur = conn.cursor()
     s = {}
-    s["total"]      = conn.execute("SELECT COUNT(*) FROM cotizaciones").fetchone()[0]
-    s["aprobadas"]  = conn.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Aprobada'").fetchone()[0]
-    s["pendientes"] = conn.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Pendiente'").fetchone()[0]
-    s["facturacion"]= conn.execute("SELECT SUM(precio) FROM cotizaciones WHERE estado='Aprobada'").fetchone()[0] or 0
-    s["margen_prom"]= conn.execute("SELECT AVG(margen) FROM cotizaciones WHERE estado='Aprobada'").fetchone()[0] or 0
-    s["por_material"]= conn.execute("SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones WHERE estado='Aprobada' GROUP BY material").fetchall()
-    s["por_mes"]    = conn.execute("SELECT substr(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones GROUP BY substr(fecha,1,7) ORDER BY substr(fecha,1,7) DESC LIMIT 6").fetchall()
-    conn.close(); return s
+    cur.execute("SELECT COUNT(*) FROM cotizaciones")
+    s["total"]      = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Aprobada'")
+    s["aprobadas"]  = cur.fetchone()[0]
+    cur.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Pendiente'")
+    s["pendientes"] = cur.fetchone()[0]
+    cur.execute("SELECT SUM(precio) FROM cotizaciones WHERE estado='Aprobada'")
+    s["facturacion"]= cur.fetchone()[0] or 0
+    cur.execute("SELECT AVG(margen) FROM cotizaciones WHERE estado='Aprobada'")
+    s["margen_prom"]= cur.fetchone()[0] or 0
+    cur.execute("SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones WHERE estado='Aprobada' GROUP BY material")
+    s["por_material"]= cur.fetchall()
+    cur.execute("SELECT SUBSTR(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones GROUP BY SUBSTR(fecha,1,7) ORDER BY SUBSTR(fecha,1,7) DESC LIMIT 6")
+    s["por_mes"]    = cur.fetchall()
+    cur.close()
+    conn.close()
+    return s
 
 # ── Asistente de parámetros (system prompt SEPARADO del asistente general) ──
 def _chat_parametros(historial: list, mensaje: str) -> str:
@@ -1020,9 +1045,9 @@ if pagina == "Cotizacion Directa":
             st.markdown(f"<div style='font-size:0.8rem;font-weight:700;color:{_gray};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px'>Desglose de costos</div>", unsafe_allow_html=True)
             bloque_costos([
                 ("Material (area comprada x precio/m²)", r['c1_material']),
-                ("Produccion (por metro lineal)",         r['c2_mano_obra']),
+                ("Produccion (por metro lineal)",        r['c2_mano_obra']),
                 ("Zocalos",                              r['c3_zocalos']),
-                ("Insumos (disco + uso de maquina)",      r['c4_insumos']),
+                ("Insumos (disco + uso de maquina)",     r['c4_insumos']),
                 ("Logistica",                            r['c5_logistica']),
                 ("Viaticos",                             r['c6_viaticos']),
                 ("Adicionales en obra",                  r['c7_adicionales']),
@@ -1553,10 +1578,10 @@ SOLO JSON, sin texto antes ni después."""
 
         seccion_titulo("Gasolina y costos generales", "")
         _lc1,_lc2,_lc3,_lc4 = st.columns(4)
-        _log_ed["gasolina"]          = _lc1.number_input("Gasolina (COP/galon)", value=float(_log_ed["gasolina"]),             min_value=0.0, step=100.0, format="%.0f", key="log_gas")
-        _log_ed["agente"]            = _lc2.number_input("Flete agente externo", value=float(_log_ed["agente"]),               min_value=0.0, step=1000.0,format="%.0f", key="log_ag")
-        _log_ed["peaje"]             = _lc3.number_input("Peaje ida+vuelta",     value=float(_log_ed["peaje"]),                min_value=0.0, step=500.0, format="%.0f", key="log_pj")
-        _log_ed["herram"]            = _lc4.number_input("Desg. herramientas",   value=float(_log_ed["herram"]),               min_value=0.0, step=100.0, format="%.0f", key="log_hr")
+        _log_ed["gasolina"]          = _lc1.number_input("Gasolina (COP/galon)", value=float(_log_ed["gasolina"]),              min_value=0.0, step=100.0, format="%.0f", key="log_gas")
+        _log_ed["agente"]            = _lc2.number_input("Flete agente externo", value=float(_log_ed["agente"]),                min_value=0.0, step=1000.0,format="%.0f", key="log_ag")
+        _log_ed["peaje"]             = _lc3.number_input("Peaje ida+vuelta",     value=float(_log_ed["peaje"]),                 min_value=0.0, step=500.0, format="%.0f", key="log_pj")
+        _log_ed["herram"]            = _lc4.number_input("Desg. herramientas",   value=float(_log_ed["herram"]),                min_value=0.0, step=100.0, format="%.0f", key="log_hr")
 
         seccion_titulo("Frontier NP300", "")
         _fc1,_fc2,_fc3 = st.columns(3)
