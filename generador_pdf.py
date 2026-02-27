@@ -151,21 +151,31 @@ def _logo_img(logo_bytes: bytes | None, max_h: float = 1.5*cm) -> Image | None:
 
 
 def _header_bloque(E, P, doc_type, numero, fecha_str, empresa_info, logo_bytes):
-    """Encabezado identico para cotizacion y cuenta de cobro. Solo cambia el titulo."""
+    """
+    Encabezado idéntico para cotización y cuenta de cobro. Solo cambia el título.
+
+    CORRECCIÓN: Solo extrae y muestra nombre, nit, ciudad, tel y email.
+    El número de cuenta bancaria NO debe aparecer aquí — solo en la sección
+    "DATOS PARA PAGO" de la cuenta de cobro.
+    """
     emp = empresa_info or {}
     nombre_emp = emp.get("nombre", "MARMOLES COLLANTE & CASTRO LTDA.")
 
     logo_img = _logo_img(logo_bytes, max_h=1.4*cm)
 
-    # Columna izquierda: logo + nombre empresa
+    # Columna izquierda: logo + nombre empresa + NIT + ciudad + teléfono
+    # IMPORTANTE: NO incluir cuenta_numero ni cuenta_tipo aquí
     col_izq = []
     if logo_img:
         col_izq.append(logo_img)
         col_izq.append(Spacer(1, 4))
     col_izq.append(Paragraph(nombre_emp, ParagraphStyle("ne", leading=12, fontSize=9, fontName="Helvetica-Bold", textColor=P["white"])))
-    col_izq.append(Paragraph(emp.get("nit", ""), E["white_s"]))
-    col_izq.append(Paragraph(emp.get("ciudad", "Barranquilla, Colombia"), E["white_s"]))
-    col_izq.append(Paragraph(emp.get("tel", ""), E["white_s"]))
+    if emp.get("nit"):
+        col_izq.append(Paragraph(emp["nit"], E["white_s"]))
+    if emp.get("ciudad"):
+        col_izq.append(Paragraph(emp["ciudad"], E["white_s"]))
+    if emp.get("tel"):
+        col_izq.append(Paragraph(emp["tel"], E["white_s"]))
 
     # Columna derecha: tipo doc + numero + fecha
     col_der = [
@@ -207,23 +217,37 @@ def _tabla_2col(E, P, filas_datos, bg_header=None):
 
 def _tabla_desglose(E, P, r, incluir_iva: bool = True):
     """
-    Tabla de desglose para el PDF de COTIZACIÓN.
-    IMPORTANTE: Solo muestra conceptos relevantes para el cliente.
-    NO muestra: costo de material interno, margen, desglose de disco,
-    desgaste de máquina ni información operativa interna.
+    Tabla de desglose para el PDF de COTIZACIÓN (cara al cliente).
+
+    REFACTORIZACIÓN — PROTECCIÓN DE MÁRGENES:
+    Los costos operativos internos (producción, disco, desgaste de máquina,
+    logística detallada, viáticos) se agrupan en máximo 3 ítems comerciales.
+    El cliente NO debe ver el desglose de transporte, mano de obra, insumos
+    ni márgenes internos. Solo ve conceptos de alto nivel.
+
+    Grupos:
+      1. Suministro de material pétreo      → c1_material
+      2. Servicios de fabricación e inst.   → c2 + c3 + c4 (producción, zócalos, insumos)
+      3. Logística, traslado y gastos en obra → c5 + c6 + c7 (solo si > 0)
     """
+    # ── Agrupar costos operativos en 3 conceptos comerciales ─────────────────
+    c_material   = r.get("c1_material", 0)
+    c_servicios  = (r.get("c2_mano_obra", 0)
+                  + r.get("c3_zocalos", 0)
+                  + r.get("c4_insumos", 0))
+    c_logistica  = (r.get("c5_logistica", 0)
+                  + r.get("c6_viaticos", 0)
+                  + r.get("c7_adicionales", 0))
+
     items = [
-        ("Suministro de material pétreo",          r.get("c1_material", 0)),
-        ("Fabricación y elaboración",               r.get("c2_mano_obra", 0)),
-        ("Instalación de zócalos",                  r.get("c3_zocalos", 0)),
-        ("Insumos y herramientas especializadas",   r.get("c4_insumos", 0)),
-        ("Transporte y logística",                  r.get("c5_logistica", 0)),
-        ("Gastos de desplazamiento",                r.get("c6_viaticos", 0)),
-        ("Costos adicionales en obra",              r.get("c7_adicionales", 0)),
+        ("Suministro de material pétreo",                      c_material),
+        ("Servicios de fabricación, elaboración e instalación", c_servicios),
+        ("Logística, traslado y gastos en obra",               c_logistica),
     ]
+    # Omitir ítems con valor cero para no mostrar líneas vacías
     items = [(c, v) for c, v in items if v > 0]
 
-    utilidad   = r.get("utilidad", 0)
+    utilidad    = r.get("utilidad", 0)
     precio_base = r.get("precio_sugerido", 0)
 
     if incluir_iva:
@@ -352,42 +376,224 @@ def generar_pdf_cotizacion(resultado: dict, numero: str = None,
     story.append(_header_bloque(E, P, "COTIZACION DE PROYECTO", numero, fecha_str, emp, logo_bytes))
     story.append(Spacer(1, 8))
 
+    # ── Datos del cliente ────────────────────────────────────────────────────
     datos_filas = []
     if r.get("nombre_cliente"):
-        datos_filas.append(("Cliente", r["nombre_cliente"]))
+        datos_filas.append(("Para", r["nombre_cliente"]))
     datos_filas += [
-        ("Tipo de proyecto",  r.get("tipo_proyecto", "—")),
-        ("Material",          f"{r.get('categoria','—')} — {r.get('referencia','—')}"),
-        ("Área del proyecto", f"{r.get('m2_real', 0):.2f} m²"),
-        ("Tiempo de entrega", f"{r.get('dias', '—')} día(s) hábiles"),
-        ("Vigencia oferta",   "15 días calendario"),
-        ("IVA",               "Incluido (19% s/utilidad)" if incluir_iva else "No aplica — Régimen simplificado"),
+        ("Ciudad",           emp.get("ciudad", "Barranquilla")),
+        ("Proyecto",         r.get("tipo_proyecto", "—")),
+        ("Forma de pago",    "60% anticipo — 40% contra entrega"),
+        ("Validez / Entrega",f"30 días · Entrega: {r.get('dias', '—')} días · Anticipo: 60%"),
     ]
 
-    col_desglose, precio_final = _tabla_desglose(E, P, r, incluir_iva=incluir_iva)
-    col_datos = _tabla_2col(E, P, datos_filas)
-
-    story.append(Paragraph("DATOS DEL PROYECTO", E["seccion"]))
+    story.append(Paragraph("DATOS DEL CLIENTE", E["seccion"]))
     story.append(Spacer(1, 4))
-    story.append(col_datos)
+    story.append(_tabla_2col(E, P, datos_filas))
     story.append(Spacer(1, 8))
 
-    story.append(Paragraph("DETALLE DE LA OFERTA", E["seccion"]))
+    # ── Tabla de ítems (solo piezas del proyecto — cara al cliente) ──────────
+    # PROTECCIÓN DE MÁRGENES: el cliente ve solo las piezas con su precio de venta.
+    # No ve desglose interno de material, producción, logística, etc.
+    piezas = r.get("_estado_guardado", {}).get("piezas", [])
+    precio_sugerido_total = r.get("precio_sugerido", 0)
+
+    story.append(Paragraph("DETALLE DE ÍTEMS Y PRECIOS", E["seccion"]))
     story.append(Spacer(1, 4))
-    story.append(col_desglose)
+
+    hdr_style = ParagraphStyle("th", leading=10, fontSize=7.5, fontName="Helvetica-Bold",
+                                textColor=P["white"])
+    cel_style = ParagraphStyle("tc", leading=11, fontSize=8.5, fontName="Helvetica",
+                                textColor=P["text"])
+    cel_bold  = ParagraphStyle("tcb", leading=11, fontSize=8.5, fontName="Helvetica-Bold",
+                                textColor=P["text"])
+    cel_r     = ParagraphStyle("tcr", leading=11, fontSize=8.5, fontName="Helvetica",
+                                textColor=P["text"], alignment=TA_RIGHT)
+    cel_bold_r= ParagraphStyle("tcbr", leading=11, fontSize=8.5, fontName="Helvetica-Bold",
+                                textColor=P["text"], alignment=TA_RIGHT)
+
+    tabla_items_filas = [[
+        Paragraph("DESCRIPCIÓN",    hdr_style),
+        Paragraph("UNID.",          ParagraphStyle("thc", leading=10, fontSize=7.5, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_CENTER)),
+        Paragraph("CANT.",          ParagraphStyle("thc2", leading=10, fontSize=7.5, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_CENTER)),
+        Paragraph("P. UNITARIO",    ParagraphStyle("thr", leading=10, fontSize=7.5, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
+        Paragraph("SUBTOTAL",       ParagraphStyle("thr2", leading=10, fontSize=7.5, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
+    ]]
+
+    if piezas:
+        # Distribuir el precio sugerido proporcionalmente al m² de cada pieza
+        total_m2_piezas = sum(p.get("ml", 1) * p.get("ancho_custom", 0.60) for p in piezas)
+        subtotal_items  = 0.0
+        for p in piezas:
+            m2_p = p.get("ml", 1) * p.get("ancho_custom", 0.60)
+            prop  = (m2_p / total_m2_piezas) if total_m2_piezas > 0 else (1 / len(piezas))
+            precio_p = precio_sugerido_total * prop
+            ml_p     = p.get("ml", 1)
+            pu       = precio_p / ml_p if ml_p > 0 else 0
+            subtotal_items += precio_p
+            tabla_items_filas.append([
+                Paragraph(p.get("nombre", "—"), cel_style),
+                Paragraph("ml", ParagraphStyle("tcc", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_CENTER)),
+                Paragraph(f"{ml_p:.2f}", ParagraphStyle("tcc2", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_CENTER)),
+                Paragraph(_num(round(pu / 1000) * 1000), cel_r),
+                Paragraph(_num(round(precio_p / 1000) * 1000), cel_bold_r),
+            ])
+    else:
+        # Sin piezas → mostrar una sola línea con el tipo de proyecto
+        tabla_items_filas.append([
+            Paragraph(f"{r.get('tipo_proyecto','Proyecto')} — {r.get('referencia', r.get('categoria',''))}", cel_style),
+            Paragraph("glb", ParagraphStyle("tcc", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_CENTER)),
+            Paragraph("1", ParagraphStyle("tcc2", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_CENTER)),
+            Paragraph(_num(precio_sugerido_total), cel_r),
+            Paragraph(_num(precio_sugerido_total), cel_bold_r),
+        ])
+
+    # Subtotal
+    tabla_items_filas.append([
+        Paragraph("Subtotal", cel_bold), "", "", "",
+        Paragraph(_num(precio_sugerido_total), cel_bold_r),
+    ])
+
+    if incluir_iva:
+        iva_total = precio_sugerido_total * 0.19
+        precio_final_doc = precio_sugerido_total + iva_total
+        tabla_items_filas.append([
+            Paragraph("Base gravable (subtotal)", cel_style), "", "", "",
+            Paragraph(_num(precio_sugerido_total), cel_r),
+        ])
+        tabla_items_filas.append([
+            Paragraph("IVA 19% (Art. 468 E.T.)", ParagraphStyle("iva", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["secondary"])),
+            "", "", "",
+            Paragraph(_num(iva_total), ParagraphStyle("ivav", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["secondary"], alignment=TA_RIGHT)),
+        ])
+        tabla_items_filas.append([
+            Paragraph("Subtotal con IVA", cel_style), "", "", "",
+            Paragraph(_num(precio_final_doc), cel_bold_r),
+        ])
+        # Fila total final
+        tabla_items_filas.append([
+            Paragraph("TOTAL (IVA INCLUIDO)", ParagraphStyle("tot", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"])),
+            "", "", "",
+            Paragraph(_num(precio_final_doc), ParagraphStyle("totv", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
+        ])
+    else:
+        precio_final_doc = precio_sugerido_total
+        tabla_items_filas.append([
+            Paragraph("TOTAL (SIN IVA)", ParagraphStyle("tot", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"])),
+            "", "", "",
+            Paragraph(_num(precio_final_doc), ParagraphStyle("totv", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
+        ])
+
+    n_items = len(piezas) if piezas else 1
+    n_subtotal_rows = 4 if incluir_iva else 2  # rows after items: subtotal + gravable + iva + sub_iva + total
+
+    tbl_items = Table(tabla_items_filas, colWidths=[8*cm, 1.2*cm, 1.5*cm, 3*cm, 3.3*cm])
+    ts_items = [
+        # Header
+        ("BACKGROUND",    (0,0), (-1,0),  P["secondary"]),
+        ("TOPPADDING",    (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+        ("LEFTPADDING",   (0,0), (-1,-1), 8),
+        ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+        # Items zebra
+        ("ROWBACKGROUNDS",(0,1), (-1, n_items), [P["white"], P["ultralight"]]),
+        # Subtotal row
+        ("BACKGROUND",    (0, n_items+1), (-1, n_items+1), P["light"]),
+        # Total row (always last)
+        ("BACKGROUND",    (0,-1), (-1,-1), P["primary"]),
+        ("LINEABOVE",     (0,-1), (-1,-1), 1.2, P["primary"]),
+        ("LINEBELOW",     (0,0),  (-1,-2), 0.3, P["light"]),
+        # Spans for subtotal/iva/total rows
+        ("SPAN", (0, n_items+1), (3, n_items+1)),
+        ("SPAN", (0,-1), (3,-1)),
+    ]
+    if incluir_iva:
+        ts_items += [
+            ("SPAN", (0, n_items+2), (3, n_items+2)),
+            ("SPAN", (0, n_items+3), (3, n_items+3)),
+            ("SPAN", (0, n_items+4), (3, n_items+4)),
+            ("BACKGROUND", (0, n_items+3), (-1, n_items+3), P["ultralight"]),
+        ]
+
+    tbl_items.setStyle(TableStyle(ts_items))
+    story.append(tbl_items)
+    story.append(Spacer(1, 10))
+
+    # ── Alcance del proyecto (incluye / no incluye) ───────────────────────────
+    inc_style  = ParagraphStyle("inc", leading=11, fontSize=7.5, fontName="Helvetica", textColor=P["text"])
+    ninc_style = ParagraphStyle("ninc", leading=11, fontSize=7.5, fontName="Helvetica", textColor=P["text"])
+    hdr_inc    = ParagraphStyle("hi", leading=10, fontSize=7.5, fontName="Helvetica-Bold", textColor=P["white"])
+
+    incluye = [
+        "Toma de rectificación de medidas finales en obra previa a producción",
+        "Transporte especializado y acarreo cuidadoso del material hasta el punto de instalación",
+        "Garantía de 12 meses sobre la mano de obra de instalación",
+        "Limpieza técnica final del área de trabajo y retiro de desperdicios de material",
+        "Diseño y modelado 3D fotorrealista del proyecto para previsualización de acabados pétreos",
+        "Aplicación de tratamiento protector inicial (sellador hidrófugo/oleófugo) post-instalación",
+    ]
+    no_incluye = [
+        "Conexiones finales (grifería, electrodomésticos y conexiones hidráulicas, eléctricas o de gas)",
+        "Trabajos previos de obra civil (demoliciones, adecuación de muros, resanes o pintura)",
+        "Suministro de materiales de obra gris ajenos a la instalación del proyecto",
+        "Suministro o reparación de muebles de madera, ebanistería o estructuras de soporte inferiores",
+    ]
+
+    col_inc  = [[Paragraph("✔ INCLUYE",    hdr_inc)]] + [[Paragraph(f"✔ {t}", inc_style)] for t in incluye]
+    col_ninc = [[Paragraph("✖ NO INCLUYE", hdr_inc)]] + [[Paragraph(f"✖ {t}", ninc_style)] for t in no_incluye] + \
+               [[""] for _ in range(len(incluye) - len(no_incluye))]  # pad to same height
+
+    max_rows = max(len(col_inc), len(col_ninc))
+    while len(col_inc)  < max_rows: col_inc.append([""])
+    while len(col_ninc) < max_rows: col_ninc.append([""])
+
+    alcance_rows = [[col_inc[i][0], col_ninc[i][0]] for i in range(max_rows)]
+    tbl_alcance = Table(alcance_rows, colWidths=[8.5*cm, 8.5*cm])
+    tbl_alcance.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0), (-1,0),  P["secondary"]),
+        ("ROWBACKGROUNDS",(0,1), (-1,-1), [P["white"], P["ultralight"]]),
+        ("TOPPADDING",    (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+        ("LEFTPADDING",   (0,0), (-1,-1), 8),
+        ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+        ("LINEBELOW",     (0,0), (-1,-1), 0.3, P["light"]),
+        ("VALIGN",        (0,0), (-1,-1), "TOP"),
+    ]))
+    story.append(Paragraph("ALCANCE DEL PROYECTO", E["seccion"]))
+    story.append(Spacer(1, 4))
+    story.append(tbl_alcance)
     story.append(Spacer(1, 8))
 
+    # ── Condiciones generales ─────────────────────────────────────────────────
     nota_iva = (
-        "Precios incluyen IVA del 19% calculado sobre la utilidad (Estatuto Tributario colombiano, Art. 468). "
+        "El precio incluye IVA del 19% (Art. 468 E.T.) — Responsable de IVA — Régimen Común. "
         if incluir_iva else
         "Cotización expedida sin IVA — prestador perteneciente al Régimen Simplificado (Art. 499 E.T.). "
     )
-    story.append(Paragraph(
+    condiciones_texto = (
         nota_iva +
-        "Cotización válida por 15 días calendario. Incluye exclusivamente los materiales y servicios detallados. "
-        "Cualquier requerimiento adicional o modificación posterior requiere nueva cotización. "
-        "Precios sujetos a disponibilidad de material en el momento de confirmar el pedido.",
-        E["aviso"]))
+        "Esta cotización abarca exclusivamente los materiales, servicios y alcances detallados "
+        "expresamente en la sección de Inclusiones. Cualquier requerimiento adicional, modificación "
+        "de diseño posterior a la rectificación de medidas, o trabajo no especificado en este "
+        "documento, será considerado un servicio extra y requerirá una recotización y/o aprobación "
+        "previa para su ejecución."
+    )
+    tbl_cond = Table(
+        [[Paragraph("■ CONDICIONES GENERALES", ParagraphStyle("cg", leading=11, fontSize=7.5,
+                    fontName="Helvetica-Bold", textColor=P["text"])),
+          Paragraph(condiciones_texto, E["aviso"])]],
+        colWidths=[4*cm, 13*cm]
+    )
+    tbl_cond.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0), (-1,-1), P["ultralight"]),
+        ("TOPPADDING",    (0,0), (-1,-1), 8),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+        ("LEFTPADDING",   (0,0), (-1,-1), 10),
+        ("RIGHTPADDING",  (0,0), (-1,-1), 10),
+        ("VALIGN",        (0,0), (-1,-1), "TOP"),
+        ("LINEABOVE",     (0,0), (-1,0),  0.8, P["secondary"]),
+    ]))
+    story.append(tbl_cond)
     story.append(Spacer(1, 10))
 
     story.extend(_footer(E, P, emp.get("nombre", ""), fecha_str))
@@ -410,12 +616,14 @@ def generar_cuenta_cobro(resultado: dict, datos_prestador: dict, datos_pagador: 
     iva         = precio_base * 0.19 if incluir_iva else 0.0   # IVA sobre total
     valor_total = precio_base + iva
 
-    # Construir empresa_info desde datos_prestador
+    # CORRECCIÓN: datos_prestador viene directamente de empresa_info (app.py).
+    # Mapeamos solo los campos que debe mostrar el encabezado (NO cuenta_numero).
+    # La cuenta bancaria se renderiza más abajo en "DATOS PARA PAGO".
     emp = {
         "nombre":  datos_prestador.get("nombre", ""),
-        "nit":     datos_prestador.get("nit_cc", ""),
-        "ciudad":  datos_prestador.get("direccion", ""),
-        "tel":     datos_prestador.get("telefono", ""),
+        "nit":     datos_prestador.get("nit", datos_prestador.get("nit_cc", "")),
+        "ciudad":  datos_prestador.get("ciudad", datos_prestador.get("direccion", "")),
+        "tel":     datos_prestador.get("tel", datos_prestador.get("telefono", "")),
         "email":   datos_prestador.get("email", ""),
     }
 
