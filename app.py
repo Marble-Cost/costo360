@@ -1,4 +1,4 @@
-# app.py — CostoMármol v5.1 · Adaptive UX & AIU Fix Edition
+# app.py — CostoMármol v6 · Adaptive UX & Fixes
 # Mármoles Collante & Castro Ltda. · Feb 2026
 
 import io
@@ -26,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── INICIALIZACIÓN DE ONBOARDING Y NAVEGACIÓN ─────────────────────────────────
+# ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN ──────────────────────────────────
 if "primera_visita" not in st.session_state:
     st.session_state.primera_visita = True
     st.session_state.onboarding_activo = True
@@ -35,6 +35,7 @@ if "primera_visita" not in st.session_state:
 
 if "nav_radio" not in st.session_state:
     st.session_state.nav_radio = "Inicio"
+    st.session_state._radio_ui = "Inicio"
 
 # ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
 def _get_db_connection():
@@ -129,7 +130,7 @@ def _chat_parametros(historial: list, mensaje: str) -> str:
     except Exception as e:
         return f"Error: {str(e)}"
 
-# ── CSS NATIVO (ADAPTABLE AL TEMA DEL SISTEMA) ────────────────────────────────
+# ── CSS NATIVO (ADAPTABLE A MODO CLARO/OSCURO) ────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600;700&display=swap');
@@ -137,85 +138,57 @@ st.markdown("""
 * { box-sizing: border-box; }
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 
-/* Variables dinámicas nativas de Streamlit */
-:root {
-    --card-border: var(--border-color, rgba(128,128,128,0.2));
-    --accent-gold: #C9A84C;
-}
-
 /* ── BUTTONS ── */
 .stButton > button {
     border-radius: 6px !important; font-weight: 600 !important; font-size: 0.85rem !important;
     transition: all 0.18s ease !important; padding: 0.45rem 1rem !important;
 }
 .stButton > button[kind="primary"] {
-    background: var(--primary-color) !important; color: white !important; border: none !important;
+    background: #1B5FA8 !important; color: white !important; border: none !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; text-transform: uppercase !important;
 }
 .stButton > button[kind="primary"]:hover { filter: brightness(1.1); transform: translateY(-2px) !important; }
 
-/* ── METRICS & CARDS ── */
-[data-testid="stMetric"], .card-custom {
-    background: var(--secondary-background-color) !important;
-    border: 1px solid var(--card-border) !important; border-radius: 10px !important; padding: 16px 18px !important;
-}
-[data-testid="stMetricLabel"] p { font-size: 0.68rem !important; font-weight: 700 !important; text-transform: uppercase !important; }
-[data-testid="stMetricValue"] { font-weight: 800 !important; font-size: 1.2rem !important; }
-
-/* ── ALERTS / INFOS ── */
-.custom-alert {
-    background: var(--secondary-background-color); border-left: 3px solid var(--primary-color);
-    padding: 11px 16px; border-radius: 0 8px 8px 0; font-size: 0.86rem; margin: 6px 0; line-height: 1.55;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.05); color: var(--text-color);
+/* ── CARDS (Usa las variables de color del tema del celular/PC) ── */
+.card-custom {
+    background: var(--secondary-background-color);
+    border: 1px solid var(--border-color); 
+    border-radius: 10px; padding: 16px 18px; margin-bottom: 12px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ── HELPERS UI ────────────────────────────────────────────────────────────────
-def card(content_html, padding="20px 24px"):
-    st.markdown(f"""<div class="card-custom" style="padding:{padding};margin-bottom:12px">{content_html}</div>""", unsafe_allow_html=True)
-
-def hero_banner(titulo, valor_str, subtitulo, meta=""):
-    st.markdown(f"""
-    <div style="background:var(--primary-color); border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
-      <div style="color:var(--accent-gold);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">{titulo}</div>
-      <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">{valor_str}</div>
-      <div style="opacity:0.8;font-size:0.85rem">{subtitulo}</div>
-      {f'<div style="margin-top:12px">{meta}</div>' if meta else ''}
-    </div>""", unsafe_allow_html=True)
-
-def tag(texto):
-    return f'<span style="background:rgba(255,255,255,0.2);padding:3px 10px;border-radius:20px;font-size:0.7rem;font-weight:700;letter-spacing:0.05em;text-transform:uppercase">{texto}</span>'
-
+# ── HELPERS UI NATIVOS ────────────────────────────────────────────────────────
 def alerta(texto, tipo="info"):
-    colores = {"info": "var(--primary-color)", "bueno": "#0A6E3F", "acepta": "#C17A00", "bajo": "#C01A26"}
-    borde = colores.get(tipo, "var(--primary-color)")
-    st.markdown(f"""<div class="custom-alert" style="border-left-color:{borde};">{texto}</div>""", unsafe_allow_html=True)
+    """Reemplazo de la alerta CSS por componentes nativos de Streamlit (100% compatibles con modo claro/oscuro)"""
+    if tipo == "bueno":
+        st.success(texto, icon="✅")
+    elif tipo == "acepta":
+        st.warning(texto, icon="⚠️")
+    elif tipo == "bajo":
+        st.error(texto, icon="🚨")
+    else:
+        st.info(texto, icon="ℹ️")
 
 def seccion_titulo(texto, subtexto=""):
-    sub = f'<div style="opacity:0.6;font-size:0.82rem;font-weight:400;margin-top:3px">{subtexto}</div>' if subtexto else ""
-    st.markdown(f'<div style="margin:24px 0 14px"><div style="font-size:1.15rem;font-weight:700;letter-spacing:-0.01em">{texto}</div>{sub}</div>', unsafe_allow_html=True)
-
-def linea_costo(label, valor, destacado=False, cero_gris=True):
-    peso = "800" if destacado else "400"
-    borde = "border-top:2px solid var(--text-color);padding-top:10px;margin-top:6px;" if destacado else ""
-    opacidad = "opacity:0.5;" if (cero_gris and valor == 0) else ""
-    return f"""<div style="display:flex;justify-content:space-between;padding:8px 0; border-bottom:1px solid var(--card-border);{borde}{opacidad}">
-      <span style="font-size:0.87rem;font-weight:{peso}">{label}</span>
-      <span style="font-size:0.87rem;font-weight:{peso}">{cop(valor)}</span>
-    </div>"""
+    st.markdown(f"### {texto}")
+    if subtexto:
+        st.caption(subtexto)
 
 def bloque_costos(items_label_valor, total_label, total_val):
     html = ""
-    for l, v in items_label_valor:
-        html += linea_costo(l, v)
-    html += linea_costo(total_label, total_val, destacado=True)
+    for label, valor in items_label_valor:
+        html += f"""<div style="display:flex;justify-content:space-between;padding:6px 0; border-bottom:1px solid var(--border-color); color:var(--text-color);">
+            <span style="font-size:0.87rem;">{label}</span><span style="font-size:0.87rem;font-weight:600">{cop(valor)}</span></div>"""
+    
+    html += f"""<div style="display:flex;justify-content:space-between;padding:10px 0 0 0; border-bottom:1px solid var(--border-color); color:var(--text-color);">
+            <span style="font-size:0.95rem;font-weight:800">{total_label}</span><span style="font-size:0.95rem;font-weight:800;color:#1B5FA8">{cop(total_val)}</span></div>"""
     st.markdown(f'<div class="card-custom">{html}</div>', unsafe_allow_html=True)
 
 def numero_completo(valor):
     return f"${int(round(valor)):,}".replace(",", ".")
 
-# ── SESSION STATE ─────────────────────────────────────────────────────────────
+# ── SESSION STATE DATA ────────────────────────────────────────────────────────
 _defaults = {
     "chat": [], "cotizacion": None, "contexto_cot": {}, "resumen_ia": "",
     "aiu_items": [
@@ -256,7 +229,7 @@ def get_vehiculos_dict():
 with st.sidebar:
     st.markdown(
         f'<div style="background:var(--secondary-background-color); border:1px solid var(--border-color);border-radius:12px;padding:22px 16px;text-align:center;margin-bottom:4px">'
-        f'<div style="color:var(--primary-color);font-size:2rem;font-weight:900;font-family:Playfair Display,serif;">CC</div>'
+        f'<div style="color:#C9A84C;font-size:2rem;font-weight:900;font-family:Playfair Display,serif;">CC</div>'
         f'<div style="font-size:0.75rem;font-weight:700;margin-top:6px;letter-spacing:0.04em">MÁRMOLES</div>'
         f'<div style="opacity:0.6;font-size:0.65rem;margin-top:2px">Collante &amp; Castro</div></div>',
         unsafe_allow_html=True
@@ -265,6 +238,7 @@ with st.sidebar:
     
     opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Parametros", "Asistente IA", "Configuracion"]
     
+    # Callback para sincronizar navegación
     def update_nav():
         st.session_state.nav_radio = st.session_state._radio_ui
         
@@ -276,83 +250,64 @@ with st.sidebar:
         st.markdown('<div style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.3);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#16a34a">🟢 IA Activa</div>', unsafe_allow_html=True)
     else:
         st.markdown('<div style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#d97706">🟠 IA sin configurar</div>', unsafe_allow_html=True)
-    
-    st.markdown('<div style="opacity:0.5;font-size:0.7rem;margin-top:10px;text-align:center">💡 Tip UX: Ve a Settings (⚙️) > Theme para cambiar a Modo Oscuro</div>', unsafe_allow_html=True)
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TOUR GUIADO (ONBOARDING)
+# TOUR GUIADO (ONBOARDING) - VERSIÓN NATIVA ESTÉTICA
 # ═══════════════════════════════════════════════════════════════════════════════
 if st.session_state.get("onboarding_activo"):
     _op = min(st.session_state.get("onboarding_paso", 0), len(TOUR_PASOS) - 1)
     _paso = TOUR_PASOS[_op]
     _total = len(TOUR_PASOS)
 
-    st.markdown("""<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9998;"></div>""", unsafe_allow_html=True)
-    _prog_pct = int((_op / max(_total - 1, 1)) * 100)
-    _cuerpo_html = _paso["cuerpo"].replace("\n", "<br>")
-    st.markdown(
-        f"""<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
-            z-index:9999;background:var(--secondary-background-color);border-radius:16px;padding:32px 36px;
-            max-width:520px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.35); border-top:4px solid var(--primary-color)">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-            <div style="background:var(--primary-color);color:white;width:36px;height:36px;border-radius:50%;
-              display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1rem;flex-shrink:0">{_paso['icono']}</div>
-            <div>
-              <div style="font-size:0.72rem;opacity:0.6;text-transform:uppercase;letter-spacing:0.08em">Paso {_op + 1} de {_total}</div>
-              <div style="font-size:1.1rem;font-weight:800;font-family:Playfair Display,serif">{_paso['titulo']}</div>
-            </div>
-          </div>
-          <div style="font-size:0.9rem;opacity:0.85;line-height:1.7;margin-bottom:20px">{_cuerpo_html}</div>
-          <div style="background:var(--border-color);border-radius:4px;height:4px;margin-bottom:16px">
-            <div style="background:var(--primary-color);width:{_prog_pct}%;height:4px;border-radius:4px;transition:width 0.3s"></div>
-          </div>
-        </div>""",
-        unsafe_allow_html=True
-    )
-
-    _tc1, _tc2, _tc3 = st.columns([1, 1, 1])
-    with _tc1:
-        if _op > 0:
-            if st.button("Anterior", key="tour_prev", use_container_width=True):
-                st.session_state.onboarding_paso -= 1
-                st.rerun()
-    with _tc2:
-        if st.button("Saltar guía", key="tour_close", use_container_width=True):
-            st.session_state.onboarding_activo = False
-            st.session_state.tour_completado = True
-            st.rerun()
-    with _tc3:
-        if _op < _total - 1:
-            if st.button("Siguiente", key="tour_next", type="primary", use_container_width=True):
-                st.session_state.onboarding_paso += 1
-                st.rerun()
-        else:
-            if st.button("Empezar a usar", key="tour_fin", type="primary", use_container_width=True):
+    # Tarjeta de Tour Integrada (Sin "position: fixed", sin romper la pantalla)
+    with st.container(border=True):
+        st.markdown(f"### <span style='color:#1B5FA8'>{_paso['icono']}</span> {_paso['titulo']}", unsafe_allow_html=True)
+        st.caption(f"PASO {_op + 1} DE {_total}")
+        st.markdown(_paso["cuerpo"].replace('\n', '\n\n'))
+        st.progress((_op + 1) / _total)
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if _op > 0:
+                if st.button("⬅ Anterior", use_container_width=True):
+                    st.session_state.onboarding_paso -= 1
+                    st.rerun()
+        with c2:
+            if st.button("✕ Saltar guía", use_container_width=True):
                 st.session_state.onboarding_activo = False
                 st.session_state.tour_completado = True
                 st.rerun()
+        with c3:
+            if _op < _total - 1:
+                if st.button("Siguiente ➡", type="primary", use_container_width=True):
+                    st.session_state.onboarding_paso += 1
+                    st.rerun()
+            else:
+                if st.button("🚀 Finalizar y usar app", type="primary", use_container_width=True):
+                    st.session_state.onboarding_activo = False
+                    st.session_state.tour_completado = True
+                    st.rerun()
+    st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # INICIO
 # ═══════════════════════════════════════════════════════════════════════════════
 if pagina == "Inicio":
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,var(--primary-color) 0%,var(--secondary-background-color) 200%);
-         border-radius:16px;padding:40px 44px;margin-bottom:28px;position:relative;overflow:hidden; border:1px solid var(--card-border)">
-      <div style="color:var(--primary-color);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
+    <div style="background:var(--secondary-background-color); border-radius:16px;padding:40px 44px;margin-bottom:28px; border:2px solid #1B5FA8;">
+      <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
         Mármoles Collante &amp; Castro Ltda.
       </div>
-      <div style="font-size:2.4rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:14px">
+      <div style="font-size:2.4rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:14px; color:var(--text-color);">
         Sistema de Cotización<br>Profesional
       </div>
-      <div style="opacity:0.7;font-size:0.92rem;line-height:1.65;max-width:500px">
-        Calcula el costo real de tus proyectos comerciales. Cotización Directa, licitaciones AIU y exportación a PDF.
+      <div style="opacity:0.8;font-size:0.92rem;line-height:1.65;max-width:500px; color:var(--text-color);">
+        Calcula el costo real de tus proyectos comerciales. Cotización Directa, licitaciones AIU y exportación a PDF adaptable a cualquier entorno.
       </div>
     </div>
     """, unsafe_allow_html=True)
 
-    if st.button("🚀 Ver Guía de Inicio Rápido (Tour)", use_container_width=True):
+    if st.button("🚀 Reactivar Guía de Inicio", use_container_width=True):
         st.session_state.onboarding_activo = True
         st.session_state.onboarding_paso = 0
         st.rerun()
@@ -391,7 +346,7 @@ elif pagina == "Cotizacion Directa":
     cols_cat = st.columns(len(CATEGORIAS_MATERIAL))
     for i, cat in enumerate(CATEGORIAS_MATERIAL):
         activo = cat_sel == cat
-        borde = f"2px solid var(--primary-color)" if activo else f"1px solid var(--card-border)"
+        borde = f"2px solid #1B5FA8" if activo else f"1px solid var(--border-color)"
         bg = "var(--secondary-background-color)" if activo else "transparent"
         with cols_cat[i]:
             st.markdown(f"""<div style="border:{borde};border-radius:10px;padding:14px 8px;background:{bg};text-align:center">
@@ -428,7 +383,7 @@ elif pagina == "Cotizacion Directa":
             value=float(area_placa_default), step=0.1, format="%.3f")
 
     costo_mat = precio_m2 * area_placa
-    alerta(f"Costo total del material: <strong>{numero_completo(precio_m2)}/m²</strong> x {area_placa} m² = <strong>{numero_completo(costo_mat)}</strong>", "info")
+    alerta(f"Costo total del material: **{numero_completo(precio_m2)}/m²** x {area_placa} m² = **{numero_completo(costo_mat)}**", "info")
 
     st.markdown("---")
 
@@ -495,8 +450,8 @@ elif pagina == "Cotizacion Directa":
             if m2_real > 0:
                 _ml_total = sum(p.get("ml", 0) for p in st.session_state.piezas)
                 st.markdown(
-                    f'''<div style="background:var(--secondary-background-color); border:1px solid var(--card-border); border-radius:10px;padding:12px 18px;text-align:center">
-                  <div style="font-size:0.7rem;color:var(--primary-color);text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total del proyecto</div>
+                    f'''<div style="background:var(--secondary-background-color); border:1px solid var(--border-color); border-radius:10px;padding:12px 18px;text-align:center">
+                  <div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total del proyecto</div>
                   <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{_ml_total:.2f} ml</div>
                   <div style="font-size:0.85rem;opacity:0.7;margin-top:2px">{m2_real:.3f} m² de material</div>
                 </div>''', unsafe_allow_html=True)
@@ -522,7 +477,7 @@ elif pagina == "Cotizacion Directa":
             aprv = min(100, m2_usados / area_placa * 100)
             retal = max(0, area_placa - m2_usados)
             estado_a = "bueno" if aprv >= 80 else "acepta" if aprv >= 50 else "bajo"
-            alerta(f"Aprovechamiento: <strong>{aprv:.1f}%</strong> — Retal: {retal:.3f} m²", estado_a)
+            alerta(f"Aprovechamiento: **{aprv:.1f}%** — Retal: {retal:.3f} m²", estado_a)
 
     st.markdown("---")
 
@@ -632,12 +587,12 @@ elif pagina == "Cotizacion Directa":
         st.markdown("---")
         st.markdown("<h3 style='font-family:Playfair Display,serif'>Resultado</h3>", unsafe_allow_html=True)
 
-        hero_banner(
-            titulo="Precio de venta sugerido",
-            valor_str=numero_completo(r['precio_sugerido']),
-            subtitulo=f"Margen: {r['margen_pct']:.0f}%   ·   Utilidad: {numero_completo(r['utilidad'])}",
-            meta=tag(f"Costo directo: {numero_completo(r['costo_total'])}")
-        )
+        st.markdown(f"""
+        <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
+          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio de venta sugerido</div>
+          <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">{numero_completo(r['precio_sugerido'])}</div>
+          <div style="opacity:0.8;font-size:0.85rem">Margen: {r['margen_pct']:.0f}%   ·   Utilidad: {numero_completo(r['utilidad'])}</div>
+        </div>""", unsafe_allow_html=True)
 
         col_res, col_det = st.columns([1, 1])
         with col_res:
@@ -646,7 +601,7 @@ elif pagina == "Cotizacion Directa":
                 ("Zócalos", r['c3_zocalos']), ("Insumos", r['c4_insumos']),
                 ("Logística", r['c5_logistica']), ("Viáticos", r['c6_viaticos']),
                 ("Adicionales", r['c7_adicionales']),
-            ], "COSTO TOTAL", r['costo_total'])
+            ], "COSTO TOTAL DIRECTO", r['costo_total'])
         with col_det:
             c1a, c2a = st.columns(2)
             c1a.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {r['retal']:.3f} m²")
@@ -654,7 +609,7 @@ elif pagina == "Cotizacion Directa":
             st.markdown(f"<div style='font-weight:700;margin:14px 0 8px'>Simulador en tiempo real</div>", unsafe_allow_html=True)
             _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
-            alerta(f"Nuevo Precio Sugerido: <strong>{numero_completo(_sim_p)}</strong>", "info")
+            alerta(f"Nuevo Precio Sugerido: **{numero_completo(_sim_p)}**", "info")
 
         st.markdown("---")
         st.markdown("#### Exportar documentos comerciales")
@@ -712,7 +667,7 @@ elif pagina == "Cotizacion AIU":
         st.session_state.aiu_items.append({"desc": "Nuevo item", "und": "glb", "cant": 1.0, "punit": 100_000})
         st.rerun()
 
-    st.markdown(f"<div style='font-size:1.2rem;font-weight:900;color:var(--primary-color);margin:14px 0'>Costo Directo Total: {numero_completo(cd_total)}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:1.2rem;font-weight:900;color:#1B5FA8;margin:14px 0'>Costo Directo Total: {numero_completo(cd_total)}</div>", unsafe_allow_html=True)
     
     st.markdown("---")
     seccion_titulo("Porcentajes AIU y Logística")
@@ -754,7 +709,7 @@ elif pagina == "Cotizacion AIU":
         
         res_aiu["_estado_guardado"] = {
             "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
-            "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u,
+            "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
             "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu, "agente_externo_taller": agente_aiu,
             "foraneo_activo": foraneo_aiu, "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu
         }
@@ -767,8 +722,14 @@ elif pagina == "Cotizacion AIU":
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU":
         r = st.session_state.cotizacion
-        hero_banner("Precio total del contrato (AIU)", numero_completo(r['precio_total']), f"Margen Efectivo: {r['margen_pct']:.1f}%")
         
+        st.markdown(f"""
+        <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
+          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio total del contrato (AIU)</div>
+          <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">{numero_completo(r['precio_total'])}</div>
+          <div style="opacity:0.8;font-size:0.85rem">Margen Efectivo: {r['margen_pct']:.1f}%</div>
+        </div>""", unsafe_allow_html=True)
+
         c_res, _ = st.columns([1.5, 1])
         with c_res:
             bloque_costos([
@@ -833,16 +794,17 @@ elif pagina == "Historial":
             if _cols[6].button("✏️", key=f"ed_{_rid}", help="Recargar todo el proyecto en la calculadora para editar o ver PDF"):
                 try:
                     datos = json.loads(_rjson)
-                    # UX INNOVATION: Fallback if they click edit on an older quote
                     estado_guardado = datos.get("_estado_guardado", datos) 
                     
-                    if "AIU" in _rnum or datos.get("tipo_proyecto") == "Licitación AIU":
+                    if "AIU" in _rnum or datos.get("tipo_proyecto") == "Licitación AIU" or estado_guardado.get("tipo_proyecto") == "Licitación AIU":
                         st.session_state.aiu_items = estado_guardado.get("aiu_items", st.session_state.aiu_items)
                         st.session_state.pre = estado_guardado
                         st.session_state.nav_radio = "Cotizacion AIU"
+                        st.session_state._radio_ui = "Cotizacion AIU"
                     else:
                         st.session_state.pre = estado_guardado
                         st.session_state.nav_radio = "Cotizacion Directa"
+                        st.session_state._radio_ui = "Cotizacion Directa"
                     st.rerun()
                 except Exception as e:
                     st.error("No se pudo cargar el archivo antiguo.")
@@ -876,6 +838,7 @@ elif pagina == "Dashboard":
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Parametros":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Parametros de costos</h2>", unsafe_allow_html=True)
+    st.info("💡 **Tip UX:** Usa la pestaña 'Asistente IA' aquí mismo. Escribe 'La gasolina subió a 16000' y la IA ajustará los valores por ti sin tocar números.")
     t_ia, t1, t2 = st.tabs(["Asistente IA", "Tarifas y Produccion", "Logistica y Vehiculos"])
     
     with t_ia:
@@ -905,6 +868,7 @@ elif pagina == "Asistente IA":
             if res:
                 st.session_state.pre = res
                 st.session_state.nav_radio = "Cotizacion Directa"
+                st.session_state._radio_ui = "Cotizacion Directa"
                 st.rerun()
         else:
             st.error("Configura tu API Key en Configuración.")
