@@ -230,13 +230,14 @@ def analizar_precio_real(precio_real: float, costo_total: float, precio_sugerido
 
 
 def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
-                 agente_externo, foraneo_activo, tipo_aloj, noches, personas):
+                 agente_externo, foraneo_activo, tipo_aloj, noches, personas,
+                 logistica_override=None, vehiculos_custom=None):
     val_a   = cd * (pct_a / 100)
     val_i   = cd * (pct_i / 100)
     val_u   = cd * (pct_u / 100)
     val_iva = val_u * 0.19
     sub_aiu = val_a + val_i + val_u + val_iva
-    log_dict = calcular_logistica(vehiculo, km, num_peajes, agente_externo)
+    log_dict = calcular_logistica(vehiculo, km, num_peajes, agente_externo, logistica_override=logistica_override, vehiculos_custom=vehiculos_custom)
     logistica = log_dict["total"]
     viaticos  = calcular_viaticos(foraneo_activo, tipo_aloj, noches, personas)
     precio_total = cd + sub_aiu + logistica + viaticos
