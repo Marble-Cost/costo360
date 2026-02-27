@@ -12,9 +12,66 @@ from parametros import (
     CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA, VEHICULOS,
     ALOJAMIENTO, AIU_DEFAULTS, TARIFAS, LOGISTICA, VIATICOS,
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
-    ANCHOS_ESTANDAR, VEHICULOS_CONFIG,
+    ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
+import sqlite3, json, os
+from datetime import date, datetime
+
+# ── BASE DE DATOS SQLite ──────────────────────────────────────────────────────
+_DB_PATH = os.path.join(os.path.dirname(__file__), "cotizaciones.db")
+
+def _init_db():
+    conn = sqlite3.connect(_DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cotizaciones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT, fecha TEXT, cliente TEXT, material TEXT,
+            tipo TEXT, m2 REAL, ml REAL, costo REAL, precio REAL,
+            margen REAL, estado TEXT DEFAULT 'Pendiente', datos_json TEXT
+        )
+    """)
+    conn.commit(); conn.close()
+
+def _guardar_cotizacion(numero, cliente, resultado):
+    _init_db()
+    conn = sqlite3.connect(_DB_PATH)
+    conn.execute(
+        "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (numero, date.today().isoformat(), cliente or "Sin nombre",
+         resultado.get("categoria",""), resultado.get("tipo_proyecto",""),
+         resultado.get("m2_real",0), resultado.get("ml_proyecto",0),
+         resultado.get("costo_total",0), resultado.get("precio_sugerido",0),
+         resultado.get("margen_pct",0), "Pendiente",
+         json.dumps(resultado, ensure_ascii=False, default=str))
+    )
+    conn.commit(); conn.close()
+
+def _listar_cotizaciones(busqueda=""):
+    _init_db()
+    conn = sqlite3.connect(_DB_PATH)
+    q = "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado FROM cotizaciones WHERE cliente LIKE ? OR numero LIKE ? OR material LIKE ? ORDER BY id DESC LIMIT 200" if busqueda else "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado FROM cotizaciones ORDER BY id DESC LIMIT 200"
+    rows = conn.execute(q, (f"%{busqueda}%",)*3 if busqueda else ()).fetchall()
+    conn.close(); return rows
+
+def _actualizar_estado(cot_id, nuevo_estado):
+    _init_db()
+    conn = sqlite3.connect(_DB_PATH)
+    conn.execute("UPDATE cotizaciones SET estado=? WHERE id=?", (nuevo_estado, cot_id))
+    conn.commit(); conn.close()
+
+def _stats_db():
+    _init_db()
+    conn = sqlite3.connect(_DB_PATH)
+    s = {}
+    s["total"]      = conn.execute("SELECT COUNT(*) FROM cotizaciones").fetchone()[0]
+    s["aprobadas"]  = conn.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Aprobada'").fetchone()[0]
+    s["pendientes"] = conn.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Pendiente'").fetchone()[0]
+    s["facturacion"]= conn.execute("SELECT SUM(precio) FROM cotizaciones WHERE estado='Aprobada'").fetchone()[0] or 0
+    s["margen_prom"]= conn.execute("SELECT AVG(margen) FROM cotizaciones WHERE estado='Aprobada'").fetchone()[0] or 0
+    s["por_material"]= conn.execute("SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones WHERE estado='Aprobada' GROUP BY material").fetchall()
+    s["por_mes"]    = conn.execute("SELECT substr(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones GROUP BY substr(fecha,1,7) ORDER BY substr(fecha,1,7) DESC LIMIT 6").fetchall()
+    conn.close(); return s
 
 # ── Asistente de parámetros (system prompt SEPARADO del asistente general) ──
 def _chat_parametros(historial: list, mensaje: str) -> str:
@@ -374,8 +431,11 @@ _defaults = {
         "cuenta_tipo": "Cuenta Corriente Empresas",
         "cuenta_numero": "108900027484",
     },
-    "vehiculos_custom": None,      # dict con vehículos personalizados
     "params_wizard_activo": False,
+    "tour_activo": False,
+    "tour_paso": 0,
+    "tour_completado": False,
+    "vehiculos_custom": None,
     "params_wizard_campo": None,
     "params_wizard_chat": [],
     "cat_sel": "Mármol",
@@ -395,7 +455,6 @@ def get_viaticos():
     return st.session_state.viaticos_custom or VIATICOS
 
 def get_vehiculos_config():
-    """Retorna VEHICULOS_CONFIG con los custom aplicados encima."""
     import copy
     base = copy.deepcopy(VEHICULOS_CONFIG)
     custom = st.session_state.get("vehiculos_custom") or {}
@@ -404,13 +463,11 @@ def get_vehiculos_config():
     return base
 
 def get_vehiculos_dict():
-    """Retorna dict {nombre_display: key} para selectboxes, incluyendo personalizados."""
     vc = get_vehiculos_config()
     result = {}
     for key, cfg in vc.items():
         nombre = cfg.get("nombre", key)
-        tipo   = cfg.get("tipo", "externo")
-        sufijo = " (camioneta/camión)" if tipo == "propio" else " (flete externo)"
+        sufijo = " (propio)" if cfg.get("tipo") == "propio" else " (flete externo)"
         result[f"{nombre}{sufijo}"] = key
     return result
 
@@ -537,7 +594,67 @@ if pagina == "Inicio":
 # ═══════════════════════════════════════════════════════════════════════════════
 # COTIZACIÓN DIRECTA
 # ═══════════════════════════════════════════════════════════════════════════════
-elif pagina == "Cotizacion Directa":
+el# ═══════════════════════════════════════════════════════════════════════════════
+# TOUR GUIADO
+# ═══════════════════════════════════════════════════════════════════════════════
+if st.session_state.get("tour_activo"):
+    _paso_idx = st.session_state.get("tour_paso", 0)
+    _paso_idx = min(_paso_idx, len(TOUR_PASOS) - 1)
+    _paso = TOUR_PASOS[_paso_idx]
+    _total = len(TOUR_PASOS)
+
+    # Overlay card
+    st.markdown(
+        f"""<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(13,33,55,0.72);z-index:9998;pointer-events:none"></div>""",
+        unsafe_allow_html=True
+    )
+    _prog_pct = int((_paso_idx / max(_total - 1, 1)) * 100)
+    _cuerpo_html = _paso["cuerpo"].replace("\n", "<br>")
+    st.markdown(
+        f"""<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+            z-index:9999;background:white;border-radius:16px;padding:32px 36px;
+            max-width:520px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.35);
+            border-top:4px solid {_gold}">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <div style="background:{_navy};color:{_gold};width:36px;height:36px;border-radius:50%;
+              display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1rem;flex-shrink:0">{_paso['icono']}</div>
+            <div>
+              <div style="font-size:0.72rem;color:{_gray};text-transform:uppercase;letter-spacing:0.08em">Paso {_paso_idx + 1} de {_total}</div>
+              <div style="font-size:1.1rem;font-weight:800;color:{_navy};font-family:Playfair Display,serif">{_paso['titulo']}</div>
+            </div>
+          </div>
+          <div style="font-size:0.9rem;color:#2a3a4a;line-height:1.7;margin-bottom:20px">{_cuerpo_html}</div>
+          <div style="background:{_gray_l};border-radius:4px;height:4px;margin-bottom:16px">
+            <div style="background:{_gold};width:{_prog_pct}%;height:4px;border-radius:4px;transition:width 0.3s"></div>
+          </div>
+        </div>""",
+        unsafe_allow_html=True
+    )
+
+    _tc1, _tc2, _tc3 = st.columns([1, 1, 1])
+    with _tc1:
+        if _paso_idx > 0:
+            if st.button("Anterior", key="tour_prev", use_container_width=True):
+                st.session_state.tour_paso -= 1
+                st.rerun()
+    with _tc2:
+        if st.button("Cerrar recorrido", key="tour_close", use_container_width=True):
+            st.session_state.tour_activo = False
+            st.rerun()
+    with _tc3:
+        if _paso_idx < _total - 1:
+            if st.button("Siguiente", key="tour_next", type="primary", use_container_width=True):
+                st.session_state.tour_paso += 1
+                if _paso.get("pagina"):
+                    pass  # ya se muestra la info en el card
+                st.rerun()
+        else:
+            if st.button("Finalizar", key="tour_fin", type="primary", use_container_width=True):
+                st.session_state.tour_activo    = False
+                st.session_state.tour_completado = True
+                st.rerun()
+
+if pagina == "Cotizacion Directa":
     st.markdown(f"<h2 style='color:{_navy};font-family:Playfair Display,serif;margin-bottom:4px'>Cotizacion Directa</h2>", unsafe_allow_html=True)
     st.markdown(f"<p style='color:{_gray};font-size:0.88rem;margin-bottom:20px'>Para proyectos residenciales y clientes particulares</p>", unsafe_allow_html=True)
 
@@ -715,7 +832,7 @@ elif pagina == "Cotizacion Directa":
             alerta(f"Aprovechamiento: <strong>{aprv:.1f}%</strong> — Retal: {retal:.3f} m²", estado_a)
 
     if m2_cortados_total > 0 and m2_real > 0:
-        alerta(f"Resumen: Proyecto {m2_real:.3f} m² · Cortados {m2_cortados_total:.3f} m² · Instalados {m2_usados:.3f} m² · Mano de obra calculada sobre <strong>{m2_cortados_total:.3f} m²</strong>", "info")
+        alerta(f"Resumen: {sum(p['ml'] for p in st.session_state.get('piezas',[]) if isinstance(p,dict)):.2f} ml totales · {m2_real:.3f} m² de material · Produccion calculada sobre los metros lineales reales", "info")
 
     st.markdown("---")
 
@@ -780,19 +897,18 @@ elif pagina == "Cotizacion Directa":
         peajes = st.number_input("Num. de peajes (total ida+vuelta)", min_value=0, value=peajes_default, step=1)
 
     from calculos import calcular_logistica as _calc_log
-    _veh_custom = st.session_state.get("vehiculos_custom") or {}
     _log_custom  = st.session_state.get("logistica_custom") or None
+    _veh_custom  = {**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})}
     log_prev = _calc_log(vehiculo, km, peajes, agente_ext_taller, personas, cat_sel,
-        logistica_override=_log_custom, vehiculos_custom={**VEHICULOS_CONFIG, **_veh_custom})
+        logistica_override=_log_custom, vehiculos_custom=_veh_custom)
     with st.expander(f"Desglose logistico — Total: {numero_completo(log_prev['total'])}"):
         items_log = []
-        _veh_cfg_cur = get_vehiculos_config().get(vehiculo, {})
-        if _veh_cfg_cur.get("tipo") != "externo":
-            items_log.append((f"Base vehiculo ({_veh_cfg_cur.get('nombre', veh_lbl)})", log_prev["base"]))
-            items_log.append((f"Gasolina + desgaste ({km*2:.0f} km ida+vuelta)", log_prev["km_costo"]))
+        _vc_cur = get_vehiculos_config().get(vehiculo, {})
+        if _vc_cur.get("tipo") != "externo":
+            items_log.append((f"Base {_vc_cur.get('nombre', veh_lbl)}", log_prev["base"]))
+            items_log.append((f"Gasolina + desgaste mecanico ({km*2:.0f} km ida+vuelta)", log_prev["km_costo"]))
         else:
-            _nom_ext = _veh_cfg_cur.get('nombre', 'Externo')
-            items_log.append((f"Flete {_nom_ext}", log_prev["vehiculo"]))
+            items_log.append((f"Flete {_vc_cur.get('nombre', 'Externo')}", log_prev["vehiculo"]))
         if agente_ext_taller:
             items_log.append(("Flete proveedor al taller", log_prev["agente"]))
         items_log.append((f"Peajes ({peajes} peajes)", log_prev["peajes"]))
@@ -851,6 +967,9 @@ elif pagina == "Cotizacion Directa":
 
     if calcular or st.session_state.cotizacion:
         if calcular:
+            _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", []) if isinstance(p, dict))
+            _log_ov = st.session_state.get("logistica_custom") or None
+            _veh_cu = {**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})}
             resultado = calcular_cotizacion_directa(
                 categoria=cat_sel, referencia=referencia,
                 precio_m2=precio_m2, area_placa_comprada=area_placa,
@@ -866,9 +985,16 @@ elif pagina == "Cotizacion Directa":
                 cantidades_add=cantidades_add, etapa=etapa,
                 adicionales_lista=ADICIONALES,
                 tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
+                ml_proyecto=_ml_tot,
+                logistica_override=_log_ov,
+                vehiculos_custom=_veh_cu,
             )
+            resultado["vehiculo_usado"] = vehiculo
             st.session_state.cotizacion = resultado
             st.session_state.contexto_cot = {"categoria": cat_sel, "referencia": referencia, "tipo_proyecto": tipo, "m2_real": m2_real}
+            import random as _rand
+            _num_auto = f"COT-{date.today().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
+            _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
             if ia_disponible():
                 with st.spinner("Analizando resultados con IA..."):
                     st.session_state.resumen_ia = generar_resumen_cotizacion(resultado, st.session_state.contexto_cot)
@@ -889,9 +1015,9 @@ elif pagina == "Cotizacion Directa":
             st.markdown(f"<div style='font-size:0.8rem;font-weight:700;color:{_gray};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px'>Desglose de costos</div>", unsafe_allow_html=True)
             bloque_costos([
                 ("Material (area comprada x precio/m²)", r['c1_material']),
-                ("Mano de obra (corte + elaboracion)",   r['c2_mano_obra']),
+                ("Produccion (por metro lineal)",         r['c2_mano_obra']),
                 ("Zocalos",                              r['c3_zocalos']),
-                ("Insumos (disco + desgaste maquina)",   r['c4_insumos']),
+                ("Insumos (disco + uso de maquina)",      r['c4_insumos']),
                 ("Logistica",                            r['c5_logistica']),
                 ("Viaticos",                             r['c6_viaticos']),
                 ("Adicionales en obra",                  r['c7_adicionales']),
@@ -916,6 +1042,54 @@ elif pagina == "Cotizacion Directa":
             st.markdown("---")
             st.markdown(f"<div style='font-size:0.8rem;font-weight:700;color:{_gray};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px'>Analisis IA</div>", unsafe_allow_html=True)
             card(f"<div style='font-size:0.87rem;color:{_navy};line-height:1.65'>{st.session_state.resumen_ia.replace(chr(10),'<br>')}</div>")
+
+        # ── SIMULADOR DE MARGEN ───────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown(f"<div style='font-size:0.8rem;font-weight:700;color:{_gray};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px'>Simulador de precio</div>", unsafe_allow_html=True)
+        st.caption("Mueve el margen para ver como cambia el precio en tiempo real, sin recalcular.")
+        _sim_m = st.slider("Margen de utilidad (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
+        _sim_p = r["costo_total"] / (1 - _sim_m / 100)
+        _sim_u = _sim_p - r["costo_total"]
+        _ss1, _ss2, _ss3 = st.columns(3)
+        _ss1.metric("Precio sugerido", numero_completo(_sim_p), f"{numero_completo(abs(_sim_p - r['precio_sugerido']))} vs calculado")
+        _ss2.metric("Utilidad neta", numero_completo(_sim_u))
+        _ss3.metric("Margen", f"{_sim_m}%", "Saludable" if _sim_m >= 35 else "Bajo riesgo" if _sim_m < 20 else "Aceptable")
+        if _sim_m < 20:
+            alerta(f"Con {_sim_m}% de margen estas por debajo del minimo recomendado. Precio de quiebre (20%): {numero_completo(r['costo_total']/0.80)}", "bajo")
+
+        # ── COMPARADOR A/B ─────────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown(f"<div style='font-size:0.8rem;font-weight:700;color:{_gray};text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px'>Comparar con otro material</div>", unsafe_allow_html=True)
+        _ab_on = st.toggle("Activar comparacion A/B", value=False, key="ab_toggle")
+        if _ab_on:
+            st.caption("Mismo proyecto, otro material. Compara precios al instante.")
+            _ab1, _ab2, _ab3 = st.columns(3)
+            _cat_b  = _ab1.selectbox("Material alternativo", [c for c in CATEGORIAS_MATERIAL if c != r["categoria"]], key="ab_cat")
+            _prec_b = _ab2.number_input("Precio/m² alternativo", value=float(r["precio_m2"]), min_value=1000.0, step=5_000.0, format="%.0f", key="ab_px")
+            _mrgb   = _ab3.slider("Margen alternativo (%)", 5, 80, int(r["margen_pct"]), key="ab_mrg")
+            from calculos import calcular_cotizacion_directa as _ccd2
+            _rb = _ccd2(
+                categoria=_cat_b, referencia=f"{_cat_b} alternativo",
+                precio_m2=_prec_b, area_placa_comprada=r["area_placa"],
+                m2_real=r["m2_real"], m2_cortados=r.get("m2_cortados", r["m2_real"]),
+                m2_usados=r.get("m2_usados", r["m2_real"]), margen_pct=_mrgb,
+                dias=r.get("dias",1), personas=r.get("personas",2),
+                zocalo_activo=(r["c3_zocalos"]>0), zocalo_ml=0.0,
+                agente_externo_taller=(r["c5_detalle"]["agente"]>0),
+                vehiculo_entrega=r.get("vehiculo_usado","frontier"), km=0, num_peajes=0,
+                foraneo_activo=False, viaticos_activos=False, tipo_aloj="pueblo", noches=0,
+                adicionales_activos=False, cantidades_add=[], etapa="terminada", adicionales_lista=ADICIONALES,
+                ml_proyecto=r.get("ml_proyecto", r["m2_real"]/0.60),
+            )
+            _cA, _cB = st.columns(2)
+            with _cA:
+                st.markdown(f"<div style='background:{_blue};color:white;padding:8px 14px;border-radius:6px;font-weight:700;margin-bottom:8px'>{r['categoria']} (actual)</div>", unsafe_allow_html=True)
+                bloque_costos([("Material",r["c1_material"]),("Produccion",r["c2_mano_obra"]),("Insumos",r["c4_insumos"]),("Logistica",r["c5_logistica"])],"PRECIO SUGERIDO",r["precio_sugerido"])
+            with _cB:
+                st.markdown(f"<div style='background:{_gold};color:{_navy};padding:8px 14px;border-radius:6px;font-weight:700;margin-bottom:8px'>{_cat_b} (alternativo)</div>", unsafe_allow_html=True)
+                bloque_costos([("Material",_rb["c1_material"]),("Produccion",_rb["c2_mano_obra"]),("Insumos",_rb["c4_insumos"]),("Logistica",_rb["c5_logistica"])],"PRECIO SUGERIDO",_rb["precio_sugerido"])
+            _diff = _rb["precio_sugerido"] - r["precio_sugerido"]
+            alerta(f"El {_cat_b} resulta {numero_completo(abs(_diff))} {'mas caro' if _diff > 0 else 'mas economico'} que el {r['categoria']} para este proyecto.", "info")
 
         # ── EXPORTAR PDF ─────────────────────────────────────────────────────
         st.markdown("---")
@@ -1008,9 +1182,8 @@ elif pagina == "Cotizacion AIU":
     seccion_titulo("Logistica")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        _veh_dict_aiu = get_vehiculos_dict()
-        veh_aiu_lbl  = st.selectbox("Vehiculo", list(_veh_dict_aiu.keys()), key="aiu_veh")
-        vehiculo_aiu = _veh_dict_aiu[veh_aiu_lbl]
+        veh_aiu_lbl = st.selectbox("Vehiculo", list(VEHICULOS.keys()), key="aiu_veh")
+        vehiculo_aiu = VEHICULOS[veh_aiu_lbl]
     with c2:
         km_aiu = st.number_input("Km", min_value=0.0, value=10.0, step=1.0, key="aiu_km")
     with c3:
@@ -1030,8 +1203,6 @@ elif pagina == "Cotizacion AIU":
 
     if st.button("Calcular AIU", type="primary"):
         from calculos import calcular_aiu as _calc_aiu
-        _log_c = st.session_state.get("logistica_custom") or None
-        _vhc   = {**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})}
         res_aiu = _calc_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu,
                             agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu)
 
@@ -1052,6 +1223,83 @@ elif pagina == "Cotizacion AIU":
 # ═══════════════════════════════════════════════════════════════════════════════
 # PARAMETROS
 # ═══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Historial":
+    st.markdown(f"<h2 style='color:{_navy};font-family:Playfair Display,serif'>Historial de cotizaciones</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{_gray};font-size:0.88rem'>Todas las cotizaciones guardadas automaticamente. Busca por cliente, numero o material.</p>", unsafe_allow_html=True)
+    _bus = st.text_input("Buscar", placeholder="Nombre del cliente, numero o material...", key="hist_bus")
+    _rows = _listar_cotizaciones(_bus)
+    if not _rows:
+        alerta("Aun no hay cotizaciones. Genera una y se guardara automaticamente.", "info")
+    else:
+        _ESTADOS = ["Pendiente", "Aprobada", "Rechazada", "En revision"]
+        _hdr = st.columns([0.5, 1.2, 1.2, 2.2, 1.5, 1, 1.2, 1.2, 1.4])
+        for _col, _lbl in zip(_hdr, ["#", "Numero", "Fecha", "Cliente", "Material", "ML", "Precio", "Margen", "Estado"]):
+            _col.markdown(f"<div style='font-size:0.72rem;font-weight:700;color:{_gray};text-transform:uppercase'>{_lbl}</div>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin:4px 0 8px'>", unsafe_allow_html=True)
+        for _row in _rows:
+            _rid, _rnum, _rfec, _rcli, _rmat, _rml, _rpre, _rmrg, _rest = _row
+            _cols = st.columns([0.5, 1.2, 1.2, 2.2, 1.5, 1, 1.2, 1.2, 1.4])
+            _cols[0].markdown(f"<span style='font-size:0.8rem;color:{_gray}'>{_rid}</span>", unsafe_allow_html=True)
+            _cols[1].markdown(f"<span style='font-size:0.8rem'>{_rnum}</span>", unsafe_allow_html=True)
+            _cols[2].markdown(f"<span style='font-size:0.8rem;color:{_gray}'>{_rfec}</span>", unsafe_allow_html=True)
+            _cols[3].markdown(f"<span style='font-size:0.85rem;font-weight:600;color:{_navy}'>{_rcli}</span>", unsafe_allow_html=True)
+            _cols[4].markdown(f"<span style='font-size:0.8rem'>{_rmat}</span>", unsafe_allow_html=True)
+            _cols[5].markdown(f"<span style='font-size:0.8rem'>{(_rml or 0):.1f} ml</span>", unsafe_allow_html=True)
+            _cols[6].markdown(f"<span style='font-size:0.82rem;font-weight:700;color:{_navy}'>{numero_completo(_rpre)}</span>", unsafe_allow_html=True)
+            _mrg_c = "#0A6E3F" if _rmrg >= 35 else "#92580A" if _rmrg >= 20 else "#981520"
+            _cols[7].markdown(f"<span style='font-size:0.82rem;color:{_mrg_c}'>{_rmrg:.0f}%</span>", unsafe_allow_html=True)
+            _est_sel = _cols[8].selectbox("Estado", _ESTADOS, index=_ESTADOS.index(_rest) if _rest in _ESTADOS else 0, key=f"est_{_rid}", label_visibility="collapsed")
+            if _est_sel != _rest:
+                _actualizar_estado(_rid, _est_sel)
+                st.rerun()
+        st.caption(f"{len(_rows)} cotizaciones encontradas")
+
+elif pagina == "Dashboard":
+    st.markdown(f"<h2 style='color:{_navy};font-family:Playfair Display,serif'>Dashboard Gerencial</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{_gray};font-size:0.88rem'>Metricas de tu negocio en tiempo real.</p>", unsafe_allow_html=True)
+    _s = _stats_db()
+    if _s["total"] == 0:
+        alerta("Genera cotizaciones para ver las metricas aqui.", "info")
+    else:
+        _m1, _m2, _m3, _m4 = st.columns(4)
+        _m1.metric("Total cotizaciones", _s["total"])
+        _m2.metric("Aprobadas", _s["aprobadas"])
+        _m3.metric("Pendientes", _s["pendientes"])
+        _m4.metric("Facturacion (aprobadas)", numero_completo(_s["facturacion"]))
+        st.markdown("---")
+        _da, _db = st.columns(2)
+        with _da:
+            st.markdown(f"<div style='font-size:0.8rem;font-weight:700;color:{_gray};text-transform:uppercase;margin-bottom:8px'>Por material</div>", unsafe_allow_html=True)
+            for _mat, _cnt, _mrg, _tot in (_s["por_material"] or []):
+                _pct = min(100, (_tot / max(_s["facturacion"], 1)) * 100)
+                st.markdown(
+                    f'<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:0.82rem">'
+                    f'<span style="font-weight:600;color:{_navy}">{_mat}</span>'
+                    f'<span style="color:{_gray}">{_cnt} cot. · {_mrg:.0f}% margen</span></div>'
+                    f'<div style="background:{_gray_l};border-radius:4px;height:5px;margin-top:3px">'
+                    f'<div style="background:{_blue};width:{_pct:.0f}%;height:5px;border-radius:4px"></div></div>'
+                    f'<div style="font-size:0.76rem;color:{_gray};margin-top:2px">{numero_completo(_tot)}</div></div>',
+                    unsafe_allow_html=True)
+        with _db:
+            st.markdown(f"<div style='font-size:0.8rem;font-weight:700;color:{_gray};text-transform:uppercase;margin-bottom:8px'>Ultimos 6 meses</div>", unsafe_allow_html=True)
+            for _mes, _cnt, _tot in (_s["por_mes"] or []):
+                _pct = min(100, (_tot / max(_s["facturacion"], 1)) * 100) if _s["facturacion"] > 0 else 0
+                st.markdown(
+                    f'<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:0.82rem">'
+                    f'<span style="font-weight:600;color:{_navy}">{_mes}</span>'
+                    f'<span style="color:{_gray}">{_cnt} cotizaciones</span></div>'
+                    f'<div style="background:{_gray_l};border-radius:4px;height:5px;margin-top:3px">'
+                    f'<div style="background:{_gold};width:{_pct:.0f}%;height:5px;border-radius:4px"></div></div>'
+                    f'<div style="font-size:0.76rem;color:{_gray};margin-top:2px">{numero_completo(_tot)}</div></div>',
+                    unsafe_allow_html=True)
+        st.markdown("---")
+        _mc = "#0A6E3F" if _s["margen_prom"] >= 35 else "#92580A" if _s["margen_prom"] >= 20 else "#981520"
+        st.markdown(
+            f'<div style="background:{_blue_ul};border:1px solid {_blue_l};border-radius:10px;padding:16px 24px;display:inline-block">'
+            f'<div style="font-size:2.4rem;font-weight:900;color:{_mc};font-family:Playfair Display,serif">{_s["margen_prom"]:.1f}%</div>'
+            f'<div style="font-size:0.8rem;color:{_gray}">margen promedio en aprobadas</div></div>',
+            unsafe_allow_html=True)
+
 elif pagina == "Parametros":
     st.markdown(f"<h2 style='color:{_navy};font-family:Playfair Display,serif'>Parametros de costos</h2>", unsafe_allow_html=True)
     st.markdown(f"<p style='color:{_gray};font-size:0.88rem;margin-bottom:4px'>Edita directamente los valores o deja que la IA te guie. Los cambios aplican inmediatamente a todos los calculos.</p>", unsafe_allow_html=True)
@@ -1092,12 +1340,11 @@ elif pagina == "Parametros":
     st.markdown("---")
 
     # ═══ TABS ═════════════════════════════════════════════════════════════════
-    t_ia, t1, t2, t3, t4 = st.tabs([
+    t_ia, t1, t2, t3 = st.tabs([
         "Asistente IA",
-        "Tarifas de trabajo",
-        "Logistica general",
+        "Costos de produccion",
+        "Logistica y vehiculos",
         "Viaticos",
-        "Mis vehiculos",
     ])
 
     # ── TAB: ASISTENTE IA ─────────────────────────────────────────────────────
@@ -1152,13 +1399,13 @@ elif pagina == "Parametros":
                 _client = _ant.Anthropic(api_key=st.secrets.get("ANTHROPIC_API_KEY",""))
 
                 _SYSTEM = """Eres el asistente de parámetros de una calculadora de costos de marmolería en Colombia.
-Tu trabajo: detectar valores numéricos en el mensaje del usuario y actualizar parámetros, O ayudar a configurar un vehículo nuevo con preguntas guiadas.
+Tu trabajo: detectar valores numéricos en el mensaje del usuario y actualizar los parámetros correspondientes.
 
 PARÁMETROS DISPONIBLES (usa exactamente estos nombres de clave):
 - gasolina: precio COP por galón de gasolina corriente
 - frontier_rend: km por galón Frontier NP300
-- frontier_desgaste: COP por km de desgaste Frontier (mantenimiento+depreciación)
-- frontier_base: flete base Frontier por viaje (costo mínimo por viaje)
+- frontier_desgaste: COP por km de desgaste Frontier
+- frontier_base: flete base Frontier por viaje
 - cheyenne_rend: km por galón Cheyenne V8
 - cheyenne_desgaste: COP por km de desgaste Cheyenne
 - cheyenne_base: flete base Cheyenne por viaje
@@ -1168,30 +1415,23 @@ PARÁMETROS DISPONIBLES (usa exactamente estos nombres de clave):
 - herram: desgaste herramientas por viaje
 - viaticos_pueblo: tarifa por noche/persona en pueblo
 - viaticos_ciudad: tarifa por noche/persona en ciudad
-- marmol_corte, marmol_elab, marmol_zocalo, marmol_disco, marmol_desgaste, marmol_mo_hora
-- granito_corte, granito_elab, granito_zocalo, granito_disco, granito_desgaste, granito_mo_hora
-- sinterizado_corte, sinterizado_elab, sinterizado_zocalo, sinterizado_disco, sinterizado_desgaste, sinterizado_mo_hora
-- quarztone_corte, quarztone_elab, quarztone_zocalo, quarztone_disco, quarztone_desgaste, quarztone_mo_hora
-- cuarcita_corte, cuarcita_elab, cuarcita_zocalo, cuarcita_disco, cuarcita_desgaste, cuarcita_mo_hora
-
-VEHÍCULOS NUEVOS:
-Cuando el usuario diga "quiero agregar un vehículo", "tengo una moto/camión/otro vehículo", "¿cómo agrego mi vehículo?":
-- Haz preguntas UNA A LA VEZ: nombre, ¿propio o externo?, rendimiento km/galón, desgaste COP/km, flete base
-- Para vehículos externos: solo nombre y tarifa fija por viaje
-- Para desgaste sugerido: moto=80COP/km, camioneta=150-200COP/km, camión=300-400COP/km
-- Para rendimiento sugerido: moto=30km/gal, camioneta gasolina=7-9km/gal, camión diesel=6-8km/gal
-- Al tener todos los datos, incluye en "actualizados" la clave especial "nuevo_vehiculo" con el dict completo
+COSTOS DE PRODUCCIÓN (se paga por metro lineal, no por hora):
+- marmol_prod_ml: COP que le pagas al operario por cada ml cortado e instalado en mármol
+- marmol_zocalo: COP/ml de zócalo en mármol
+- marmol_disco: COP/m² de disco en mármol
+- marmol_maquina: COP/día de máquina en mármol
+- granito_prod_ml, granito_zocalo, granito_disco, granito_maquina
+- sinterizado_prod_ml, sinterizado_zocalo, sinterizado_disco, sinterizado_maquina
+- quarztone_prod_ml, quarztone_zocalo, quarztone_disco, quarztone_maquina
+- cuarcita_prod_ml, cuarcita_zocalo, cuarcita_disco, cuarcita_maquina
 
 RESPONDE SIEMPRE en este formato JSON exacto:
 {
-  "actualizados": {
-    "clave": valor_numerico,
-    "nuevo_vehiculo": {"nombre": "...", "tipo": "propio|externo", "rend": ..., "desgaste": ..., "base": ..., "descripcion": "..."}
-  },
-  "mensaje": "Texto de confirmacion o siguiente pregunta. Máximo 3 líneas."
+  "actualizados": {"clave": valor_numerico, ...},
+  "mensaje": "Texto de confirmacion corto para el usuario. Menciona los valores que aplicaste."
 }
 
-Si el usuario no menciona ningún valor actualizable ni habla de vehículo, deja "actualizados" vacío {} y orienta brevemente.
+Si el usuario no menciona ningún valor numérico actualizable, deja "actualizados" vacío {} y responde con orientación.
 SOLO JSON, sin texto antes ni después."""
 
                 _messages = [{"role": m["role"], "content": m["content"]} for m in chat_wizard]
@@ -1252,7 +1492,7 @@ SOLO JSON, sin texto antes ni después."""
                 "Mármol": "marmol", "Granito": "granito",
                 "Sinterizado": "sinterizado", "Quarztone": "quarztone", "Cuarcita": "cuarcita"
             }
-            _campo_map = {"corte":"corte","elab":"elab","zocalo":"zocalo","disco":"disco","desgaste":"desgaste","mo_hora":"mo_hora"}
+            _campo_map = {"prod_ml":"prod_ml","zocalo":"zocalo","disco":"disco","maquina":"maquina"}
             for _mat_nombre, _mat_key in _mat_map.items():
                 for _campo_key in _campo_map:
                     _full_key = f"{_mat_key}_{_campo_key}"
@@ -1260,35 +1500,10 @@ SOLO JSON, sin texto antes ni después."""
                         st.session_state.tarifas_custom[_mat_nombre][_campo_key] = float(_act[_full_key])
                         _aplicados.append(f"{_mat_nombre} {_campo_key}: {numero_completo(_act[_full_key])}")
 
-            # Vehículo nuevo desde IA
-            _nuevo_veh = _act.get("nuevo_vehiculo")
-            if _nuevo_veh and isinstance(_nuevo_veh, dict) and _nuevo_veh.get("nombre"):
-                import copy as _cp
-                if st.session_state.get("vehiculos_custom") is None:
-                    st.session_state.vehiculos_custom = _cp.deepcopy(VEHICULOS_CONFIG)
-                _nv_key = _nuevo_veh["nombre"].lower().replace(" ", "_").replace("/","_")[:20]
-                if _nv_key in st.session_state.vehiculos_custom:
-                    _nv_key = _nv_key + "_ia"
-                st.session_state.vehiculos_custom[_nv_key] = _nuevo_veh
-                _aplicados.append(f"Vehiculo '{_nuevo_veh['nombre']}' agregado a tu flota")
-
-            # Vehiculo nuevo creado por la IA
-            _nuevo_veh = _act.get("nuevo_vehiculo")
-            if _nuevo_veh and isinstance(_nuevo_veh, dict) and _nuevo_veh.get("nombre"):
-                import copy as _cp
-                if st.session_state.get("vehiculos_custom") is None:
-                    st.session_state.vehiculos_custom = _cp.deepcopy(VEHICULOS_CONFIG)
-                _nv_key = _nuevo_veh["nombre"].lower().replace(" ", "_").replace("/","_")[:20]
-                if _nv_key in st.session_state.vehiculos_custom:
-                    _nv_key = _nv_key + "_ia"
-                _nuevo_veh.setdefault("combustible", "gasolina")
-                st.session_state.vehiculos_custom[_nv_key] = _nuevo_veh
-                _aplicados.append(f"Vehiculo '{_nuevo_veh['nombre']}' agregado a tu flota")
-
             # Mensaje de respuesta
             _msg_resp = _data.get("mensaje", "Listo.")
             if _aplicados:
-                _msg_resp += f" Aplicado: {', '.join(_aplicados[:3])}{'...' if len(_aplicados)>3 else '.'}"
+                _msg_resp += f" Aplicado: {', '.join(_aplicados[:3])}{'...' if len(_aplicados)>3 else '.' }"
 
             chat_wizard.append({"role": "assistant", "content": _msg_resp})
             st.session_state.params_wizard_chat = chat_wizard
@@ -1373,137 +1588,82 @@ SOLO JSON, sin texto antes ni después."""
 
     # ── TAB: MIS VEHÍCULOS ────────────────────────────────────────────────────
     with t4:
-        import copy, uuid
-        st.markdown(
-            f"<p style='color:{_gray};font-size:0.85rem;margin-bottom:6px'>"
-            "Administra los vehiculos disponibles para transporte. "
-            "Puedes editar los existentes, agregar nuevos y eliminarlos. "
-            "Los cambios aparecen de inmediato en los selectores de cotizacion."
-            "</p>", unsafe_allow_html=True
-        )
-        alerta("El asistente IA puede ayudarte a configurar los costos de un vehiculo nuevo. Usa la tab 'Asistente IA' y dile: 'Quiero agregar un vehiculo nuevo'.", "info")
+        import copy as _cp2
+        st.markdown(f"<p style='color:{_gray};font-size:0.85rem;margin-bottom:6px'>Agrega, edita o elimina los vehiculos que usas para transporte. Los cambios se reflejan de inmediato en los selectores de cotizacion.</p>", unsafe_allow_html=True)
+        alerta("El asistente IA puede ayudarte a configurar un vehiculo nuevo. Escribe 'quiero agregar un vehiculo nuevo' en la tab Asistente IA.", "info")
 
-        # Inicializar vehiculos_custom si no existe
         if st.session_state.get("vehiculos_custom") is None:
-            st.session_state.vehiculos_custom = copy.deepcopy(VEHICULOS_CONFIG)
-
-        VEH = st.session_state.vehiculos_custom
-        _veh_editados = copy.deepcopy(VEH)
-
-        # ── Lista de vehículos actuales ───────────────────────────────────────
-        seccion_titulo("Vehiculos configurados", "")
+            st.session_state.vehiculos_custom = _cp2.deepcopy(VEHICULOS_CONFIG)
+        VEH = _cp2.deepcopy(st.session_state.vehiculos_custom)
         _veh_a_eliminar = None
 
-        for _vk, _vc in _veh_editados.items():
-            _es_propio = _vc.get("tipo") == "propio"
-            _tag_color = _blue if _es_propio else _gray
-            _tag_txt   = "Propio" if _es_propio else "Externo"
+        for _vk, _vc in VEH.items():
+            _es_propio  = _vc.get("tipo") == "propio"
             _is_default = _vk in ["frontier", "cheyenne", "externo"]
-
-            with st.expander(
-                f"{_vc.get('nombre', _vk)}  —  {'Vehículo propio' if _es_propio else 'Flete externo'}",
-                expanded=False
-            ):
-                _c1, _c2 = st.columns([3, 1])
-                with _c1:
-                    _vc["nombre"] = st.text_input(
-                        "Nombre del vehiculo", value=_vc.get("nombre", _vk),
-                        key=f"vn_{_vk}", max_chars=40
-                    )
-                    _vc["descripcion"] = st.text_input(
-                        "Descripcion (opcional)", value=_vc.get("descripcion", ""),
-                        key=f"vd_{_vk}", max_chars=80
-                    )
-                with _c2:
-                    _tipo_actual = "Propio (gasolina/diesel)" if _es_propio else "Externo (flete fijo)"
-                    _tipo_nuevo  = st.selectbox(
-                        "Tipo", ["Propio (gasolina/diesel)", "Externo (flete fijo)"],
-                        index=0 if _es_propio else 1, key=f"vt_{_vk}"
-                    )
-                    _vc["tipo"] = "propio" if "Propio" in _tipo_nuevo else "externo"
-
+            with st.expander(f"{_vc.get('nombre', _vk)} — {'Propio' if _es_propio else 'Externo'}", expanded=False):
+                _ca, _cb = st.columns([3, 1])
+                _vc["nombre"]      = _ca.text_input("Nombre", value=_vc.get("nombre", _vk), key=f"vn_{_vk}", max_chars=40)
+                _vc["descripcion"] = _ca.text_input("Descripcion (opcional)", value=_vc.get("descripcion",""), key=f"vd_{_vk}", max_chars=80)
+                _tipo_sel = _cb.selectbox("Tipo", ["Propio", "Externo"], index=0 if _es_propio else 1, key=f"vt_{_vk}")
+                _vc["tipo"] = "propio" if _tipo_sel == "Propio" else "externo"
                 if _vc["tipo"] == "propio":
-                    _pa, _pb, _pc = st.columns(3)
-                    _vc["rend"]     = _pa.number_input("Rendimiento (km/galon)", value=float(_vc.get("rend", 7.0)),     min_value=0.1, step=0.1, format="%.1f", key=f"vr_{_vk}", help="Cuantos km rinde 1 galon con carga")
-                    _vc["desgaste"] = _pb.number_input("Desgaste (COP/km)",      value=float(_vc.get("desgaste", 148)), min_value=0.0, step=1.0, format="%.0f", key=f"vg_{_vk}", help="Costo de mantenimiento por km recorrido")
-                    _vc["base"]     = _pc.number_input("Flete base (COP/viaje)", value=float(_vc.get("base", 65_000)),  min_value=0.0, step=1000.0, format="%.0f", key=f"vb_{_vk}", help="Costo minimo por viaje, independiente de la distancia")
-                    # Estimador visual
-                    _gasolina_act = (st.session_state.logistica_custom or LOGISTICA).get("gasolina", 16_000)
-                    _costo_km_est = (_gasolina_act / max(_vc["rend"], 0.1)) + _vc["desgaste"]
-                    _costo_10km   = _vc["base"] + (_costo_km_est * 10 * 2)
-                    _costo_30km   = _vc["base"] + (_costo_km_est * 30 * 2)
-                    st.caption(
-                        f"Estimado: 10 km = {numero_completo(_costo_10km)} | "
-                        f"30 km = {numero_completo(_costo_30km)} | "
-                        f"Costo/km: {numero_completo(_costo_km_est)}"
-                    )
+                    _p1, _p2, _p3 = st.columns(3)
+                    _vc["rend"]     = _p1.number_input("Rendimiento (km/galon)", value=float(_vc.get("rend",7.0)), min_value=0.1, step=0.1, format="%.1f", key=f"vr_{_vk}", help="Cuantos km rinde 1 galon con carga")
+                    _vc["desgaste"] = _p2.number_input("Desgaste mecanico (COP/km)", value=float(_vc.get("desgaste",148)), min_value=0.0, step=1.0, format="%.0f", key=f"vg_{_vk}", help="Costo de mantenimiento + depreciacion por km")
+                    _vc["base"]     = _p3.number_input("Flete minimo (COP/viaje)", value=float(_vc.get("base",65_000)), min_value=0.0, step=1_000.0, format="%.0f", key=f"vb_{_vk}", help="Costo minimo por viaje sin importar la distancia")
+                    _gas = (st.session_state.logistica_custom or LOGISTICA).get("gasolina", 16_000)
+                    _ckm = (_gas / max(_vc["rend"], 0.1)) + _vc["desgaste"]
+                    st.caption(f"Estimado: 10 km = {numero_completo(_vc['base'] + _ckm*20)} · 30 km = {numero_completo(_vc['base'] + _ckm*60)}")
                 else:
-                    _vc["flete"] = st.number_input(
-                        "Tarifa fija por viaje (COP)", value=float(_vc.get("flete", 165_000)),
-                        min_value=0.0, step=5_000.0, format="%.0f", key=f"vf_{_vk}",
-                        help="Precio que cobra el tercero por cada viaje, sin importar la distancia"
-                    )
-
+                    _vc["flete"] = st.number_input("Tarifa fija por viaje (COP)", value=float(_vc.get("flete",165_000)), min_value=0.0, step=5_000.0, format="%.0f", key=f"vf_{_vk}", help="El transportista cobra este valor fijo por cada viaje")
                 if not _is_default:
-                    if st.button(f"Eliminar este vehiculo", key=f"del_{_vk}", type="secondary"):
+                    if st.button("Eliminar este vehiculo", key=f"del_{_vk}"):
                         _veh_a_eliminar = _vk
+            VEH[_vk] = _vc
 
-            _veh_editados[_vk] = _vc
-
-        # Eliminar vehículo marcado
         if _veh_a_eliminar:
-            del _veh_editados[_veh_a_eliminar]
-            st.session_state.vehiculos_custom = _veh_editados
+            del VEH[_veh_a_eliminar]
+            st.session_state.vehiculos_custom = VEH
             st.success("Vehiculo eliminado.")
             st.rerun()
 
-        # ── Agregar vehículo nuevo ────────────────────────────────────────────
         st.markdown("---")
         seccion_titulo("Agregar vehiculo nuevo", "")
         with st.expander("Configurar nuevo vehiculo", expanded=False):
             _nc1, _nc2 = st.columns(2)
-            _new_nombre = _nc1.text_input("Nombre del vehiculo", placeholder="Ej: Camion Hino 300", key="new_veh_nombre")
-            _new_tipo   = _nc2.selectbox("Tipo", ["Propio (gasolina/diesel)", "Externo (flete fijo)"], key="new_veh_tipo")
-            _new_desc   = st.text_input("Descripcion (opcional)", placeholder="Ej: Camion mediano para piezas grandes", key="new_veh_desc")
-
+            _new_nom  = _nc1.text_input("Nombre del vehiculo", placeholder="Ej: Camion Hino 300", key="new_vn")
+            _new_tipo = _nc2.selectbox("Tipo", ["Propio (gasolina/diesel)", "Externo (flete fijo)"], key="new_vt")
+            _new_desc = st.text_input("Descripcion", placeholder="Opcional", key="new_vd")
             if "Propio" in _new_tipo:
-                _na, _nb, _nc = st.columns(3)
-                _new_rend  = _na.number_input("Rendimiento (km/galon)", value=7.0, min_value=0.1, step=0.1, format="%.1f", key="new_veh_rend")
-                _new_desg  = _nb.number_input("Desgaste (COP/km)",      value=148.0, min_value=0.0, step=1.0, format="%.0f", key="new_veh_desg")
-                _new_base  = _nc.number_input("Flete base (COP/viaje)", value=65_000.0, min_value=0.0, step=1000.0, format="%.0f", key="new_veh_base")
-                _new_veh_data = {"tipo": "propio", "combustible": "gasolina", "rend": _new_rend, "desgaste": _new_desg, "base": _new_base}
+                _n1, _n2, _n3 = st.columns(3)
+                _new_rend = _n1.number_input("Rendimiento km/galon", value=7.0, min_value=0.1, step=0.1, format="%.1f", key="new_vr")
+                _new_desg = _n2.number_input("Desgaste COP/km", value=148.0, min_value=0.0, step=1.0, format="%.0f", key="new_vg")
+                _new_base = _n3.number_input("Flete minimo COP/viaje", value=65_000.0, min_value=0.0, step=1_000.0, format="%.0f", key="new_vb")
+                _new_data = {"tipo":"propio","rend":_new_rend,"desgaste":_new_desg,"base":_new_base}
             else:
-                _new_flete = st.number_input("Tarifa fija por viaje (COP)", value=165_000.0, min_value=0.0, step=5_000.0, format="%.0f", key="new_veh_flete")
-                _new_veh_data = {"tipo": "externo", "flete": _new_flete}
-
+                _new_flete = st.number_input("Tarifa fija COP/viaje", value=165_000.0, min_value=0.0, step=5_000.0, format="%.0f", key="new_vf")
+                _new_data  = {"tipo":"externo","flete":_new_flete}
             if st.button("Agregar vehiculo", type="primary", key="btn_add_veh"):
-                if _new_nombre.strip():
-                    _new_key = _new_nombre.strip().lower().replace(" ", "_").replace("/", "_")[:20]
-                    # Evitar colisiones de clave
-                    if _new_key in _veh_editados:
-                        _new_key = _new_key + "_2"
-                    _new_veh_data["nombre"]      = _new_nombre.strip()
-                    _new_veh_data["descripcion"] = _new_desc.strip()
-                    _veh_editados[_new_key] = _new_veh_data
-                    st.session_state.vehiculos_custom = _veh_editados
-                    st.success(f"Vehiculo '{_new_nombre}' agregado. Ya aparece en los selectores de cotizacion.")
+                if _new_nom.strip():
+                    _nk = _new_nom.strip().lower().replace(" ","_")[:20]
+                    if _nk in VEH: _nk += "_2"
+                    _new_data.update({"nombre":_new_nom.strip(),"descripcion":_new_desc.strip()})
+                    VEH[_nk] = _new_data
+                    st.session_state.vehiculos_custom = VEH
+                    st.success(f"Vehiculo '{_new_nom}' agregado.")
                     st.rerun()
                 else:
-                    st.warning("Escribe un nombre para el vehiculo.")
+                    st.warning("Escribe un nombre.")
 
-        # ── Guardar ediciones de vehículos existentes ─────────────────────────
-        st.markdown("")
-        _col_g1, _col_g2 = st.columns([1, 1])
-        with _col_g1:
-            if st.button("Guardar cambios de vehiculos", type="primary", use_container_width=True, key="btn_save_veh"):
-                st.session_state.vehiculos_custom = _veh_editados
-                st.success("Vehiculos guardados. La calculadora ya usa estos valores.")
-                st.rerun()
-        with _col_g2:
-            if st.button("Restaurar vehiculos originales", use_container_width=True, key="btn_rst_veh"):
-                st.session_state.vehiculos_custom = copy.deepcopy(VEHICULOS_CONFIG)
-                st.success("Vehiculos restaurados a los valores originales.")
-                st.rerun()
+        _sg1, _sg2 = st.columns(2)
+        if _sg1.button("Guardar cambios", type="primary", use_container_width=True, key="btn_sv_veh"):
+            st.session_state.vehiculos_custom = VEH
+            st.success("Vehiculos guardados.")
+            st.rerun()
+        if _sg2.button("Restaurar originales", use_container_width=True, key="btn_rst_veh"):
+            st.session_state.vehiculos_custom = _cp2.deepcopy(VEHICULOS_CONFIG)
+            st.success("Restaurados.")
+            st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
