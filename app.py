@@ -770,7 +770,8 @@ if pagina == "Cotizacion Directa":
             m2_p = ml_a_m2(ml_p, ancho_p)
             total_m2_piezas += m2_p
             with c4:
-                st.markdown(f"<div style='padding:8px 4px;font-weight:700;color:{_navy};font-size:0.9rem'>{m2_p:.3f} m²</div>", unsafe_allow_html=True)
+                _m2p_fmt = f"{m2_p:.3f}".replace(".", ",")
+                st.markdown(f"<div style='padding:8px 4px;font-weight:700;color:{_navy};font-size:0.9rem'>{_m2p_fmt} m²</div>", unsafe_allow_html=True)
             with c5:
                 if st.button("X", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
                     st.session_state.piezas.pop(idx)
@@ -1340,11 +1341,12 @@ elif pagina == "Parametros":
     st.markdown("---")
 
     # ═══ TABS ═════════════════════════════════════════════════════════════════
-    t_ia, t1, t2, t3 = st.tabs([
+    t_ia, t1, t2, t3, t4 = st.tabs([
         "Asistente IA",
         "Costos de produccion",
-        "Logistica y vehiculos",
+        "Logistica",
         "Viaticos",
+        "Mis vehiculos",
     ])
 
     # ── TAB: ASISTENTE IA ─────────────────────────────────────────────────────
