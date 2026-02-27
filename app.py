@@ -789,12 +789,16 @@ if pagina == "Cotizacion Directa":
                 st.rerun()
         with col_sum:
             if m2_real > 0:
-                st.markdown(f"""<div style="background:{_navy};color:white;border-radius:10px;
-                    padding:12px 18px;text-align:center">
+                _ml_total = sum(p.get("ml", 0) for p in st.session_state.piezas if isinstance(p, dict))
+                _ml_str = f"{_ml_total:.2f}".replace(".", ",")
+                _m2_str = f"{m2_real:.3f}".replace(".", ",")
+                st.markdown(
+                    f'''<div style="background:{_navy};color:white;border-radius:10px;padding:12px 18px;text-align:center">
                   <div style="font-size:0.7rem;color:{_gold};text-transform:uppercase;letter-spacing:0.08em">Total del proyecto</div>
-                  <div style="font-size:1.9rem;font-weight:900;font-family:'Playfair Display',serif">{m2_real:.3f} m²</div>
-                  <div style="font-size:0.72rem;color:rgba(255,255,255,0.5)">{len(st.session_state.piezas)} piezas</div>
-                </div>""", unsafe_allow_html=True)
+                  <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{_ml_str} ml</div>
+                  <div style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin-top:2px">{_m2_str} m² de material</div>
+                  <div style="font-size:0.72rem;color:rgba(255,255,255,0.45);margin-top:1px">{len(st.session_state.piezas)} piezas</div>
+                </div>''', unsafe_allow_html=True)
 
         extra_corte = st.number_input("m² adicionales cortados no aprovechados (desperdicios)", min_value=0.0, value=0.0, step=0.05, format="%.3f")
         m2_cortados_total += extra_corte
@@ -969,6 +973,7 @@ if pagina == "Cotizacion Directa":
             _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", []) if isinstance(p, dict))
             _log_ov = st.session_state.get("logistica_custom") or None
             _veh_cu = {**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})}
+            _tar_ov = st.session_state.get("tarifas_custom") or None
             resultado = calcular_cotizacion_directa(
                 categoria=cat_sel, referencia=referencia,
                 precio_m2=precio_m2, area_placa_comprada=area_placa,
@@ -987,6 +992,7 @@ if pagina == "Cotizacion Directa":
                 ml_proyecto=_ml_tot,
                 logistica_override=_log_ov,
                 vehiculos_custom=_veh_cu,
+                tarifas_override=_tar_ov,
             )
             resultado["vehiculo_usado"] = vehiculo
             st.session_state.cotizacion = resultado
