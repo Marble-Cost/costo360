@@ -95,7 +95,7 @@ Parámetros que puedes actualizar:
 - Peaje ida+vuelta: valor actual
 - Viáticos pueblo: tarifa por noche por persona
 - Viáticos ciudad: tarifa por noche por persona
-- Tarifas de mano de obra por material (corte, elaboración, zócalo, disco, desgaste máquina, MO/hora)
+- Costos de produccion por material: prod_ml (COP/ml), zocalo, disco, maquina
 
 REGLAS ESTRICTAS:
 1. Haz UNA sola pregunta a la vez
@@ -914,11 +914,9 @@ if pagina == "Cotizacion Directa":
             items_log.append(("Flete proveedor al taller", log_prev["agente"]))
         items_log.append((f"Peajes ({peajes} peajes)", log_prev["peajes"]))
         items_log.append(("Desgaste de herramientas", log_prev["herram"]))
-        if log_prev.get("traslado_mo", 0) > 0:
-            items_log.append((f"Tiempo traslado operarios ({personas} pers.)", log_prev["traslado_mo"]))
+
         bloque_costos(items_log, "TOTAL LOGISTICO", log_prev["total"])
-        if log_prev.get("traslado_mo", 0) > 0:
-            alerta(f"El tiempo que los operarios pasan en traslado tiene costo real: {numero_completo(log_prev['traslado_mo'])} — contabilizado y visible.", "info")
+
 
     st.markdown("---")
 
@@ -1527,13 +1525,13 @@ SOLO JSON, sin texto antes ni después."""
         for _cat in CATEGORIAS_MATERIAL:
             _tar = _tar_editadas.get(_cat, TARIFAS[_cat])
             st.markdown(f"<div style='font-weight:700;color:{_navy};font-size:0.92rem;margin:18px 0 10px;border-left:3px solid {_blue};padding-left:10px'>{_cat}</div>", unsafe_allow_html=True)
-            _tc1,_tc2,_tc3,_tc4,_tc5,_tc6 = st.columns(6)
+            _tc1,_tc2,_tc3,_tc4,_tc5 = st.columns(5)
             _tar["corte"]    = _tc1.number_input("Corte/m²",    value=float(_tar.get("corte",0)),    min_value=0.0, step=1000.0, format="%.0f", key=f"tar_{_cat}_corte",    label_visibility="visible")
             _tar["elab"]     = _tc2.number_input("Elab./m²",    value=float(_tar.get("elab",0)),     min_value=0.0, step=1000.0, format="%.0f", key=f"tar_{_cat}_elab",     label_visibility="visible")
             _tar["zocalo"]   = _tc3.number_input("Zocalo/ml",   value=float(_tar.get("zocalo",0)),   min_value=0.0, step=500.0,  format="%.0f", key=f"tar_{_cat}_zocalo",   label_visibility="visible")
             _tar["disco"]    = _tc4.number_input("Disco/m²",    value=float(_tar.get("disco",0)),    min_value=0.0, step=100.0,  format="%.0f", key=f"tar_{_cat}_disco",    label_visibility="visible")
             _tar["desgaste"] = _tc5.number_input("Desg./dia",   value=float(_tar.get("desgaste",0)), min_value=0.0, step=1000.0, format="%.0f", key=f"tar_{_cat}_desgaste", label_visibility="visible")
-            _tar["mo_hora"]  = _tc6.number_input("MO/hora",     value=float(_tar.get("mo_hora",0)),  min_value=0.0, step=500.0,  format="%.0f", key=f"tar_{_cat}_mo_hora",  label_visibility="visible")
+
             _tar_editadas[_cat] = _tar
 
         if st.button("Guardar tarifas de trabajo", type="primary", use_container_width=True, key="btn_guardar_tar"):
