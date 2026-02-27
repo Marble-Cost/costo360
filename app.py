@@ -215,7 +215,6 @@ if "primera_visita" not in st.session_state:
 
 if "nav_radio" not in st.session_state:
     st.session_state.nav_radio = "Inicio"
-    st.session_state._radio_ui = "Inicio"
 
 # ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
 def _get_db_connection():
@@ -417,12 +416,11 @@ with st.sidebar:
 
     opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Parametros", "Asistente IA", "Configuracion"]
 
-    def update_nav():
-        st.session_state.nav_radio = st.session_state._radio_ui
-
-    st.radio("Menú", opciones_menu, key="_radio_ui",
-             index=opciones_menu.index(st.session_state.nav_radio),
-             on_change=update_nav, label_visibility="collapsed")
+    _nav_idx = opciones_menu.index(st.session_state.nav_radio) if st.session_state.nav_radio in opciones_menu else 0
+    _seleccion = st.radio("Menú", opciones_menu, index=_nav_idx, label_visibility="collapsed")
+    if _seleccion != st.session_state.nav_radio:
+        st.session_state.nav_radio = _seleccion
+        st.rerun()
     pagina = st.session_state.nav_radio
 
     st.markdown('<hr style="margin:12px 0;border-color:rgba(27,95,168,0.3)">', unsafe_allow_html=True)
@@ -1184,11 +1182,9 @@ elif pagina == "Historial":
                         st.session_state.aiu_items = estado_guardado.get("aiu_items", st.session_state.aiu_items)
                         st.session_state.pre = estado_guardado
                         st.session_state.nav_radio = "Cotizacion AIU"
-                        st.session_state._radio_ui = "Cotizacion AIU"
                     else:
                         st.session_state.pre = estado_guardado
                         st.session_state.nav_radio = "Cotizacion Directa"
-                        st.session_state._radio_ui = "Cotizacion Directa"
                     st.rerun()
                 except Exception:
                     st.error("No se pudo cargar el archivo antiguo.")
@@ -1374,7 +1370,6 @@ elif pagina == "Asistente IA":
             if res:
                 st.session_state.pre = res
                 st.session_state.nav_radio = "Cotizacion Directa"
-                st.session_state._radio_ui = "Cotizacion Directa"
                 st.rerun()
         else:
             st.error("Configura tu API Key en Configuración.")
