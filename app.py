@@ -12,7 +12,7 @@ from parametros import (
     CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA, VEHICULOS,
     ALOJAMIENTO, AIU_DEFAULTS, TARIFAS, LOGISTICA, VIATICOS,
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
-    ANCHOS_ESTANDAR,
+    ANCHOS_ESTANDAR, VEHICULOS_CONFIG,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
 
@@ -374,6 +374,7 @@ _defaults = {
         "cuenta_tipo": "Cuenta Corriente Empresas",
         "cuenta_numero": "108900027484",
     },
+    "vehiculos_custom": None,      # dict con vehículos personalizados
     "params_wizard_activo": False,
     "params_wizard_campo": None,
     "params_wizard_chat": [],
@@ -392,6 +393,26 @@ def get_logistica():
 
 def get_viaticos():
     return st.session_state.viaticos_custom or VIATICOS
+
+def get_vehiculos_config():
+    """Retorna VEHICULOS_CONFIG con los custom aplicados encima."""
+    import copy
+    base = copy.deepcopy(VEHICULOS_CONFIG)
+    custom = st.session_state.get("vehiculos_custom") or {}
+    for k, v in custom.items():
+        base[k] = v
+    return base
+
+def get_vehiculos_dict():
+    """Retorna dict {nombre_display: key} para selectboxes, incluyendo personalizados."""
+    vc = get_vehiculos_config()
+    result = {}
+    for key, cfg in vc.items():
+        nombre = cfg.get("nombre", key)
+        tipo   = cfg.get("tipo", "externo")
+        sufijo = " (camioneta/camión)" if tipo == "propio" else " (flete externo)"
+        result[f"{nombre}{sufijo}"] = key
+    return result
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -741,12 +762,13 @@ elif pagina == "Cotizacion Directa":
             alerta(f"Flete proveedor al taller: <strong>{numero_completo(LOG_ACT['agente'])}</strong>", "info")
     with col_veh:
         st.markdown(f"<div style='font-size:0.8rem;font-weight:600;color:{_navy};margin-bottom:6px'>Transporte taller al cliente</div>", unsafe_allow_html=True)
+        _veh_dict = get_vehiculos_dict()
         veh_default = pre.get("vehiculo_entrega", "frontier")
-        veh_keys = list(VEHICULOS.keys())
-        veh_vals = list(VEHICULOS.values())
-        veh_idx = veh_vals.index(veh_default) if veh_default in veh_vals else 0
-        veh_lbl = st.selectbox("Vehiculo de entrega", veh_keys, index=veh_idx)
-        vehiculo = VEHICULOS[veh_lbl]
+        _veh_keys = list(_veh_dict.keys())
+        _veh_vals = list(_veh_dict.values())
+        _veh_idx  = _veh_vals.index(veh_default) if veh_default in _veh_vals else 0
+        veh_lbl   = st.selectbox("Vehiculo de entrega", _veh_keys, index=_veh_idx)
+        vehiculo  = _veh_dict[veh_lbl]
 
     c1, c2 = st.columns(2)
     with c1:
@@ -758,14 +780,19 @@ elif pagina == "Cotizacion Directa":
         peajes = st.number_input("Num. de peajes (total ida+vuelta)", min_value=0, value=peajes_default, step=1)
 
     from calculos import calcular_logistica as _calc_log
-    log_prev = _calc_log(vehiculo, km, peajes, agente_ext_taller, personas, cat_sel)
+    _veh_custom = st.session_state.get("vehiculos_custom") or {}
+    _log_custom  = st.session_state.get("logistica_custom") or None
+    log_prev = _calc_log(vehiculo, km, peajes, agente_ext_taller, personas, cat_sel,
+        logistica_override=_log_custom, vehiculos_custom={**VEHICULOS_CONFIG, **_veh_custom})
     with st.expander(f"Desglose logistico — Total: {numero_completo(log_prev['total'])}"):
         items_log = []
-        if vehiculo != "externo":
-            items_log.append((f"Base vehiculo ({veh_lbl})", log_prev["base"]))
+        _veh_cfg_cur = get_vehiculos_config().get(vehiculo, {})
+        if _veh_cfg_cur.get("tipo") != "externo":
+            items_log.append((f"Base vehiculo ({_veh_cfg_cur.get('nombre', veh_lbl)})", log_prev["base"]))
             items_log.append((f"Gasolina + desgaste ({km*2:.0f} km ida+vuelta)", log_prev["km_costo"]))
         else:
-            items_log.append(("Flete externo/tercero", log_prev["vehiculo"]))
+            _nom_ext = _veh_cfg_cur.get('nombre', 'Externo')
+            items_log.append((f"Flete {_nom_ext}", log_prev["vehiculo"]))
         if agente_ext_taller:
             items_log.append(("Flete proveedor al taller", log_prev["agente"]))
         items_log.append((f"Peajes ({peajes} peajes)", log_prev["peajes"]))
@@ -981,8 +1008,9 @@ elif pagina == "Cotizacion AIU":
     seccion_titulo("Logistica")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        veh_aiu_lbl = st.selectbox("Vehiculo", list(VEHICULOS.keys()), key="aiu_veh")
-        vehiculo_aiu = VEHICULOS[veh_aiu_lbl]
+        _veh_dict_aiu = get_vehiculos_dict()
+        veh_aiu_lbl  = st.selectbox("Vehiculo", list(_veh_dict_aiu.keys()), key="aiu_veh")
+        vehiculo_aiu = _veh_dict_aiu[veh_aiu_lbl]
     with c2:
         km_aiu = st.number_input("Km", min_value=0.0, value=10.0, step=1.0, key="aiu_km")
     with c3:
@@ -1002,6 +1030,8 @@ elif pagina == "Cotizacion AIU":
 
     if st.button("Calcular AIU", type="primary"):
         from calculos import calcular_aiu as _calc_aiu
+        _log_c = st.session_state.get("logistica_custom") or None
+        _vhc   = {**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})}
         res_aiu = _calc_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu,
                             agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu)
 
@@ -1062,11 +1092,12 @@ elif pagina == "Parametros":
     st.markdown("---")
 
     # ═══ TABS ═════════════════════════════════════════════════════════════════
-    t_ia, t1, t2, t3 = st.tabs([
+    t_ia, t1, t2, t3, t4 = st.tabs([
         "Asistente IA",
         "Tarifas de trabajo",
-        "Logistica y vehiculos",
+        "Logistica general",
         "Viaticos",
+        "Mis vehiculos",
     ])
 
     # ── TAB: ASISTENTE IA ─────────────────────────────────────────────────────
@@ -1121,13 +1152,13 @@ elif pagina == "Parametros":
                 _client = _ant.Anthropic(api_key=st.secrets.get("ANTHROPIC_API_KEY",""))
 
                 _SYSTEM = """Eres el asistente de parámetros de una calculadora de costos de marmolería en Colombia.
-Tu trabajo: detectar valores numéricos en el mensaje del usuario y actualizar los parámetros correspondientes.
+Tu trabajo: detectar valores numéricos en el mensaje del usuario y actualizar parámetros, O ayudar a configurar un vehículo nuevo con preguntas guiadas.
 
 PARÁMETROS DISPONIBLES (usa exactamente estos nombres de clave):
 - gasolina: precio COP por galón de gasolina corriente
 - frontier_rend: km por galón Frontier NP300
-- frontier_desgaste: COP por km de desgaste Frontier
-- frontier_base: flete base Frontier por viaje
+- frontier_desgaste: COP por km de desgaste Frontier (mantenimiento+depreciación)
+- frontier_base: flete base Frontier por viaje (costo mínimo por viaje)
 - cheyenne_rend: km por galón Cheyenne V8
 - cheyenne_desgaste: COP por km de desgaste Cheyenne
 - cheyenne_base: flete base Cheyenne por viaje
@@ -1143,13 +1174,24 @@ PARÁMETROS DISPONIBLES (usa exactamente estos nombres de clave):
 - quarztone_corte, quarztone_elab, quarztone_zocalo, quarztone_disco, quarztone_desgaste, quarztone_mo_hora
 - cuarcita_corte, cuarcita_elab, cuarcita_zocalo, cuarcita_disco, cuarcita_desgaste, cuarcita_mo_hora
 
+VEHÍCULOS NUEVOS:
+Cuando el usuario diga "quiero agregar un vehículo", "tengo una moto/camión/otro vehículo", "¿cómo agrego mi vehículo?":
+- Haz preguntas UNA A LA VEZ: nombre, ¿propio o externo?, rendimiento km/galón, desgaste COP/km, flete base
+- Para vehículos externos: solo nombre y tarifa fija por viaje
+- Para desgaste sugerido: moto=80COP/km, camioneta=150-200COP/km, camión=300-400COP/km
+- Para rendimiento sugerido: moto=30km/gal, camioneta gasolina=7-9km/gal, camión diesel=6-8km/gal
+- Al tener todos los datos, incluye en "actualizados" la clave especial "nuevo_vehiculo" con el dict completo
+
 RESPONDE SIEMPRE en este formato JSON exacto:
 {
-  "actualizados": {"clave": valor_numerico, ...},
-  "mensaje": "Texto de confirmacion corto para el usuario. Menciona los valores que aplicaste."
+  "actualizados": {
+    "clave": valor_numerico,
+    "nuevo_vehiculo": {"nombre": "...", "tipo": "propio|externo", "rend": ..., "desgaste": ..., "base": ..., "descripcion": "..."}
+  },
+  "mensaje": "Texto de confirmacion o siguiente pregunta. Máximo 3 líneas."
 }
 
-Si el usuario no menciona ningún valor numérico actualizable, deja "actualizados" vacío {} y responde con orientación.
+Si el usuario no menciona ningún valor actualizable ni habla de vehículo, deja "actualizados" vacío {} y orienta brevemente.
 SOLO JSON, sin texto antes ni después."""
 
                 _messages = [{"role": m["role"], "content": m["content"]} for m in chat_wizard]
@@ -1218,10 +1260,35 @@ SOLO JSON, sin texto antes ni después."""
                         st.session_state.tarifas_custom[_mat_nombre][_campo_key] = float(_act[_full_key])
                         _aplicados.append(f"{_mat_nombre} {_campo_key}: {numero_completo(_act[_full_key])}")
 
+            # Vehículo nuevo desde IA
+            _nuevo_veh = _act.get("nuevo_vehiculo")
+            if _nuevo_veh and isinstance(_nuevo_veh, dict) and _nuevo_veh.get("nombre"):
+                import copy as _cp
+                if st.session_state.get("vehiculos_custom") is None:
+                    st.session_state.vehiculos_custom = _cp.deepcopy(VEHICULOS_CONFIG)
+                _nv_key = _nuevo_veh["nombre"].lower().replace(" ", "_").replace("/","_")[:20]
+                if _nv_key in st.session_state.vehiculos_custom:
+                    _nv_key = _nv_key + "_ia"
+                st.session_state.vehiculos_custom[_nv_key] = _nuevo_veh
+                _aplicados.append(f"Vehiculo '{_nuevo_veh['nombre']}' agregado a tu flota")
+
+            # Vehiculo nuevo creado por la IA
+            _nuevo_veh = _act.get("nuevo_vehiculo")
+            if _nuevo_veh and isinstance(_nuevo_veh, dict) and _nuevo_veh.get("nombre"):
+                import copy as _cp
+                if st.session_state.get("vehiculos_custom") is None:
+                    st.session_state.vehiculos_custom = _cp.deepcopy(VEHICULOS_CONFIG)
+                _nv_key = _nuevo_veh["nombre"].lower().replace(" ", "_").replace("/","_")[:20]
+                if _nv_key in st.session_state.vehiculos_custom:
+                    _nv_key = _nv_key + "_ia"
+                _nuevo_veh.setdefault("combustible", "gasolina")
+                st.session_state.vehiculos_custom[_nv_key] = _nuevo_veh
+                _aplicados.append(f"Vehiculo '{_nuevo_veh['nombre']}' agregado a tu flota")
+
             # Mensaje de respuesta
             _msg_resp = _data.get("mensaje", "Listo.")
             if _aplicados:
-                _msg_resp += f" Aplicado: {', '.join(_aplicados[:3])}{'...' if len(_aplicados)>3 else '.' }"
+                _msg_resp += f" Aplicado: {', '.join(_aplicados[:3])}{'...' if len(_aplicados)>3 else '.'}"
 
             chat_wizard.append({"role": "assistant", "content": _msg_resp})
             st.session_state.params_wizard_chat = chat_wizard
@@ -1303,6 +1370,140 @@ SOLO JSON, sin texto antes ni después."""
             st.session_state.viaticos_custom = _via_ed
             st.success("Viaticos guardados.")
             st.rerun()
+
+    # ── TAB: MIS VEHÍCULOS ────────────────────────────────────────────────────
+    with t4:
+        import copy, uuid
+        st.markdown(
+            f"<p style='color:{_gray};font-size:0.85rem;margin-bottom:6px'>"
+            "Administra los vehiculos disponibles para transporte. "
+            "Puedes editar los existentes, agregar nuevos y eliminarlos. "
+            "Los cambios aparecen de inmediato en los selectores de cotizacion."
+            "</p>", unsafe_allow_html=True
+        )
+        alerta("El asistente IA puede ayudarte a configurar los costos de un vehiculo nuevo. Usa la tab 'Asistente IA' y dile: 'Quiero agregar un vehiculo nuevo'.", "info")
+
+        # Inicializar vehiculos_custom si no existe
+        if st.session_state.get("vehiculos_custom") is None:
+            st.session_state.vehiculos_custom = copy.deepcopy(VEHICULOS_CONFIG)
+
+        VEH = st.session_state.vehiculos_custom
+        _veh_editados = copy.deepcopy(VEH)
+
+        # ── Lista de vehículos actuales ───────────────────────────────────────
+        seccion_titulo("Vehiculos configurados", "")
+        _veh_a_eliminar = None
+
+        for _vk, _vc in _veh_editados.items():
+            _es_propio = _vc.get("tipo") == "propio"
+            _tag_color = _blue if _es_propio else _gray
+            _tag_txt   = "Propio" if _es_propio else "Externo"
+            _is_default = _vk in ["frontier", "cheyenne", "externo"]
+
+            with st.expander(
+                f"{_vc.get('nombre', _vk)}  —  {'Vehículo propio' if _es_propio else 'Flete externo'}",
+                expanded=False
+            ):
+                _c1, _c2 = st.columns([3, 1])
+                with _c1:
+                    _vc["nombre"] = st.text_input(
+                        "Nombre del vehiculo", value=_vc.get("nombre", _vk),
+                        key=f"vn_{_vk}", max_chars=40
+                    )
+                    _vc["descripcion"] = st.text_input(
+                        "Descripcion (opcional)", value=_vc.get("descripcion", ""),
+                        key=f"vd_{_vk}", max_chars=80
+                    )
+                with _c2:
+                    _tipo_actual = "Propio (gasolina/diesel)" if _es_propio else "Externo (flete fijo)"
+                    _tipo_nuevo  = st.selectbox(
+                        "Tipo", ["Propio (gasolina/diesel)", "Externo (flete fijo)"],
+                        index=0 if _es_propio else 1, key=f"vt_{_vk}"
+                    )
+                    _vc["tipo"] = "propio" if "Propio" in _tipo_nuevo else "externo"
+
+                if _vc["tipo"] == "propio":
+                    _pa, _pb, _pc = st.columns(3)
+                    _vc["rend"]     = _pa.number_input("Rendimiento (km/galon)", value=float(_vc.get("rend", 7.0)),     min_value=0.1, step=0.1, format="%.1f", key=f"vr_{_vk}", help="Cuantos km rinde 1 galon con carga")
+                    _vc["desgaste"] = _pb.number_input("Desgaste (COP/km)",      value=float(_vc.get("desgaste", 148)), min_value=0.0, step=1.0, format="%.0f", key=f"vg_{_vk}", help="Costo de mantenimiento por km recorrido")
+                    _vc["base"]     = _pc.number_input("Flete base (COP/viaje)", value=float(_vc.get("base", 65_000)),  min_value=0.0, step=1000.0, format="%.0f", key=f"vb_{_vk}", help="Costo minimo por viaje, independiente de la distancia")
+                    # Estimador visual
+                    _gasolina_act = (st.session_state.logistica_custom or LOGISTICA).get("gasolina", 16_000)
+                    _costo_km_est = (_gasolina_act / max(_vc["rend"], 0.1)) + _vc["desgaste"]
+                    _costo_10km   = _vc["base"] + (_costo_km_est * 10 * 2)
+                    _costo_30km   = _vc["base"] + (_costo_km_est * 30 * 2)
+                    st.caption(
+                        f"Estimado: 10 km = {numero_completo(_costo_10km)} | "
+                        f"30 km = {numero_completo(_costo_30km)} | "
+                        f"Costo/km: {numero_completo(_costo_km_est)}"
+                    )
+                else:
+                    _vc["flete"] = st.number_input(
+                        "Tarifa fija por viaje (COP)", value=float(_vc.get("flete", 165_000)),
+                        min_value=0.0, step=5_000.0, format="%.0f", key=f"vf_{_vk}",
+                        help="Precio que cobra el tercero por cada viaje, sin importar la distancia"
+                    )
+
+                if not _is_default:
+                    if st.button(f"Eliminar este vehiculo", key=f"del_{_vk}", type="secondary"):
+                        _veh_a_eliminar = _vk
+
+            _veh_editados[_vk] = _vc
+
+        # Eliminar vehículo marcado
+        if _veh_a_eliminar:
+            del _veh_editados[_veh_a_eliminar]
+            st.session_state.vehiculos_custom = _veh_editados
+            st.success("Vehiculo eliminado.")
+            st.rerun()
+
+        # ── Agregar vehículo nuevo ────────────────────────────────────────────
+        st.markdown("---")
+        seccion_titulo("Agregar vehiculo nuevo", "")
+        with st.expander("Configurar nuevo vehiculo", expanded=False):
+            _nc1, _nc2 = st.columns(2)
+            _new_nombre = _nc1.text_input("Nombre del vehiculo", placeholder="Ej: Camion Hino 300", key="new_veh_nombre")
+            _new_tipo   = _nc2.selectbox("Tipo", ["Propio (gasolina/diesel)", "Externo (flete fijo)"], key="new_veh_tipo")
+            _new_desc   = st.text_input("Descripcion (opcional)", placeholder="Ej: Camion mediano para piezas grandes", key="new_veh_desc")
+
+            if "Propio" in _new_tipo:
+                _na, _nb, _nc = st.columns(3)
+                _new_rend  = _na.number_input("Rendimiento (km/galon)", value=7.0, min_value=0.1, step=0.1, format="%.1f", key="new_veh_rend")
+                _new_desg  = _nb.number_input("Desgaste (COP/km)",      value=148.0, min_value=0.0, step=1.0, format="%.0f", key="new_veh_desg")
+                _new_base  = _nc.number_input("Flete base (COP/viaje)", value=65_000.0, min_value=0.0, step=1000.0, format="%.0f", key="new_veh_base")
+                _new_veh_data = {"tipo": "propio", "combustible": "gasolina", "rend": _new_rend, "desgaste": _new_desg, "base": _new_base}
+            else:
+                _new_flete = st.number_input("Tarifa fija por viaje (COP)", value=165_000.0, min_value=0.0, step=5_000.0, format="%.0f", key="new_veh_flete")
+                _new_veh_data = {"tipo": "externo", "flete": _new_flete}
+
+            if st.button("Agregar vehiculo", type="primary", key="btn_add_veh"):
+                if _new_nombre.strip():
+                    _new_key = _new_nombre.strip().lower().replace(" ", "_").replace("/", "_")[:20]
+                    # Evitar colisiones de clave
+                    if _new_key in _veh_editados:
+                        _new_key = _new_key + "_2"
+                    _new_veh_data["nombre"]      = _new_nombre.strip()
+                    _new_veh_data["descripcion"] = _new_desc.strip()
+                    _veh_editados[_new_key] = _new_veh_data
+                    st.session_state.vehiculos_custom = _veh_editados
+                    st.success(f"Vehiculo '{_new_nombre}' agregado. Ya aparece en los selectores de cotizacion.")
+                    st.rerun()
+                else:
+                    st.warning("Escribe un nombre para el vehiculo.")
+
+        # ── Guardar ediciones de vehículos existentes ─────────────────────────
+        st.markdown("")
+        _col_g1, _col_g2 = st.columns([1, 1])
+        with _col_g1:
+            if st.button("Guardar cambios de vehiculos", type="primary", use_container_width=True, key="btn_save_veh"):
+                st.session_state.vehiculos_custom = _veh_editados
+                st.success("Vehiculos guardados. La calculadora ya usa estos valores.")
+                st.rerun()
+        with _col_g2:
+            if st.button("Restaurar vehiculos originales", use_container_width=True, key="btn_rst_veh"):
+                st.session_state.vehiculos_custom = copy.deepcopy(VEHICULOS_CONFIG)
+                st.success("Vehiculos restaurados a los valores originales.")
+                st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
