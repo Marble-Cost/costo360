@@ -93,6 +93,15 @@ def _actualizar_estado(cot_id, nuevo_estado):
     cur.close()
     conn.close()
 
+def _eliminar_cotizacion(cot_id):
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM cotizaciones WHERE id=%s", (cot_id,))
+    conn.commit()
+    cur.close()
+    conn.close()
+
 def _stats_db():
     _init_db()
     conn = _get_db_connection()
@@ -587,12 +596,29 @@ elif pagina == "Cotizacion Directa":
         st.markdown("---")
         st.markdown("<h3 style='font-family:Playfair Display,serif'>Resultado</h3>", unsafe_allow_html=True)
 
+        # ── Cálculo de IVA (19% sobre la utilidad, norma colombiana) ─────────
+        _iva_sobre_utilidad = r['utilidad'] * 0.19
+        _precio_con_iva     = r['precio_sugerido'] + _iva_sobre_utilidad
+        _margen_efectivo    = (r['utilidad'] / _precio_con_iva * 100) if _precio_con_iva > 0 else 0
+
         st.markdown(f"""
         <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
-          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio de venta sugerido</div>
+          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio de venta sugerido (sin IVA)</div>
           <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">{numero_completo(r['precio_sugerido'])}</div>
           <div style="opacity:0.8;font-size:0.85rem">Margen: {r['margen_pct']:.0f}%   ·   Utilidad: {numero_completo(r['utilidad'])}</div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)">
+            <span style="color:#C9A84C;font-weight:700">+ IVA 19% (sobre utilidad): {numero_completo(_iva_sobre_utilidad)}</span>
+            &nbsp;&nbsp;→&nbsp;&nbsp;
+            <span style="font-size:1.15rem;font-weight:900">Total con IVA: {numero_completo(_precio_con_iva)}</span>
+          </div>
         </div>""", unsafe_allow_html=True)
+
+        alerta(
+            "ℹ️ **¿Cuándo cobrar IVA?** En Colombia, el IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
+            "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Si eres **régimen simplificado**, NO cobras IVA. "
+            "Consulta a tu contador para confirmar tu situación.",
+            "info"
+        )
 
         col_res, col_det = st.columns([1, 1])
         with col_res:
@@ -601,7 +627,9 @@ elif pagina == "Cotizacion Directa":
                 ("Zócalos", r['c3_zocalos']), ("Insumos", r['c4_insumos']),
                 ("Logística", r['c5_logistica']), ("Viáticos", r['c6_viaticos']),
                 ("Adicionales", r['c7_adicionales']),
-            ], "COSTO TOTAL DIRECTO", r['costo_total'])
+                ("Subtotal antes de IVA", r['precio_sugerido']),
+                (f"IVA 19% s/utilidad ({numero_completo(r['utilidad'])})", _iva_sobre_utilidad),
+            ], "TOTAL CON IVA", _precio_con_iva)
         with col_det:
             c1a, c2a = st.columns(2)
             c1a.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {r['retal']:.3f} m²")
@@ -609,7 +637,9 @@ elif pagina == "Cotizacion Directa":
             st.markdown(f"<div style='font-weight:700;margin:14px 0 8px'>Simulador en tiempo real</div>", unsafe_allow_html=True)
             _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
-            alerta(f"Nuevo Precio Sugerido: **{numero_completo(_sim_p)}**", "info")
+            _sim_ut = _sim_p - r["costo_total"]
+            _sim_iva = _sim_ut * 0.19
+            alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA: **{numero_completo(_sim_p + _sim_iva)}**", "info")
 
         st.markdown("---")
         st.markdown("#### Exportar documentos comerciales")
@@ -772,14 +802,14 @@ elif pagina == "Historial":
         alerta("No hay cotizaciones guardadas aún.", "info")
     else:
         _ESTADOS = ["Pendiente", "Aprobada", "Rechazada", "En revision"]
-        _hdr = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.8])
-        for _col, _lbl in zip(_hdr, ["Numero", "Fecha", "Cliente", "Material", "Precio", "Estado", "Editar"]):
+        _hdr = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.6, 0.6])
+        for _col, _lbl in zip(_hdr, ["Numero", "Fecha", "Cliente", "Material", "Precio", "Estado", "✏️", "🗑️"]):
             _col.markdown(f"<div style='font-size:0.75rem;font-weight:700;opacity:0.7'>{_lbl}</div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin:4px 0 8px'>", unsafe_allow_html=True)
         
         for _row in _rows:
             _rid, _rnum, _rfec, _rcli, _rmat, _rml, _rpre, _rmrg, _rest, _rjson = _row
-            _cols = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.8])
+            _cols = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.6, 0.6])
             _cols[0].markdown(f"<span style='font-size:0.85rem;font-weight:600'>{_rnum}</span>", unsafe_allow_html=True)
             _cols[1].caption(_rfec)
             _cols[2].markdown(f"<span style='font-size:0.85rem'>{_rcli}</span>", unsafe_allow_html=True)
@@ -791,7 +821,7 @@ elif pagina == "Historial":
                 _actualizar_estado(_rid, _est_sel)
                 st.rerun()
                 
-            if _cols[6].button("✏️", key=f"ed_{_rid}", help="Recargar todo el proyecto en la calculadora para editar o ver PDF"):
+            if _cols[6].button("✏️", key=f"ed_{_rid}", help="Recargar en la calculadora para editar o generar PDF"):
                 try:
                     datos = json.loads(_rjson)
                     estado_guardado = datos.get("_estado_guardado", datos) 
@@ -808,6 +838,27 @@ elif pagina == "Historial":
                     st.rerun()
                 except Exception as e:
                     st.error("No se pudo cargar el archivo antiguo.")
+            
+            # Botón borrar con confirmación
+            if f"confirmar_borrar_{_rid}" not in st.session_state:
+                st.session_state[f"confirmar_borrar_{_rid}"] = False
+            
+            if not st.session_state[f"confirmar_borrar_{_rid}"]:
+                if _cols[7].button("🗑️", key=f"del_{_rid}", help="Eliminar esta cotización del historial"):
+                    st.session_state[f"confirmar_borrar_{_rid}"] = True
+                    st.rerun()
+            else:
+                with st.container():
+                    st.warning(f"⚠️ ¿Eliminar **{_rnum}** ({_rcli})? Esta acción no se puede deshacer.")
+                    _c1, _c2 = st.columns(2)
+                    if _c1.button("✅ Sí, eliminar", key=f"conf_si_{_rid}", type="primary", use_container_width=True):
+                        _eliminar_cotizacion(_rid)
+                        st.session_state.pop(f"confirmar_borrar_{_rid}", None)
+                        st.success("Cotización eliminada.")
+                        st.rerun()
+                    if _c2.button("❌ Cancelar", key=f"conf_no_{_rid}", use_container_width=True):
+                        st.session_state[f"confirmar_borrar_{_rid}"] = False
+                        st.rerun()
 
 elif pagina == "Dashboard":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Dashboard Gerencial</h2>", unsafe_allow_html=True)
