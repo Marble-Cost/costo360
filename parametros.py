@@ -1,24 +1,41 @@
-# parametros.py — CostoMármol v2
-# Materiales agrupados por CATEGORÍA, no por nombre de placa.
+# parametros.py — CostoMármol v3
+# Feb 2026 · Barranquilla, Colombia
 
 CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Cuarcita"]
 
 TARIFAS = {
-    "Mármol":      {"corte": 25_000, "elab": 75_000, "zocalo": 12_000, "disco":  2_200, "desgaste": 20_000},
-    "Granito":     {"corte": 28_000, "elab": 48_000, "zocalo": 14_000, "disco":  6_000, "desgaste": 25_000},
-    "Sinterizado": {"corte": 45_000, "elab": 70_000, "zocalo": 20_000, "disco": 18_000, "desgaste": 32_000},
-    "Quarztone":   {"corte": 32_000, "elab": 55_000, "zocalo": 16_000, "disco":  5_200, "desgaste": 27_000},
-    "Cuarcita":    {"corte": 35_000, "elab": 65_000, "zocalo": 15_000, "disco":  8_000, "desgaste": 28_000},
+    # corte: COP/m² de corte en máquina cuadradora/cortadora
+    # elab:  elaboración + instalación COP/m²
+    # zocalo: COP/ml instalado
+    # disco:  costo disco por m² cortado (disco diamantado ~$200k, rinde Mármol 90m², Granito 60m², Sint 45m²)
+    # desgaste: COP/día de uso de la cortadora (depreciación + mantenimiento)
+    # mo_hora: costo de 1 hora de mano de obra (oficial). Jornal ~$100k/8h
+    "Mármol":      {"corte": 25_000, "elab": 75_000, "zocalo": 12_000, "disco":  2_200, "desgaste": 20_000, "mo_hora": 12_500},
+    "Granito":     {"corte": 28_000, "elab": 48_000, "zocalo": 14_000, "disco":  6_000, "desgaste": 25_000, "mo_hora": 12_500},
+    "Sinterizado": {"corte": 45_000, "elab": 70_000, "zocalo": 20_000, "disco": 18_000, "desgaste": 32_000, "mo_hora": 15_000},
+    "Quarztone":   {"corte": 32_000, "elab": 55_000, "zocalo": 16_000, "disco":  5_200, "desgaste": 27_000, "mo_hora": 12_500},
+    "Cuarcita":    {"corte": 35_000, "elab": 65_000, "zocalo": 15_000, "disco":  8_000, "desgaste": 28_000, "mo_hora": 13_000},
 }
 
 LOGISTICA = {
-    "gasolina": 15_800,
+    # Gasolina corriente Feb 2026 Barranquilla: ~$16.000/galón (1 galón = 3.785 L)
+    "gasolina": 16_000,
+
+    # Vehículos propios: rend en km/galón (con carga), desgaste COP/km, base=mínimo por viaje
     "frontier": {"rend": 7.2,  "desgaste": 148, "base": 65_000},
-    "cheyenne":  {"rend": 4.1,  "desgaste": 340, "base": 85_000},
-    "externo":   {"flete": 165_000},
-    "agente":    85_000,
-    "peaje":     19_500,
-    "herram":     4_500,
+    "cheyenne": {"rend": 4.1,  "desgaste": 340, "base": 85_000},
+
+    # Externo/Tercero: flete fijo. No se calcula km.
+    "externo":  {"flete": 165_000},
+
+    # Flete agente externo (proveedor → taller)
+    "agente":   85_000,
+
+    # Peaje promedio zona Atlántico (Galapa/Juan Mina ida = $9.750 → ida+vuelta = $19.500)
+    "peaje":    19_500,
+
+    # Desgaste herramientas por viaje (llaves, niveles, espátulas, etc.)
+    "herram":   4_500,
 }
 
 VIATICOS = {"pueblo": 145_000, "ciudad": 178_000}
@@ -46,7 +63,7 @@ ETAPAS_OBRA = {
 VEHICULOS = {
     "Frontier NP300 (camioneta)": "frontier",
     "Cheyenne V8 (camión)":       "cheyenne",
-    "Externo / Tercero":           "externo",
+    "Externo / Tercero":          "externo",
 }
 
 ALOJAMIENTO = {"Pueblo / Corregimiento": "pueblo", "Ciudad Capital": "ciudad"}
@@ -69,11 +86,26 @@ DESCRIPCIONES_CATEGORIA = {
     "Cuarcita":    "Piedra natural de dureza superior al mármol.",
 }
 
-# Materiales de referencia en catálogo (ahora opcionales — el usuario puede ingresar cualquier referencia)
+# ── Anchos estándar por tipo de superficie (para calcular m² desde ml) ─────────
+# Valores estándar de la industria en Colombia
+ANCHOS_ESTANDAR = {
+    "Mesón de cocina":       {"ancho": 0.60, "unidad": "m", "desc": "Ancho estándar mesón"},
+    "Isla de cocina":        {"ancho": 1.00, "unidad": "m", "desc": "Ancho estándar isla"},
+    "Encimera":              {"ancho": 0.60, "unidad": "m", "desc": "Igual que mesón"},
+    "Salpicadero / Frente":  {"ancho": 0.60, "unidad": "m", "desc": "Altura backsplash estándar"},
+    "Baño / Lavamanos":      {"ancho": 0.45, "unidad": "m", "desc": "Profundidad estándar baño"},
+    "Mueble de baño":        {"ancho": 0.50, "unidad": "m", "desc": "Profundidad mueble baño"},
+    "Zócalo":                {"ancho": 0.10, "unidad": "m", "desc": "Alto estándar zócalo 10cm"},
+    "Huella escalón":        {"ancho": 0.30, "unidad": "m", "desc": "Profundidad huella escalera"},
+    "Escalón completo":      {"ancho": 0.90, "unidad": "m", "desc": "Ancho escalera estándar"},
+    "Fachada / Panel":       {"ancho": 1.00, "unidad": "m", "desc": "Módulos de 1m de ancho"},
+    "Personalizado":         {"ancho": None, "unidad": "m", "desc": "Ingresa el ancho manualmente"},
+}
+
 MATERIALES_CATALOGO = [
     {"nombre": "Crema Marfil Clásico",  "categoria": "Mármol",      "precio_m2": 220_000, "area_placa": 5.94},
     {"nombre": "New Cremo Sicilia",     "categoria": "Mármol",      "precio_m2": 240_000, "area_placa": 2.212},
-    {"nombre": "Ducal Gold 1200×2800",  "categoria": "Sinterizado", "precio_m2": 88_000,  "area_placa": 3.36},
+    {"nombre": "Ducal Gold 1200×2800",  "categoria": "Sinterizado", "precio_m2":  88_000, "area_placa": 3.36},
     {"nombre": "Blanco Polar",          "categoria": "Quarztone",   "precio_m2": 169_000, "area_placa": 5.168},
     {"nombre": "Alpine Premium",        "categoria": "Granito",     "precio_m2": 475_000, "area_placa": 5.12},
     {"nombre": "Calacatta Dorato",      "categoria": "Sinterizado", "precio_m2": 580_000, "area_placa": 5.12},
