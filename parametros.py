@@ -1,5 +1,5 @@
-# parametros.py — CostoMármol v4
-# Feb 2026 · Barranquilla, Colombia
+# parametros.py — Sistema de Cotización v4
+# MARMOLES COLLANTE & CASTRO LTDA. · Feb 2026 · Barranquilla, Colombia
 
 CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Cuarcita"]
 
@@ -170,8 +170,8 @@ MATERIALES_CATALOGO = [
 TOUR_PASOS = [
     {
         "id": "bienvenida",
-        "titulo": "Bienvenido a CostoMármol",
-        "cuerpo": "Esta app te ayuda a calcular el costo real de cualquier proyecto de mármol, granito o sinterizado, y a generar cotizaciones y cuentas de cobro profesionales en segundos.\n\nEl recorrido guiado toma menos de 3 minutos y cubre todo lo que necesitas saber.",
+        "titulo": "Sistema de Cotización Profesional",
+        "cuerpo": "Esta herramienta es de uso exclusivo de MARMOLES COLLANTE & CASTRO LTDA. y te ayuda a calcular el costo real de cualquier proyecto de mármol, granito o sinterizado, y a generar cotizaciones y cuentas de cobro profesionales en segundos.\n\nEl recorrido guiado toma menos de 3 minutos y cubre todo lo que necesitas saber.",
         "icono": "C",
         "pagina": None,
     },
