@@ -1,4 +1,5 @@
-# calculos.py — CostoMármol v3
+# calculos.py — Sistema de Cotización v3
+# MARMOLES COLLANTE & CASTRO LTDA.
 # Motor de cálculo. Correcciones v3:
 #   - Logística corregida: externo NO calcula km (flete fijo)
 #   - Costo traslado operarios incluido en logística (tiempo de ida+vuelta)
