@@ -1,5 +1,5 @@
-# asistente_ia.py — CostoMármol v2
-# IA real con Claude + capacidad de interpretar proyectos en lenguaje natural
+# asistente_ia.py — Sistema de Cotización v2
+# MARMOLES COLLANTE & CASTRO LTDA.
 
 import json
 import anthropic
@@ -7,7 +7,7 @@ import streamlit as st
 from parametros import TARIFAS, LOGISTICA, VIATICOS, AIU_DEFAULTS, CATEGORIAS_MATERIAL
 
 # ── System prompt principal ────────────────────────────────────────────────────
-SYSTEM_PROMPT = """Eres el asistente experto en costos y cotización de Mármoles Collante & Castro Ltda., 
+SYSTEM_PROMPT = """Eres el asistente experto en costos y cotización de MARMOLES COLLANTE & CASTRO LTDA., 
 Barranquilla, Colombia. Ayudas a marmoleros a calcular el costo real de sus proyectos.
 
 DATOS DEL MERCADO (Feb 2026, Barranquilla):
