@@ -1361,18 +1361,241 @@ elif pagina == "Parametros":
                 st.rerun()
 
 elif pagina == "Asistente IA":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
-    st.write("Describe tu proyecto en lenguaje natural. La IA lo interpretará y pre-llenará la calculadora.")
-    desc = st.text_area("Describe tu proyecto:", placeholder="Ej: Mesón en granito san gabriel, 3 metros por 60cm...")
-    if st.button("Procesar"):
-        if ia_disponible():
-            res = interpretar_proyecto(desc)
-            if res:
-                st.session_state.pre = res
-                st.session_state.nav_radio = "Cotizacion Directa"
-                st.rerun()
+
+    # ── Inicializar historial del chat ────────────────────────────────────────
+    if "ia_chat_historial" not in st.session_state:
+        st.session_state.ia_chat_historial = []
+    if "ia_esperando" not in st.session_state:
+        st.session_state.ia_esperando = False
+
+    _ia_ok = ia_disponible()
+
+    # ── Encabezado ────────────────────────────────────────────────────────────
+    col_h1, col_h2 = st.columns([3, 1])
+    with col_h1:
+        st.markdown("<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>Asistente IA</h2>", unsafe_allow_html=True)
+        st.markdown(
+            "<p style='opacity:0.65;font-size:0.88rem;margin-top:0'>Pregúntale cualquier cosa sobre tu proyecto, costos o materiales.</p>",
+            unsafe_allow_html=True
+        )
+    with col_h2:
+        if _ia_ok:
+            st.markdown(
+                f'<div style="text-align:right;padding-top:12px">'
+                f'<span style="background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.35);'
+                f'border-radius:20px;padding:4px 12px;font-size:0.75rem;font-weight:700;color:#16a34a">'
+                f'🟢 IA Activa</span></div>',
+                unsafe_allow_html=True
+            )
         else:
-            st.error("Configura tu API Key en Configuración.")
+            st.markdown(
+                f'<div style="text-align:right;padding-top:12px">'
+                f'<span style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3);'
+                f'border-radius:20px;padding:4px 12px;font-size:0.75rem;font-weight:700;color:#dc2626">'
+                f'🔴 IA no configurada</span></div>',
+                unsafe_allow_html=True
+            )
+
+    # ── Alerta si IA no disponible ────────────────────────────────────────────
+    if not _ia_ok:
+        st.error(
+            "**La IA no está configurada.** Ve a **Configuración** y añade tu API Key de Anthropic "
+            "en el archivo `.streamlit/secrets.toml`.",
+            icon="🔑"
+        )
+
+    st.markdown("---")
+
+    # ── Modo: Chat libre vs Interpretar proyecto ──────────────────────────────
+    _modo = st.radio(
+        "¿Qué quieres hacer?",
+        ["💬 Conversar con el asistente", "🔄 Describir un proyecto para pre-llenar la calculadora"],
+        horizontal=True,
+        help="El modo 'Conversar' responde preguntas libres. El modo 'Proyecto' extrae los datos y te lleva directo a la calculadora."
+    )
+    es_modo_chat = "Conversar" in _modo
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════
+    # MODO 1: CHAT CONVERSACIONAL
+    # ════════════════════════════════════════════════════════════════
+    if es_modo_chat:
+
+        # Sugerencias rápidas si el chat está vacío
+        if not st.session_state.ia_chat_historial:
+            st.markdown(
+                f'<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);'
+                f'border-radius:12px;padding:20px 24px;margin-bottom:16px">'
+                f'<div style="font-size:0.8rem;font-weight:700;opacity:0.5;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Puedes preguntarme cosas como...</div>'
+                f'<div style="display:flex;flex-wrap:wrap;gap:8px">'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+            sugerencias = [
+                "¿Cuánto debería cobrar por m² de Sinterizado instalado?",
+                "¿Mi margen del 25% es suficiente para un mesón de cocina?",
+                "¿Cuál es la diferencia entre mármol y cuarcita en costos?",
+                "¿Cómo calculo el retal de una placa de 3.36 m²?",
+                "¿Qué incluye el AIU y cuándo se usa?",
+            ]
+            cols_sug = st.columns(2)
+            for i, sug in enumerate(sugerencias):
+                with cols_sug[i % 2]:
+                    if st.button(
+                        sug, key=f"sug_{i}",
+                        use_container_width=True,
+                        disabled=not _ia_ok
+                    ):
+                        st.session_state.ia_chat_historial.append({"role": "user", "content": sug})
+                        st.session_state.ia_esperando = True
+                        st.rerun()
+
+        # Historial de mensajes
+        for msg in st.session_state.ia_chat_historial:
+            es_user = msg["role"] == "user"
+            if es_user:
+                st.markdown(
+                    f'<div style="display:flex;justify-content:flex-end;margin-bottom:10px">'
+                    f'<div style="background:{CC_COLORS["secondary"]};color:white;border-radius:14px 14px 2px 14px;'
+                    f'padding:10px 16px;max-width:80%;font-size:0.88rem;line-height:1.5">'
+                    f'{msg["content"]}'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div style="display:flex;justify-content:flex-start;margin-bottom:10px">'
+                    f'<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);'
+                    f'border-radius:14px 14px 14px 2px;padding:10px 16px;max-width:85%;font-size:0.88rem;line-height:1.6">'
+                    f'<div style="font-size:0.65rem;font-weight:700;color:{CC_COLORS["accent"]};margin-bottom:4px;letter-spacing:0.06em">ASISTENTE IA</div>'
+                    f'{msg["content"]}'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
+
+        # Spinner de carga mientras espera respuesta
+        if st.session_state.ia_esperando and st.session_state.ia_chat_historial:
+            ultimo = st.session_state.ia_chat_historial[-1]
+            if ultimo["role"] == "user":
+                with st.spinner("El asistente está pensando..."):
+                    _resp = chat_con_ia(
+                        st.session_state.ia_chat_historial[:-1],
+                        ultimo["content"]
+                    )
+                st.session_state.ia_chat_historial.append({"role": "assistant", "content": _resp})
+                st.session_state.ia_esperando = False
+                st.rerun()
+
+        # Input del usuario
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        col_inp, col_btn = st.columns([5, 1])
+        with col_inp:
+            _msg_input = st.text_input(
+                "Escribe tu pregunta",
+                key="ia_chat_input",
+                placeholder="Ej: ¿Cuánto debería cobrar por un baño en mármol de 2 m²?",
+                label_visibility="collapsed",
+                disabled=not _ia_ok or st.session_state.ia_esperando,
+            )
+        with col_btn:
+            _enviar = st.button(
+                "Enviar",
+                key="ia_chat_enviar",
+                type="primary",
+                use_container_width=True,
+                disabled=not _ia_ok or st.session_state.ia_esperando,
+            )
+
+        if _enviar and _msg_input.strip():
+            st.session_state.ia_chat_historial.append({"role": "user", "content": _msg_input.strip()})
+            st.session_state.ia_esperando = True
+            st.rerun()
+
+        # Botón limpiar
+        if st.session_state.ia_chat_historial:
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            if st.button("🗑️ Limpiar conversación", key="ia_limpiar"):
+                st.session_state.ia_chat_historial = []
+                st.session_state.ia_esperando = False
+                st.rerun()
+
+    # ════════════════════════════════════════════════════════════════
+    # MODO 2: INTERPRETAR PROYECTO → PRE-LLENAR CALCULADORA
+    # ════════════════════════════════════════════════════════════════
+    else:
+        st.markdown(
+            f'<div style="background:var(--secondary-background-color);border-left:4px solid {CC_COLORS["accent"]};'
+            f'border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:16px;font-size:0.88rem;line-height:1.6">'
+            f'<b style="color:{CC_COLORS["accent"]}">¿Cómo funciona?</b><br>'
+            f'Describe tu proyecto con las palabras que usas normalmente — material, medidas, tipo de espacio — '
+            f'y la IA extrae los datos automáticamente para pre-llenar la calculadora. '
+            f'No necesitas saber términos técnicos.'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        ejemplos = [
+            "Mesón de cocina en Sinterizado Calacatta Snow, 3.5 metros de largo, ancho estándar. El material lo trajo el agente.",
+            "Baño en mármol Crema Marfil, lavamanos 1.2 ml y ducha 2 ml, proyecto en Soledad, 15 km.",
+            "Isla de cocina en granito negro absoluto importado, 2 metros, precio del proveedor $480.000 el m².",
+        ]
+        with st.expander("💡 Ver ejemplos de descripción", expanded=False):
+            for ej in ejemplos:
+                st.markdown(f'<div style="background:var(--secondary-background-color);border-radius:8px;padding:8px 12px;margin-bottom:6px;font-size:0.85rem;font-style:italic">"{ej}"</div>', unsafe_allow_html=True)
+
+        desc_proyecto = st.text_area(
+            "Describe tu proyecto:",
+            placeholder="Ej: Mesón de cocina en granito San Gabriel, 3 metros de largo por 60 cm de ancho, cliente en Barranquilla...",
+            height=120,
+            label_visibility="collapsed",
+            disabled=not _ia_ok,
+        )
+
+        col_proc, col_info = st.columns([1, 2])
+        with col_proc:
+            _procesar = st.button(
+                "🔄 Interpretar y pre-llenar calculadora",
+                type="primary",
+                use_container_width=True,
+                disabled=not _ia_ok or not desc_proyecto.strip(),
+            )
+
+        if _procesar and desc_proyecto.strip():
+            with st.spinner("⏳ La IA está interpretando tu proyecto... puede tomar unos segundos"):
+                res = interpretar_proyecto(desc_proyecto.strip())
+
+            if res:
+                # Mostrar qué datos extrajo antes de redirigir
+                datos_extraidos = []
+                if res.get("categoria"):       datos_extraidos.append(f"**Material:** {res['categoria']}")
+                if res.get("referencia"):      datos_extraidos.append(f"**Referencia:** {res['referencia']}")
+                if res.get("precio_m2"):       datos_extraidos.append(f"**Precio/m²:** ${res['precio_m2']:,}".replace(",","."))
+                if res.get("m2_proyecto"):     datos_extraidos.append(f"**m² del proyecto:** {res['m2_proyecto']}")
+                if res.get("tipo_proyecto"):   datos_extraidos.append(f"**Tipo:** {res['tipo_proyecto']}")
+                if res.get("km"):              datos_extraidos.append(f"**Distancia:** {res['km']} km")
+
+                if datos_extraidos:
+                    st.success("✅ ¡Datos extraídos! Revísalos antes de ir a la calculadora:")
+                    for d in datos_extraidos:
+                        st.markdown(f"- {d}")
+                else:
+                    st.success("✅ Proyecto interpretado. Revisa y ajusta en la calculadora.")
+
+                faltantes = res.get("datos_faltantes", [])
+                if faltantes:
+                    st.warning(f"⚠️ Datos que no encontré (puedes ingresarlos manualmente): {', '.join(faltantes)}")
+
+                st.session_state.pre = res
+                if st.button("➡️ Ir a la calculadora ahora", type="primary", use_container_width=True):
+                    st.session_state.nav_radio = "Cotizacion Directa"
+                    st.rerun()
+            else:
+                st.error(
+                    "No pude interpretar el proyecto. Intenta ser más específico: "
+                    "menciona el tipo de material, las medidas y el tipo de espacio.",
+                    icon="❌"
+                )
 
 elif pagina == "Configuracion":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Configuración</h2>", unsafe_allow_html=True)
