@@ -17,15 +17,6 @@ def ml_a_m2(ml: float, ancho_m: float) -> float:
     return round(ml * ancho_m, 4)
 
 
-def horas_traslado_estimadas(km: float) -> float:
-    """Estima horas de traslado ida+vuelta según distancia."""
-    if km <= 15:
-        return 1.0   # 30 min ida + 30 min vuelta
-    elif km <= 40:
-        return 2.0   # 1h ida + 1h vuelta
-    else:
-        return 4.0   # 2h ida + 2h vuelta (foráneo)
-
 
 def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo: bool,
                        personas: int = 2, categoria: str = "Mármol",
@@ -65,19 +56,7 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     costo_agente = p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
 
     # ── Costo de tiempo de operarios en traslado ─────────────────────────────
-    # En Colombia se paga producción por ml, no por hora. Pero el tiempo de
-    # traslado sí tiene costo real (operarios viajan sin producir).
-    # Se estima como un porcentaje del jornal diario:
-    #   jornal_base = $100.000/día. Traslado corto = 12.5%, largo = 25%, foráneo = 50%
-    JORNAL_BASE = 100_000
-    if not es_externo and km > 0:
-        horas = horas_traslado_estimadas(km)
-        pct_jornal = 0.125 if horas <= 1 else 0.25 if horas <= 2 else 0.50
-        costo_traslado_mo = pct_jornal * personas * JORNAL_BASE
-    else:
-        costo_traslado_mo = 0.0
-
-    costo_total = costo_vehiculo + costo_peajes + costo_herram + costo_agente + costo_traslado_mo
+    costo_total = costo_vehiculo + costo_peajes + costo_herram + costo_agente
 
     return {
         "total":           costo_total,
@@ -87,7 +66,6 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
         "peajes":          costo_peajes,
         "herram":          costo_herram,
         "agente":          costo_agente,
-        "traslado_mo": costo_traslado_mo,
     }
 
 
