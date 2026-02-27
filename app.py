@@ -550,6 +550,8 @@ with st.sidebar:
         "Inicio",
         "Cotizacion Directa",
         "Cotizacion AIU",
+        "Historial",
+        "Dashboard",
         "Parametros",
         "Asistente IA",
         "Configuracion",
