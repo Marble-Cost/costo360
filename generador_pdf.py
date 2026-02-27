@@ -205,74 +205,98 @@ def _tabla_2col(E, P, filas_datos, bg_header=None):
     return tbl
 
 
-def _tabla_desglose(E, P, r):
+def _tabla_desglose(E, P, r, incluir_iva: bool = True):
     """
     Tabla de desglose para el PDF de COTIZACIÓN.
     IMPORTANTE: Solo muestra conceptos relevantes para el cliente.
     NO muestra: costo de material interno, margen, desglose de disco,
     desgaste de máquina ni información operativa interna.
     """
-    # Concepto público → valor
     items = [
-        ("Suministro de material pétreo",               r.get("c1_material", 0)),
-        ("Fabricación y elaboración",                    r.get("c2_mano_obra", 0)),
-        ("Instalación de zócalos",                       r.get("c3_zocalos", 0)),
-        ("Insumos y herramientas especializadas",        r.get("c4_insumos", 0)),
-        ("Transporte y logística",                       r.get("c5_logistica", 0)),
-        ("Gastos de desplazamiento",                     r.get("c6_viaticos", 0)),
-        ("Costos adicionales en obra",                   r.get("c7_adicionales", 0)),
+        ("Suministro de material pétreo",          r.get("c1_material", 0)),
+        ("Fabricación y elaboración",               r.get("c2_mano_obra", 0)),
+        ("Instalación de zócalos",                  r.get("c3_zocalos", 0)),
+        ("Insumos y herramientas especializadas",   r.get("c4_insumos", 0)),
+        ("Transporte y logística",                  r.get("c5_logistica", 0)),
+        ("Gastos de desplazamiento",                r.get("c6_viaticos", 0)),
+        ("Costos adicionales en obra",              r.get("c7_adicionales", 0)),
     ]
-    # Solo mostrar ítems con valor > 0 para ahorrar espacio
     items = [(c, v) for c, v in items if v > 0]
 
-    # IVA 19% sobre utilidad (norma colombiana)
-    utilidad = r.get("utilidad", 0)
-    iva = utilidad * 0.19
+    utilidad   = r.get("utilidad", 0)
     precio_base = r.get("precio_sugerido", 0)
-    precio_total = precio_base + iva
 
-    header_style = ParagraphStyle("dh", leading=11, fontSize=7, fontName="Helvetica-Bold", textColor=P["gray"], letterSpacing=1)
+    if incluir_iva:
+        iva         = utilidad * 0.19
+        precio_final = precio_base + iva
+    else:
+        iva         = 0.0
+        precio_final = precio_base
+
+    header_style = ParagraphStyle("dh", leading=11, fontSize=7, fontName="Helvetica-Bold",
+                                   textColor=P["gray"], letterSpacing=1)
     filas = [[
         Paragraph("CONCEPTO", header_style),
-        Paragraph("VALOR (COP)", ParagraphStyle("dhv", leading=11, fontSize=7, fontName="Helvetica-Bold", textColor=P["gray"], alignment=TA_RIGHT)),
+        Paragraph("VALOR (COP)", ParagraphStyle("dhv", leading=11, fontSize=7,
+                  fontName="Helvetica-Bold", textColor=P["gray"], alignment=TA_RIGHT)),
     ]]
     for concepto, valor in items:
         filas.append([
-            Paragraph(concepto, ParagraphStyle("dc", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"])),
-            Paragraph(_num(valor), ParagraphStyle("dv", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_RIGHT)),
+            Paragraph(concepto, ParagraphStyle("dc", leading=11, fontSize=8.5,
+                      fontName="Helvetica", textColor=P["text"])),
+            Paragraph(_num(valor), ParagraphStyle("dv", leading=11, fontSize=8.5,
+                      fontName="Helvetica", textColor=P["text"], alignment=TA_RIGHT)),
         ])
 
-    # Subtotal (precio de venta antes de IVA)
+    # Subtotal
     filas.append([
-        Paragraph("Subtotal (sin IVA)", ParagraphStyle("dct", leading=12, fontSize=9, fontName="Helvetica-Bold", textColor=P["primary"])),
-        Paragraph(_num(precio_base), ParagraphStyle("dcv", leading=12, fontSize=9, fontName="Helvetica-Bold", textColor=P["primary"], alignment=TA_RIGHT)),
+        Paragraph("Subtotal" + (" (sin IVA)" if incluir_iva else ""),
+                  ParagraphStyle("dct", leading=12, fontSize=9, fontName="Helvetica-Bold",
+                                 textColor=P["primary"])),
+        Paragraph(_num(precio_base), ParagraphStyle("dcv", leading=12, fontSize=9,
+                  fontName="Helvetica-Bold", textColor=P["primary"], alignment=TA_RIGHT)),
     ])
-    # IVA
+
+    if incluir_iva:
+        # Fila IVA
+        filas.append([
+            Paragraph("IVA 19% (Impuesto al Valor Agregado)",
+                      ParagraphStyle("diva", leading=12, fontSize=9,
+                                     fontName="Helvetica", textColor=P["secondary"])),
+            Paragraph(_num(iva), ParagraphStyle("divav", leading=12, fontSize=9,
+                      fontName="Helvetica", textColor=P["secondary"], alignment=TA_RIGHT)),
+        ])
+        total_label = "TOTAL DE LA OFERTA (IVA INCLUIDO)"
+    else:
+        total_label = "TOTAL DE LA OFERTA (SIN IVA)"
+
     filas.append([
-        Paragraph("IVA 19% (Impuesto al Valor Agregado)", ParagraphStyle("diva", leading=12, fontSize=9, fontName="Helvetica", textColor=P["secondary"])),
-        Paragraph(_num(iva), ParagraphStyle("divav", leading=12, fontSize=9, fontName="Helvetica", textColor=P["secondary"], alignment=TA_RIGHT)),
-    ])
-    # Total con IVA
-    filas.append([
-        Paragraph("TOTAL DE LA OFERTA", ParagraphStyle("dtot", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"])),
-        Paragraph(_num(precio_total), ParagraphStyle("dtotv", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
+        Paragraph(total_label, ParagraphStyle("dtot", leading=13, fontSize=10,
+                  fontName="Helvetica-Bold", textColor=P["white"])),
+        Paragraph(_num(precio_final), ParagraphStyle("dtotv", leading=13, fontSize=10,
+                  fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
     ])
 
     tbl = Table(filas, colWidths=[12.5*cm, 4.5*cm])
-    tbl.setStyle(TableStyle([
+
+    # Estilos base
+    ts = [
         ("BACKGROUND",    (0,0),  (-1,0),  P["light"]),
         ("ROWBACKGROUNDS",(0,1),  (-1,-4), [P["white"], P["ultralight"]]),
-        ("BACKGROUND",    (0,-3), (-1,-3), P["light"]),   # Subtotal
-        ("BACKGROUND",    (0,-2), (-1,-2), P["ultralight"]),  # IVA
-        ("BACKGROUND",    (0,-1), (-1,-1), P["primary"]),  # Total
+        ("BACKGROUND",    (0,-3), (-1,-3), P["light"]),       # Subtotal
+        ("BACKGROUND",    (0,-1), (-1,-1), P["primary"]),     # Total
         ("TOPPADDING",    (0,0),  (-1,-1), 5),
         ("BOTTOMPADDING", (0,0),  (-1,-1), 5),
         ("LEFTPADDING",   (0,0),  (-1,-1), 10),
         ("RIGHTPADDING",  (0,0),  (-1,-1), 10),
         ("LINEBELOW",     (0,0),  (-1,-1), 0.3, P["light"]),
         ("LINEABOVE",     (0,-3), (-1,-3), 1.2, P["primary"]),
-    ]))
-    return tbl, precio_total  # Retornamos precio_total para usar en el bloque de precio
+    ]
+    if incluir_iva:
+        ts.append(("BACKGROUND", (0,-2), (-1,-2), P["ultralight"]))  # Fila IVA
+
+    tbl.setStyle(TableStyle(ts))
+    return tbl, precio_final
 
 
 def _bloque_precio(E, P, precio, margen, utilidad, label="PRECIO DE VENTA SUGERIDO"):
@@ -305,7 +329,8 @@ def _footer(E, P, emp_nombre, fecha_str):
 # COTIZACION — 1 PAGINA FIJA
 # ═══════════════════════════════════════════════════════════════════════════════
 def generar_pdf_cotizacion(resultado: dict, numero: str = None,
-                            empresa_info: dict = None, logo_bytes: bytes = None) -> bytes:
+                            empresa_info: dict = None, logo_bytes: bytes = None,
+                            incluir_iva: bool = True) -> bytes:
     if numero is None:
         numero = f"COT-{date.today().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
@@ -316,7 +341,6 @@ def generar_pdf_cotizacion(resultado: dict, numero: str = None,
     E = _estilos(P)
 
     buf = io.BytesIO()
-    # Margenes ajustados para 1 pagina
     doc = SimpleDocTemplate(buf, pagesize=letter,
         leftMargin=1.6*cm, rightMargin=1.6*cm,
         topMargin=1.2*cm, bottomMargin=1.4*cm,
@@ -325,26 +349,22 @@ def generar_pdf_cotizacion(resultado: dict, numero: str = None,
     r = resultado
     story = []
 
-    # Encabezado
     story.append(_header_bloque(E, P, "COTIZACION DE PROYECTO", numero, fecha_str, emp, logo_bytes))
     story.append(Spacer(1, 8))
 
-    # Datos del proyecto — SOLO información relevante para el cliente
-    # NO se muestra: costo de material, aprovechamiento, retal, ml internos, dias/personas
     datos_filas = []
     if r.get("nombre_cliente"):
-        datos_filas.append(("Cliente",            r["nombre_cliente"]))
+        datos_filas.append(("Cliente", r["nombre_cliente"]))
     datos_filas += [
-        ("Tipo de proyecto",   r.get("tipo_proyecto", "—")),
-        ("Material",            f"{r.get('categoria','—')} — {r.get('referencia','—')}"),
-        ("Área del proyecto",   f"{r.get('m2_real', 0):.2f} m²"),
-        ("Tiempo de entrega",   f"{r.get('dias', '—')} día(s) hábiles"),
-        ("Vigencia oferta",     "15 días calendario"),
+        ("Tipo de proyecto",  r.get("tipo_proyecto", "—")),
+        ("Material",          f"{r.get('categoria','—')} — {r.get('referencia','—')}"),
+        ("Área del proyecto", f"{r.get('m2_real', 0):.2f} m²"),
+        ("Tiempo de entrega", f"{r.get('dias', '—')} día(s) hábiles"),
+        ("Vigencia oferta",   "15 días calendario"),
+        ("IVA",               "Incluido (19% s/utilidad)" if incluir_iva else "No aplica — Régimen simplificado"),
     ]
 
-    # Tabla desglose (ahora retorna tabla Y precio_total con IVA)
-    col_desglose, precio_total_con_iva = _tabla_desglose(E, P, r)
-
+    col_desglose, precio_final = _tabla_desglose(E, P, r, incluir_iva=incluir_iva)
     col_datos = _tabla_2col(E, P, datos_filas)
 
     story.append(Paragraph("DATOS DEL PROYECTO", E["seccion"]))
@@ -357,15 +377,20 @@ def generar_pdf_cotizacion(resultado: dict, numero: str = None,
     story.append(col_desglose)
     story.append(Spacer(1, 8))
 
-    # Nota de validez
+    nota_iva = (
+        "Precios incluyen IVA del 19% calculado sobre la utilidad (Estatuto Tributario colombiano, Art. 468). "
+        if incluir_iva else
+        "Cotización expedida sin IVA — prestador perteneciente al Régimen Simplificado (Art. 499 E.T.). "
+    )
     story.append(Paragraph(
+        nota_iva +
         "Cotización válida por 15 días calendario. Incluye exclusivamente los materiales y servicios detallados. "
         "Cualquier requerimiento adicional o modificación posterior requiere nueva cotización. "
         "Precios sujetos a disponibilidad de material en el momento de confirmar el pedido.",
         E["aviso"]))
     story.append(Spacer(1, 10))
 
-    story.extend(_footer(E, P, emp.get("nombre",""), fecha_str))
+    story.extend(_footer(E, P, emp.get("nombre", ""), fecha_str))
     doc.build(story)
     return buf.getvalue()
 
@@ -375,16 +400,15 @@ def generar_pdf_cotizacion(resultado: dict, numero: str = None,
 # ═══════════════════════════════════════════════════════════════════════════════
 def generar_cuenta_cobro(resultado: dict, datos_prestador: dict, datos_pagador: dict,
                           numero: str = None, descripcion_servicio: str = None,
-                          logo_bytes: bytes = None) -> bytes:
+                          logo_bytes: bytes = None, incluir_iva: bool = True) -> bytes:
     if numero is None:
         numero = f"CC-{date.today().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
 
-    # Precio con IVA (19% sobre utilidad)
-    precio_base  = resultado.get("precio_sugerido", resultado.get("precio_total", 0))
-    utilidad     = resultado.get("utilidad", 0)
-    iva          = utilidad * 0.19
-    valor_total  = precio_base + iva
+    precio_base = resultado.get("precio_sugerido", resultado.get("precio_total", 0))
+    utilidad    = resultado.get("utilidad", 0)
+    iva         = utilidad * 0.19 if incluir_iva else 0.0
+    valor_total = precio_base + iva
 
     # Construir empresa_info desde datos_prestador
     emp = {
@@ -455,30 +479,52 @@ def generar_cuenta_cobro(resultado: dict, datos_prestador: dict, datos_pagador: 
     story.append(t_serv)
     story.append(Spacer(1, 8))
 
-    # Valor total con desglose de IVA
+    # Valor total con desglose de IVA (condicional)
     valor_letras = _numero_a_letras(int(round(valor_total)))
 
-    # Tabla de valores: subtotal + IVA + total
-    header_style_cc = ParagraphStyle("dh_cc", leading=11, fontSize=7, fontName="Helvetica-Bold", textColor=P["gray"], letterSpacing=1)
-    filas_val = [
-        [Paragraph("Valor del servicio (sin IVA)", ParagraphStyle("cc1", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"])),
-         Paragraph(_num(precio_base), ParagraphStyle("cc1v", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_RIGHT))],
-        [Paragraph("IVA 19% (Impuesto al Valor Agregado)", ParagraphStyle("cc2", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["secondary"])),
-         Paragraph(_num(iva), ParagraphStyle("cc2v", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["secondary"], alignment=TA_RIGHT))],
-        [Paragraph("TOTAL A COBRAR", ParagraphStyle("cc3", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"])),
-         Paragraph(_num(valor_total), ParagraphStyle("cc3v", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT))],
-    ]
+    if incluir_iva:
+        label_subtotal = "Valor del servicio (sin IVA)"
+        filas_val = [
+            [Paragraph(label_subtotal,
+                       ParagraphStyle("cc1", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"])),
+             Paragraph(_num(precio_base),
+                       ParagraphStyle("cc1v", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["text"], alignment=TA_RIGHT))],
+            [Paragraph("IVA 19% (Impuesto al Valor Agregado)",
+                       ParagraphStyle("cc2", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["secondary"])),
+             Paragraph(_num(iva),
+                       ParagraphStyle("cc2v", leading=11, fontSize=8.5, fontName="Helvetica", textColor=P["secondary"], alignment=TA_RIGHT))],
+            [Paragraph("TOTAL A COBRAR (IVA INCLUIDO)",
+                       ParagraphStyle("cc3", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"])),
+             Paragraph(_num(valor_total),
+                       ParagraphStyle("cc3v", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT))],
+        ]
+        ts_val = [
+            ("BACKGROUND", (0,0), (-1,0), P["ultralight"]),
+            ("BACKGROUND", (0,1), (-1,1), P["light"]),
+            ("BACKGROUND", (0,2), (-1,2), P["primary"]),
+            ("TOPPADDING",    (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+            ("LEFTPADDING",   (0,0), (-1,-1), 10),
+            ("RIGHTPADDING",  (0,0), (-1,-1), 10),
+            ("LINEABOVE",     (0,-1), (-1,-1), 1.2, P["primary"]),
+        ]
+    else:
+        filas_val = [
+            [Paragraph("TOTAL A COBRAR (SIN IVA — Régimen Simplificado)",
+                       ParagraphStyle("cc3", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"])),
+             Paragraph(_num(valor_total),
+                       ParagraphStyle("cc3v", leading=13, fontSize=10, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT))],
+        ]
+        ts_val = [
+            ("BACKGROUND",    (0,0), (-1,0), P["primary"]),
+            ("TOPPADDING",    (0,0), (-1,-1), 8),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 8),
+            ("LEFTPADDING",   (0,0), (-1,-1), 10),
+            ("RIGHTPADDING",  (0,0), (-1,-1), 10),
+        ]
+
     tbl_val = Table(filas_val, colWidths=[12.5*cm, 4.5*cm])
-    tbl_val.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),  (-1,0),  P["ultralight"]),
-        ("BACKGROUND",    (0,1),  (-1,1),  P["light"]),
-        ("BACKGROUND",    (0,2),  (-1,2),  P["primary"]),
-        ("TOPPADDING",    (0,0),  (-1,-1), 6),
-        ("BOTTOMPADDING", (0,0),  (-1,-1), 6),
-        ("LEFTPADDING",   (0,0),  (-1,-1), 10),
-        ("RIGHTPADDING",  (0,0),  (-1,-1), 10),
-        ("LINEABOVE",     (0,-1), (-1,-1), 1.2, P["primary"]),
-    ]))
+    tbl_val.setStyle(TableStyle(ts_val))
     story.append(Paragraph("VALOR DEL COBRO", E["seccion"]))
     story.append(Spacer(1, 4))
     story.append(tbl_val)
