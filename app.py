@@ -1343,6 +1343,20 @@ elif pagina == "Parametros":
     with t_tar:
         st.caption("Costos de mano de obra e insumos por material. Modifica cada campo y presiona **Guardar Tarifas**.")
         tar_act = get_tarifas()
+        # Sincronizar session_state de los widgets con los valores guardados
+        # Esto garantiza que los campos muestren siempre el último valor guardado
+        for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+            _ts = tar_act.get(_sm, {})
+            _sync_map = {
+                f"tar_pml_{_sm}": int(_ts.get("prod_ml",       60_000)),
+                f"tar_zoc_{_sm}": int(_ts.get("zocalo",        12_000)),
+                f"tar_dis_{_sm}": int(_ts.get("disco",          2_200)),
+                f"tar_maq_{_sm}": int(_ts.get("maquina",       20_000)),
+                f"tar_con_{_sm}": int(_ts.get("consumibles",   10_000)),
+                f"tar_rie_{_sm}": float(_ts.get("riesgo_rotura", 0.02)),
+            }
+            for _wk, _wv in _sync_map.items():
+                st.session_state[_wk] = _wv
         tar_edit = {}
 
         _MAT_ICONS = {"Mármol": "🪨", "Granito": "🟫", "Sinterizado": "⬜", "Quarztone": "🔵", "Quarzita": "🟡"}
@@ -1385,13 +1399,45 @@ elif pagina == "Parametros":
                     help="Porcentaje del costo del material reservado como provisión por rotura accidental.")
 
         st.markdown("")
-        if st.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar"):
-            st.session_state.tarifas_custom = tar_edit
-            st.success("✅ Tarifas actualizadas. Aplican a todos los cálculos de esta sesión.")
+        _col_save_tar, _col_reset_tar = st.columns([3, 1])
+        if _col_save_tar.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar", use_container_width=True):
+            _saved_tar = {}
+            for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                _saved_tar[_sm] = {
+                    "prod_ml":       int(st.session_state.get(f"tar_pml_{_sm}", 60_000)),
+                    "zocalo":        int(st.session_state.get(f"tar_zoc_{_sm}", 12_000)),
+                    "disco":         int(st.session_state.get(f"tar_dis_{_sm}", 2_200)),
+                    "maquina":       int(st.session_state.get(f"tar_maq_{_sm}", 20_000)),
+                    "consumibles":   int(st.session_state.get(f"tar_con_{_sm}", 10_000)),
+                    "riesgo_rotura": float(st.session_state.get(f"tar_rie_{_sm}", 0.02)),
+                }
+            st.session_state.tarifas_custom = _saved_tar
+            st.toast("✅ Tarifas guardadas correctamente", icon="💾")
+            st.rerun()
+        if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
+                                  help="Vuelve a los valores por defecto de fábrica"):
+            st.session_state.tarifas_custom = None
+            # Limpiar keys de widgets para forzar recarga con valores por defecto
+            for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                for _sfx in ["pml", "zoc", "dis", "maq", "con", "rie"]:
+                    st.session_state.pop(f"tar_{_sfx}_{_sm}", None)
+            st.toast("↺ Tarifas restauradas a valores por defecto", icon="🔄")
+            st.rerun()
 
     with t_via:
         st.caption("Costos de desplazamiento para proyectos fuera de Barranquilla. Modifica y presiona **Guardar Viáticos**.")
         via_act = get_viaticos()
+        # Sincronizar session_state de widgets con valores guardados
+        def _vd_get(dest, campo, default):
+            v = via_act.get(dest, {})
+            if isinstance(v, dict): return v.get(campo, default)
+            return default
+        st.session_state["via_pueblo_hosp"] = int(_vd_get("pueblo", "hospedaje", 60_000))
+        st.session_state["via_pueblo_alim"] = int(_vd_get("pueblo", "alimentacion", 65_000))
+        st.session_state["via_pueblo_tran"] = int(_vd_get("pueblo", "transporte_local", 20_000))
+        st.session_state["via_ciudad_hosp"] = int(_vd_get("ciudad", "hospedaje", 90_000))
+        st.session_state["via_ciudad_alim"] = int(_vd_get("ciudad", "alimentacion", 68_000))
+        st.session_state["via_ciudad_tran"] = int(_vd_get("ciudad", "transporte_local", 20_000))
 
         def _normalizar_via(key):
             v = via_act.get(key, {})
@@ -1429,13 +1475,49 @@ elif pagina == "Parametros":
                 via_edit[_dest_key] = {"hospedaje": _hosp, "alimentacion": _alim, "transporte_local": _tran}
 
         st.markdown("")
-        if st.button("💾 Guardar Viáticos", type="primary", key="btn_save_via"):
-            st.session_state.viaticos_custom = via_edit
-            st.success("✅ Viáticos actualizados. Aplican a todos los cálculos de esta sesión.")
+        _col_save_via, _col_reset_via = st.columns([3, 1])
+        if _col_save_via.button("💾 Guardar Viáticos", type="primary", key="btn_save_via", use_container_width=True):
+            st.session_state.viaticos_custom = {
+                "pueblo": {
+                    "hospedaje":        int(st.session_state.get("via_pueblo_hosp", 60_000)),
+                    "alimentacion":     int(st.session_state.get("via_pueblo_alim", 65_000)),
+                    "transporte_local": int(st.session_state.get("via_pueblo_tran", 20_000)),
+                },
+                "ciudad": {
+                    "hospedaje":        int(st.session_state.get("via_ciudad_hosp", 90_000)),
+                    "alimentacion":     int(st.session_state.get("via_ciudad_alim", 68_000)),
+                    "transporte_local": int(st.session_state.get("via_ciudad_tran", 20_000)),
+                },
+            }
+            st.toast("✅ Viáticos guardados correctamente", icon="💾")
+            st.rerun()
+        if _col_reset_via.button("↺ Restaurar", key="btn_reset_via", use_container_width=True,
+                                  help="Vuelve a los valores por defecto de fábrica"):
+            st.session_state.viaticos_custom = None
+            for _vk in ["via_pueblo_hosp", "via_pueblo_alim", "via_pueblo_tran",
+                        "via_ciudad_hosp", "via_ciudad_alim", "via_ciudad_tran"]:
+                st.session_state.pop(_vk, None)
+            st.toast("↺ Viáticos restaurados a valores por defecto", icon="🔄")
+            st.rerun()
 
     with t_log:
         st.caption("Costos de transporte, vehículos propios, peajes y fletes. Modifica y presiona **Guardar Logística**.")
         log_act = get_logistica()
+        # Sincronizar session_state de widgets con valores guardados
+        _lvc  = log_act.get("frontier", {})
+        _lvc2 = log_act.get("cheyenne", {})
+        _lve  = log_act.get("externo",  {})
+        st.session_state["log_gas"]     = int(log_act.get("gasolina", 16_000))
+        st.session_state["log_pea"]     = int(log_act.get("peaje",    19_500))
+        st.session_state["log_her"]     = int(log_act.get("herram",    4_500))
+        st.session_state["log_age"]     = int(log_act.get("agente",   85_000))
+        st.session_state["log_fr_rend"] = float(_lvc.get("rend",       7.2))
+        st.session_state["log_fr_desg"] = int(_lvc.get("desgaste",    148))
+        st.session_state["log_fr_base"] = int(_lvc.get("base",      65_000))
+        st.session_state["log_ch_rend"] = float(_lvc2.get("rend",      4.1))
+        st.session_state["log_ch_desg"] = int(_lvc2.get("desgaste",   340))
+        st.session_state["log_ch_base"] = int(_lvc2.get("base",     85_000))
+        st.session_state["log_ext_flete"] = int(_lve.get("flete", 165_000)) if isinstance(_lve, dict) else int(_lve)
 
         with st.container(border=True):
             st.markdown("**⛽ Insumos generales**")
@@ -1518,17 +1600,38 @@ elif pagina == "Parametros":
                 help="Precio pactado con el flete externo. Aplica sin importar la distancia.")
 
         st.markdown("")
-        if st.button("💾 Guardar Logística", type="primary", key="btn_save_log"):
+        _col_save_log, _col_reset_log = st.columns([3, 1])
+        if _col_save_log.button("💾 Guardar Logística", type="primary", key="btn_save_log", use_container_width=True):
             st.session_state.logistica_custom = {
-                "gasolina": gasolina_edit,
-                "peaje":    peaje_edit,
-                "herram":   herram_edit,
-                "agente":   agente_edit,
-                "frontier": {"rend": fr_rend, "desgaste": fr_desg, "base": fr_base},
-                "cheyenne": {"rend": ch_rend, "desgaste": ch_desg, "base": ch_base},
-                "externo":  {"flete": ext_flete},
+                "gasolina": int(st.session_state.get("log_gas",      16_000)),
+                "peaje":    int(st.session_state.get("log_pea",      19_500)),
+                "herram":   int(st.session_state.get("log_her",       4_500)),
+                "agente":   int(st.session_state.get("log_age",      85_000)),
+                "frontier": {
+                    "rend":     float(st.session_state.get("log_fr_rend",  7.2)),
+                    "desgaste": int(st.session_state.get("log_fr_desg",    148)),
+                    "base":     int(st.session_state.get("log_fr_base", 65_000)),
+                },
+                "cheyenne": {
+                    "rend":     float(st.session_state.get("log_ch_rend",  4.1)),
+                    "desgaste": int(st.session_state.get("log_ch_desg",    340)),
+                    "base":     int(st.session_state.get("log_ch_base", 85_000)),
+                },
+                "externo": {
+                    "flete": int(st.session_state.get("log_ext_flete", 165_000)),
+                },
             }
-            st.success("✅ Logística actualizada. Aplica a todos los cálculos de esta sesión.")
+            st.toast("✅ Logística guardada correctamente", icon="💾")
+            st.rerun()
+        if _col_reset_log.button("↺ Restaurar", key="btn_reset_log", use_container_width=True,
+                                  help="Vuelve a los valores por defecto de fábrica"):
+            st.session_state.logistica_custom = None
+            for _lk in ["log_gas", "log_pea", "log_her", "log_age",
+                        "log_fr_rend", "log_fr_desg", "log_fr_base",
+                        "log_ch_rend", "log_ch_desg", "log_ch_base", "log_ext_flete"]:
+                st.session_state.pop(_lk, None)
+            st.toast("↺ Logística restaurada a valores por defecto", icon="🔄")
+            st.rerun()
 
 elif pagina == "Asistente IA":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
