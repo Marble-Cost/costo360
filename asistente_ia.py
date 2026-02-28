@@ -22,7 +22,7 @@ TARIFAS DE TRABAJO (mano de obra):
 - Granito:     corte $28.000/m², elaboración $48.000/m², zócalo $14.000/ml, disco $6.000/m², desgaste maq. $25.000/día
 - Sinterizado: corte $45.000/m², elaboración $70.000/m², zócalo $20.000/ml, disco $18.000/m², desgaste maq. $32.000/día
 - Quarztone:   corte $32.000/m², elaboración $55.000/m², zócalo $16.000/ml, disco $5.200/m², desgaste maq. $27.000/día
-- Cuarcita:    corte $35.000/m², elaboración $65.000/m², zócalo $15.000/ml, disco $8.000/m², desgaste maq. $28.000/día
+- Quarzita:    corte $35.000/m², elaboración $65.000/m², zócalo $15.000/ml, disco $8.000/m², desgaste maq. $28.000/día
 
 ESTRUCTURA AIU (norma colombiana):
 - A = 2%, I = 2%, U = 5-8% (todos sobre Costo Directo)
@@ -56,7 +56,7 @@ REGLAS ESTRICTAS:
 
 JSON a retornar:
 {
-  "categoria": "Mármol|Granito|Sinterizado|Quarztone|Cuarcita|null",
+  "categoria": "Mármol|Granito|Sinterizado|Quarztone|Quarzita|null",
   "referencia": "nombre del material o null",
   "precio_m2": numero_o_null,
   "area_placa_comprada": numero_o_null,
