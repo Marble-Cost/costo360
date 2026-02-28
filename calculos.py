@@ -102,11 +102,17 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     }
 
 
-def calcular_viaticos(activo: bool, tipo_aloj: str, noches: int, personas: int) -> float:
+def calcular_viaticos(activo: bool, tipo_aloj: str, noches: int, personas: int, viaticos_override: dict = None) -> float:
     if not activo or noches <= 0:
         return 0.0
-    tarifa = VIATICOS.get(tipo_aloj, VIATICOS["pueblo"])
-    return noches * personas * tarifa
+    v_data = viaticos_override or VIATICOS
+    tarifa_dict = v_data.get(tipo_aloj, v_data["pueblo"])
+    # Soporte formato legacy (valor plano) y nuevo formato desglosado (dict)
+    if isinstance(tarifa_dict, dict):
+        costo_diario = sum(tarifa_dict.values())
+    else:
+        costo_diario = tarifa_dict
+    return noches * personas * costo_diario
 
 
 def calcular_adicionales(activos: bool, cantidades: list, etapa: str, lista: list) -> float:
@@ -182,9 +188,12 @@ def calcular_cotizacion_directa(
     # ── ③ Zócalos ─────────────────────────────────────────────────────────────
     c3 = (zocalo_ml * tar["zocalo"]) if zocalo_activo else 0.0
 
-    # ── ④ Insumos ─────────────────────────────────────────────────────────────
+    # ── ④ Insumos, Consumibles y Riesgo ──────────────────────────────────────
     m2_disco = m2_cortados if m2_cortados > 0 else m2_real
-    c4 = (m2_disco * tar.get("disco", 2_200)) + (dias * tar.get("maquina", 20_000))
+    costo_disco_maq  = (m2_disco * tar.get("disco", 2_200)) + (dias * tar.get("maquina", 20_000))
+    costo_consumibles = m2_real * tar.get("consumibles", 10_000)   # Lijas, masilla, ceras, sellador
+    costo_riesgo      = costo_material * tar.get("riesgo_rotura", 0.02)  # % provisión rotura
+    c4 = costo_disco_maq + costo_consumibles + costo_riesgo
 
     # ── ⑤ Logística ──────────────────────────────────────────────────────────
     log_dict = calcular_logistica(
@@ -242,6 +251,9 @@ def calcular_cotizacion_directa(
         "c2_m2":             c2_m2,
         "c3_zocalos":        c3,
         "c4_insumos":        c4,
+        "c4_disco_maq":      costo_disco_maq,
+        "c4_consumibles":    costo_consumibles,
+        "c4_riesgo":         costo_riesgo,
         "c5_logistica":      c5,
         "c5_detalle":        log_dict,
         "c6_viaticos":       c6,
