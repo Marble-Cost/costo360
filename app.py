@@ -324,12 +324,15 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    # Dashboard eliminado — redirigir si alguien tenía esa ruta guardada
-    if st.session_state.get("nav_radio") == "Dashboard":
+    # Historial: redirección legacy si alguien tenía ruta guardada sin "Historial"
+    if st.session_state.get("nav_radio") not in ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
+                                                   "Historial", "Dashboard", "Parametros",
+                                                   "Asistente IA", "Configuracion"]:
+        st.session_state.nav_radio = "Inicio"
         st.session_state.nav_radio  = "Historial"
         st.session_state._radio_ui  = "Historial"
 
-    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Parametros", "Asistente IA", "Configuracion"]
+    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Parametros", "Asistente IA", "Configuracion"]
 
     def update_nav():
         st.session_state.nav_radio = st.session_state._radio_ui
@@ -350,44 +353,79 @@ with st.sidebar:
         st.markdown('<div style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#d97706">🟠 IA sin configurar</div>', unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# TOUR GUIADO (ONBOARDING) - VERSIÓN NATIVA ESTÉTICA
+# TOUR GUIADO (ONBOARDING) — DISEÑO CORPORATIVO
 # ═══════════════════════════════════════════════════════════════════════════════
 if st.session_state.get("onboarding_activo"):
-    _op = min(st.session_state.get("onboarding_paso", 0), len(TOUR_PASOS) - 1)
-    _paso = TOUR_PASOS[_op]
+    _op    = min(st.session_state.get("onboarding_paso", 0), len(TOUR_PASOS) - 1)
+    _paso  = TOUR_PASOS[_op]
     _total = len(TOUR_PASOS)
 
-    # Tarjeta de Tour Integrada (Sin "position: fixed", sin romper la pantalla)
     with st.container(border=True):
-        st.markdown(f"### <span style='color:#1B5FA8'>{_paso['icono']}</span> {_paso['titulo']}", unsafe_allow_html=True)
-        st.caption(f"PASO {_op + 1} DE {_total}")
-        st.markdown(_paso["cuerpo"].replace('\n', '\n\n'))
+        # ── Encabezado: etiqueta dorada + contador ────────────────────────────
+        _etiqueta = _paso.get("etiqueta", f"PASO {_op + 1}")
+        st.markdown(
+            f"<div style='display:flex;align-items:center;justify-content:space-between;"
+            f"margin-bottom:14px'>"
+            f"<span style='font-size:0.62rem;font-weight:800;letter-spacing:0.16em;"
+            f"color:#C9A84C;text-transform:uppercase'>{_etiqueta}</span>"
+            f"<span style='font-size:0.62rem;font-weight:600;letter-spacing:0.06em;"
+            f"opacity:0.4;text-transform:uppercase'>PASO {_op + 1} DE {_total}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        # ── Ícono + título en columnas ────────────────────────────────────────
+        _col_icon, _col_text = st.columns([0.6, 9.4])
+        with _col_icon:
+            st.markdown(
+                f"<div style='font-size:2.1rem;padding-top:2px;line-height:1'>"
+                f"{_paso.get('icono', '📋')}</div>",
+                unsafe_allow_html=True,
+            )
+        with _col_text:
+            st.markdown(
+                f"<h3 style='margin:0 0 2px;font-family:Playfair Display,serif;"
+                f"color:#1B5FA8;font-size:1.25rem;line-height:1.2'>"
+                f"{_paso['titulo']}</h3>",
+                unsafe_allow_html=True,
+            )
+        # ── Cuerpo del texto ──────────────────────────────────────────────────
+        st.markdown(
+            f"<div style='margin-top:12px;font-size:0.9rem;line-height:1.72;opacity:0.82'>"
+            f"{_paso['cuerpo'].replace(chr(10), '<br>')}</div>",
+            unsafe_allow_html=True,
+        )
+        # ── Barra de progreso ─────────────────────────────────────────────────
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
         st.progress((_op + 1) / _total)
-        
-        c1, c2, c3 = st.columns(3)
-        with c1:
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        # ── Botones de navegación ─────────────────────────────────────────────
+        _b_ant, _b_skip, _b_sig = st.columns([1, 1.4, 1.6])
+        with _b_ant:
             if _op > 0:
-                if st.button("⬅ Anterior", use_container_width=True):
+                if st.button("← Anterior", use_container_width=True, key="tour_ant"):
                     st.session_state.onboarding_paso -= 1
                     st.rerun()
-        with c2:
-            if st.button("✕ Saltar guía", use_container_width=True):
+        with _b_skip:
+            if st.button("Saltar recorrido", use_container_width=True, key="tour_skip",
+                         help="Puedes volver a este recorrido desde la pantalla de Inicio"):
                 st.session_state.onboarding_activo = False
-                st.session_state.tour_completado = True
-                st.query_params["guia"] = "terminada"   # persiste en URL
+                st.session_state.tour_completado   = True
+                st.query_params["guia"] = "terminada"
                 st.rerun()
-        with c3:
+        with _b_sig:
             if _op < _total - 1:
-                if st.button("Siguiente ➡", type="primary", use_container_width=True):
+                if st.button("Siguiente →", type="primary", use_container_width=True, key="tour_sig"):
                     st.session_state.onboarding_paso += 1
                     st.rerun()
             else:
-                if st.button("🚀 Finalizar y usar app", type="primary", use_container_width=True):
+                if st.button("Empezar a cotizar 🚀", type="primary", use_container_width=True, key="tour_fin"):
                     st.session_state.onboarding_activo = False
-                    st.session_state.tour_completado = True
-                    st.query_params["guia"] = "terminada"   # persiste en URL
+                    st.session_state.tour_completado   = True
+                    st.query_params["guia"] = "terminada"
                     st.rerun()
-    st.markdown("---")
+
+    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # INICIO
@@ -1263,6 +1301,235 @@ elif pagina == "Historial":
                                    use_container_width=True):
                         st.session_state[_ck2] = False
                         st.rerun()
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DASHBOARD — ANÁLISIS DE NEGOCIO CON DATA LITERACY
+# ═══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Dashboard":
+    import pandas as pd
+
+    st.markdown(
+        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>Dashboard</h2>"
+        "<p style='opacity:0.52;font-size:0.85rem;margin:0 0 20px'>Métricas reales de tu negocio — actualizadas automáticamente con cada cotización.</p>",
+        unsafe_allow_html=True,
+    )
+
+    _s = _stats_db()
+
+    # ── Estado vacío ──────────────────────────────────────────────────────────
+    if _s["total"] == 0:
+        st.markdown(
+            '<div style="text-align:center;padding:72px 0;opacity:0.38">'
+            '<div style="font-size:3.5rem">📊</div>'
+            '<div style="font-size:1rem;font-weight:700;margin-top:10px">Sin datos aún</div>'
+            '<div style="font-size:0.85rem;margin-top:6px">Genera tu primera cotización en '
+            '<b>Cotizacion Directa</b> para ver métricas aquí.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.stop()
+
+    # ── KPIs principales ──────────────────────────────────────────────────────
+    _tasa_cierre   = round(_s["aprobadas"] / _s["total"] * 100, 1) if _s["total"] else 0
+    _rechazadas    = _s["total"] - _s["aprobadas"] - _s["pendientes"]
+    _margen_fmt    = f"{_s['margen_prom']:.1f}%" if _s["margen_prom"] else "—"
+    _facturacion_f = numero_completo(_s["facturacion"]) if _s["facturacion"] else "$0"
+
+    _k1, _k2, _k3, _k4 = st.columns(4)
+
+    _k1.metric(
+        "Cotizaciones totales",
+        _s["total"],
+        help="Número de cotizaciones creadas desde que usas la app. "
+             "Incluye todas: pendientes, aprobadas y rechazadas.",
+    )
+    _k2.metric(
+        "Tasa de cierre",
+        f"{_tasa_cierre}%",
+        delta=f"{_s['aprobadas']} aprobadas",
+        help="De cada 100 cotizaciones que hacemos, cuántas realmente nos compran. "
+             "Si es muy baja (menos del 40%), nuestros precios podrían estar altos "
+             "o la presentación necesita mejorar. Una tasa saludable en marmolería "
+             "está entre el 50% y el 70%.",
+    )
+    _k3.metric(
+        "Facturación real",
+        _facturacion_f,
+        help="Dinero asegurado que va a entrar a la empresa, "
+             "contando solo los proyectos que el cliente ya aprobó. "
+             "No incluye cotizaciones pendientes ni rechazadas.",
+    )
+    _k4.metric(
+        "Margen promedio",
+        _margen_fmt,
+        help="El porcentaje limpio que le queda a la empresa después de pagar "
+             "material, operarios y logística. "
+             "Menos del 25% es zona de riesgo. "
+             "Entre 30% y 45% es una operación saludable.",
+    )
+
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+    # ── Alerta de margen ──────────────────────────────────────────────────────
+    if _s["margen_prom"] and _s["margen_prom"] < 25:
+        st.warning(
+            f"⚠️ **Margen promedio bajo ({_s['margen_prom']:.1f}%).** "
+            "Estás trabajando en zona de riesgo. Revisa los costos de producción "
+            "y logística, o sube ligeramente los precios de venta.",
+        )
+    elif _s["margen_prom"] and _s["margen_prom"] >= 35:
+        st.success(
+            f"✅ **Margen promedio saludable ({_s['margen_prom']:.1f}%).** "
+            "La empresa está generando buena utilidad por proyecto.",
+        )
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # ── Gráficos: dos columnas ────────────────────────────────────────────────
+    _gc1, _gc2 = st.columns(2)
+
+    # ── Gráfico 1: Ventas por material ────────────────────────────────────────
+    with _gc1:
+        st.markdown(
+            "<p style='font-size:0.78rem;font-weight:700;letter-spacing:0.06em;"
+            "text-transform:uppercase;opacity:0.5;margin-bottom:8px'>"
+            "Facturación por material</p>",
+            unsafe_allow_html=True,
+        )
+
+        if _s["por_material"]:
+            _df_mat = pd.DataFrame(
+                _s["por_material"],
+                columns=["Material", "Proyectos", "Margen %", "Facturación"],
+            )
+            _df_mat = _df_mat.sort_values("Facturación", ascending=False).set_index("Material")
+            st.bar_chart(_df_mat[["Facturación"]], color="#1B5FA8", height=240)
+        else:
+            st.caption("Sin datos de materiales aún.")
+
+        with st.expander("💡 ¿Cómo leer este gráfico?"):
+            st.info(
+                "**Cada barra es un tipo de material** (Mármol, Granito, Sinterizado…) "
+                "y su altura representa cuánto dinero has facturado con ese material en proyectos aprobados.\n\n"
+                "**¿Qué hacer con esto?**\n"
+                "- Si el **Sinterizado** tiene barra alta pero pocos proyectos, "
+                "es tu producto más rentable por pieza — vale la pena enfocarte en cotizarlo más.\n"
+                "- Si el **Mármol** domina en volumen pero el margen es bajo, "
+                "puede que lo estés cotizando por debajo del mercado.\n"
+                "- Usa esto para decidir en qué material invertir más en publicidad o stock.",
+            )
+
+    # ── Gráfico 2: Tendencia mensual ──────────────────────────────────────────
+    with _gc2:
+        st.markdown(
+            "<p style='font-size:0.78rem;font-weight:700;letter-spacing:0.06em;"
+            "text-transform:uppercase;opacity:0.5;margin-bottom:8px'>"
+            "Tendencia de facturación mensual</p>",
+            unsafe_allow_html=True,
+        )
+
+        if _s["por_mes"]:
+            _df_mes = pd.DataFrame(
+                _s["por_mes"],
+                columns=["Mes", "Cotizaciones", "Facturación"],
+            )
+            _df_mes = _df_mes.sort_values("Mes").set_index("Mes")
+            st.line_chart(_df_mes[["Facturación"]], color="#C9A84C", height=240)
+        else:
+            st.caption("Sin datos mensuales aún.")
+
+        with st.expander("💡 ¿Cómo leer este gráfico?"):
+            st.info(
+                "**Cada punto en la línea es un mes**, y su altura muestra cuánto facturaste ese mes "
+                "en proyectos aprobados.\n\n"
+                "**¿Qué hacer con esto?**\n"
+                "- Si la línea **sube** mes a mes → el negocio está creciendo. ✅\n"
+                "- Si la línea **cae dos meses seguidos** → es momento de activar "
+                "referencias, ofrecer descuentos estratégicos o revisar precios.\n"
+                "- Los meses bajos suelen ser enero y agosto en Barranquilla "
+                "(temporada baja de construcción). Es normal, planifica tu flujo de caja.",
+            )
+
+    st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
+    # ── Tabla resumen por material ────────────────────────────────────────────
+    if _s["por_material"]:
+        st.markdown(
+            "<p style='font-size:0.78rem;font-weight:700;letter-spacing:0.06em;"
+            "text-transform:uppercase;opacity:0.5;margin-bottom:10px'>"
+            "Detalle por material</p>",
+            unsafe_allow_html=True,
+        )
+
+        _df_det = pd.DataFrame(
+            _s["por_material"],
+            columns=["Material", "Proyectos aprobados", "Margen promedio %", "Facturación total"],
+        )
+        _df_det["Margen promedio %"] = _df_det["Margen promedio %"].apply(
+            lambda x: f"{x:.1f}%" if x else "—"
+        )
+        _df_det["Facturación total"] = _df_det["Facturación total"].apply(
+            lambda x: numero_completo(x) if x else "—"
+        )
+        _df_det = _df_det.sort_values("Proyectos aprobados", ascending=False).reset_index(drop=True)
+
+        # Colorear margen en la tabla
+        def _color_margen(val):
+            try:
+                v = float(str(val).replace("%", ""))
+                if v < 25:   return "color:#e53e3e;font-weight:700"
+                if v >= 35:  return "color:#2f855a;font-weight:700"
+                return "color:#b7791f;font-weight:600"
+            except Exception:
+                return ""
+
+        st.dataframe(
+            _df_det,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Material":               st.column_config.TextColumn("Material"),
+                "Proyectos aprobados":    st.column_config.NumberColumn("Proyectos ✓", format="%d"),
+                "Margen promedio %":      st.column_config.TextColumn("Margen prom."),
+                "Facturación total":      st.column_config.TextColumn("Facturación"),
+            },
+        )
+
+        with st.expander("💡 ¿Cómo usar esta tabla?"):
+            st.info(
+                "Compara el **margen promedio** de cada material con la **facturación total**.\n\n"
+                "El material ideal tiene **ambos valores altos**: muchos proyectos y buen margen.\n\n"
+                "Si un material tiene margen bajo (menos del 25%), "
+                "revisa si estás incluyendo todos los costos en la cotización: "
+                "disco, consumibles, riesgo de rotura y logística completa.",
+            )
+
+    # ── Resumen de gestión ────────────────────────────────────────────────────
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    _rg1, _rg2, _rg3 = st.columns(3)
+
+    with st.container(border=True):
+        _rr1, _rr2, _rr3 = st.columns(3)
+        _rr1.metric(
+            "Pendientes de respuesta",
+            _s["pendientes"],
+            help="Cotizaciones que enviaste y el cliente aún no ha respondido. "
+                 "Si llevan más de 5 días, vale la pena hacer seguimiento.",
+        )
+        _rr2.metric(
+            "Rechazadas",
+            max(0, _rechazadas),
+            help="Proyectos donde el cliente no aceptó la cotización. "
+                 "Si esta cifra es alta, revisa si el precio está por encima del mercado.",
+        )
+        _rr3.metric(
+            "Tasa de rechazo",
+            f"{round(max(0, _rechazadas) / _s['total'] * 100, 1)}%" if _s["total"] else "—",
+            help="Porcentaje de cotizaciones rechazadas sobre el total. "
+                 "Una tasa mayor al 40% es una señal de alerta en precios o presentación.",
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
