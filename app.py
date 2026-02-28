@@ -1232,62 +1232,63 @@ elif pagina == "Historial":
 # PARÁMETROS, ASISTENTE IA Y CONFIGURACIÓN
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Parametros":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Parámetros de costos</h2>", unsafe_allow_html=True)
-    t_ia, t1, t2 = st.tabs(["🤖 Asistente IA", "Tarifas y Producción", "Logística y Vehículos"])
+    import pandas as pd
+    st.markdown("<h2 style='font-family:Playfair Display,serif'>Parámetros Operativos y Costos</h2>", unsafe_allow_html=True)
+    st.markdown("Ten control total de los costos de la empresa. Modifica las tablas manualmente o pídele al asistente que lo haga por ti.")
+
+    t_ia, t_tar, t_via = st.tabs(["🤖 Asistente IA (Modificación Automática)", "📊 Tarifas y Producción", "🚗 Viáticos y Logística"])
 
     with t_ia:
-        # ── Inicializar historial del chat de parámetros ──────────────────────
-        if "params_wizard_chat" not in st.session_state:
-            st.session_state.params_wizard_chat = []
-        chat_wizard = st.session_state.params_wizard_chat
-
-        # ── Encabezado con estado IA ──────────────────────────────────────────
         _ia_ok = ia_disponible()
         if _ia_ok:
             st.markdown(
-                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">'
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
                 '<div style="width:9px;height:9px;border-radius:50%;background:#22c55e;flex-shrink:0"></div>'
                 '<span style="font-size:0.82rem;font-weight:600;color:#16a34a">Asistente activo</span>'
-                '<span style="font-size:0.8rem;opacity:0.55;margin-left:4px">— Dime qué cambió y actualizaré los valores por ti</span>'
                 '</div>', unsafe_allow_html=True
             )
         else:
             st.warning("⚠️ La IA no está configurada. Actívala añadiendo tu API key en **Configuración**.", icon="🔑")
 
-        # ── Historial de mensajes (estilo chat) ───────────────────────────────
+        st.info("💡 **Instrucción:** Dile a la IA qué valores cambiaron (Ej: 'La alimentación en pueblos subió a $75.000'). La IA actualizará las tablas automáticamente.")
+
+        if "params_wizard_chat" not in st.session_state:
+            st.session_state.params_wizard_chat = []
+
         chat_container = st.container()
         with chat_container:
-            if not chat_wizard:
+            if not st.session_state.params_wizard_chat:
                 st.markdown(
                     '<div style="text-align:center;padding:32px 16px;opacity:0.45;">'
                     '<div style="font-size:2rem;margin-bottom:8px">💬</div>'
                     '<div style="font-size:0.88rem">Aún no hay mensajes.<br>'
                     'Puedes escribir cosas como:<br>'
                     '<em>"La gasolina subió a $16.500"</em> &nbsp;·&nbsp; '
-                    '<em>"El flete externo ahora vale $190.000"</em> &nbsp;·&nbsp; '
-                    '<em>"¿Cuánto debería cobrar por m² de Sinterizado?"</em>'
+                    '<em>"El hospedaje en pueblos ahora vale $70.000"</em> &nbsp;·&nbsp; '
+                    '<em>"¿Cuánto debería cobrar de consumibles por m² en Sinterizado?"</em>'
                     '</div></div>',
                     unsafe_allow_html=True
                 )
             else:
-                for _m in chat_wizard:
+                for _m in st.session_state.params_wizard_chat:
                     _es_user = _m["role"] == "user"
                     _bg   = "var(--secondary-background-color)" if _es_user else "transparent"
                     _bord = "1px solid var(--border-color)" if _es_user else "1px solid transparent"
-                    _pfx  = "🧑‍💼 **Tú**" if _es_user else "🤖 **Asistente**"
+                    # Ocultar JSON al usuario — mostrar mensaje amigable
+                    msg_text = _m["content"]
+                    if "```json" in msg_text:
+                        msg_text = msg_text.split("```json")[0].strip() + "\n\n✅ *He aplicado los cambios en las variables del sistema.*"
                     st.markdown(
                         f'<div style="background:{_bg};border:{_bord};border-radius:10px;'
                         f'padding:10px 14px;margin-bottom:8px">'
                         f'<div style="font-size:0.72rem;font-weight:700;opacity:0.55;margin-bottom:4px">'
                         f'{"TÚ" if _es_user else "ASISTENTE IA"}</div>'
-                        f'<div style="font-size:0.9rem">{_m["content"]}</div>'
+                        f'<div style="font-size:0.9rem">{msg_text}</div>'
                         f'</div>',
                         unsafe_allow_html=True
                     )
 
-        st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
-
-        # ── Input de mensaje ──────────────────────────────────────────────────
+        # ── Chat input con lógica de IA Ejecutora ─────────────────────────────
         _col_input, _col_btn = st.columns([5, 1])
         with _col_input:
             _nuevo_msg = st.text_input(
@@ -1298,31 +1299,101 @@ elif pagina == "Parametros":
                 disabled=not _ia_ok,
             )
         with _col_btn:
-            _enviar = st.button(
-                "Enviar ➤",
-                key="params_chat_send",
-                type="primary",
-                use_container_width=True,
-                disabled=not _ia_ok,
-            )
+            _enviar = st.button("Enviar ➤", key="params_chat_send", type="primary",
+                                use_container_width=True, disabled=not _ia_ok)
 
-        # ── Procesar envío ────────────────────────────────────────────────────
         if _enviar and _nuevo_msg.strip():
-            with st.spinner("El asistente está analizando tu solicitud…"):
-                _resp = _chat_parametros(chat_wizard, _nuevo_msg.strip())
-            st.session_state.params_wizard_chat.append({"role": "user",      "content": _nuevo_msg.strip()})
+            prompt_inyeccion = (
+                _nuevo_msg.strip() +
+                "\n\n(Regla interna IA: Si el usuario aprueba modificar un valor, "
+                "incluye al final un bloque ```json con la estructura exacta de TARIFAS o VIATICOS actualizada. "
+                "Para TARIFAS usa claves: Mármol/Granito/Sinterizado/Quarztone/Quarzita con subcampos prod_ml/zocalo/disco/maquina/consumibles/riesgo_rotura. "
+                "Para VIATICOS usa claves: pueblo/ciudad con subcampos hospedaje/alimentacion/transporte_local.)"
+            )
+            with st.spinner("Analizando y actualizando variables..."):
+                _resp = _chat_parametros(st.session_state.params_wizard_chat, prompt_inyeccion)
+            # ── Detectar y aplicar JSON automáticamente ──────────────────────
+            if "```json" in _resp:
+                try:
+                    json_str = _resp.split("```json")[1].split("```")[0]
+                    datos_ia = json.loads(json_str)
+                    if "pueblo" in datos_ia or "ciudad" in datos_ia:
+                        st.session_state.viaticos_custom = datos_ia
+                    elif any(k in datos_ia for k in ["Mármol", "Granito", "Sinterizado"]):
+                        st.session_state.tarifas_custom = datos_ia
+                except Exception as _e:
+                    pass  # Si falla el parse, igual se muestra la respuesta
+            st.session_state.params_wizard_chat.append({"role": "user", "content": _nuevo_msg.strip()})
             st.session_state.params_wizard_chat.append({"role": "assistant", "content": _resp})
             st.rerun()
 
-        # ── Botón limpiar conversación ────────────────────────────────────────
-        if chat_wizard:
-            st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
-            if st.button("🗑️ Limpiar conversación", key="params_clear", help="Borra el historial de este chat"):
+        if st.session_state.params_wizard_chat:
+            if st.button("🗑️ Limpiar conversación", key="params_clear"):
                 st.session_state.params_wizard_chat = []
                 st.rerun()
 
-    with t1: st.write("Sección de tarifas en construcción (manteniendo valores por defecto).")
-    with t2: st.write("Sección de logística en construcción (manteniendo valores por defecto).")
+    with t_tar:
+        st.markdown("### Costos base por material")
+        st.caption("Edita directamente en la tabla. Los cambios se aplican al presionar 'Guardar'.")
+        tarifas_actuales = get_tarifas()
+        df_tarifas = pd.DataFrame(tarifas_actuales).T.reset_index().rename(columns={"index": "Material"})
+        col_order = ["Material", "prod_ml", "zocalo", "disco", "maquina", "consumibles", "riesgo_rotura"]
+        col_order = [c for c in col_order if c in df_tarifas.columns]
+        df_tarifas = df_tarifas[col_order]
+        df_edit = st.data_editor(
+            df_tarifas,
+            use_container_width=True,
+            key="editor_tarifas",
+            column_config={
+                "Material":       st.column_config.TextColumn("Material", disabled=True),
+                "prod_ml":        st.column_config.NumberColumn("Prod/ml (COP)", format="$ %d"),
+                "zocalo":         st.column_config.NumberColumn("Zócalo/ml (COP)", format="$ %d"),
+                "disco":          st.column_config.NumberColumn("Disco/m² (COP)", format="$ %d"),
+                "maquina":        st.column_config.NumberColumn("Máquina/día (COP)", format="$ %d"),
+                "consumibles":    st.column_config.NumberColumn("Consumibles/m² (COP)", format="$ %d",
+                                    help="Masilla, lijas diamantadas, ceras, sellador, estopa"),
+                "riesgo_rotura":  st.column_config.NumberColumn("Riesgo rotura (%)", format="%.3f",
+                                    help="% del costo del material provisionado por riesgo de rotura"),
+            },
+            hide_index=True,
+        )
+        if st.button("💾 Guardar Tarifas", type="primary"):
+            df_edit_indexed = df_edit.set_index("Material")
+            st.session_state.tarifas_custom = df_edit_indexed.T.to_dict()
+            st.success("✅ Tarifas actualizadas en memoria para esta sesión.")
+
+    with t_via:
+        st.markdown("### Desglose de Viáticos (COP por noche/persona)")
+        st.caption("Cada fila es un destino. Las columnas son los componentes del costo diario.")
+        viaticos_actuales = get_viaticos()
+        # Normalizar a formato desglosado si viene legacy (valor plano)
+        via_norm = {}
+        for k, v in viaticos_actuales.items():
+            if isinstance(v, dict):
+                via_norm[k] = v
+            else:
+                via_norm[k] = {"hospedaje": int(v * 0.41), "alimentacion": int(v * 0.45), "transporte_local": int(v * 0.14)}
+        df_via = pd.DataFrame(via_norm).T.reset_index().rename(columns={"index": "Destino"})
+        df_via_edit = st.data_editor(
+            df_via,
+            use_container_width=True,
+            key="editor_viaticos",
+            column_config={
+                "Destino":           st.column_config.TextColumn("Destino", disabled=True),
+                "hospedaje":         st.column_config.NumberColumn("Hospedaje (COP/noche)", format="$ %d"),
+                "alimentacion":      st.column_config.NumberColumn("Alimentación (COP/día)", format="$ %d"),
+                "transporte_local":  st.column_config.NumberColumn("Transporte local (COP/día)", format="$ %d"),
+            },
+            hide_index=True,
+        )
+        totales = df_via_edit.copy()
+        totales["Total diario/persona"] = totales[["hospedaje", "alimentacion", "transporte_local"]].sum(axis=1)
+        for _, row in totales.iterrows():
+            st.caption(f"**{row['Destino'].capitalize()}** → Total diario/persona: **${int(row['Total diario/persona']):,}**".replace(",", "."))
+        if st.button("💾 Guardar Viáticos", type="primary"):
+            df_via_indexed = df_via_edit.set_index("Destino")
+            st.session_state.viaticos_custom = df_via_indexed.T.to_dict()
+            st.success("✅ Viáticos actualizados en memoria para esta sesión.")
 
 elif pagina == "Asistente IA":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
@@ -1340,10 +1411,104 @@ elif pagina == "Asistente IA":
             st.error("Configura tu API Key en Configuración.")
 
 elif pagina == "Configuracion":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Configuracion</h2>", unsafe_allow_html=True)
-    tab_emp, tab_logo = st.tabs(["Datos Empresa", "Logo"])
+    st.markdown("<h2 style='font-family:Playfair Display,serif'>Perfil de la Empresa y Preferencias</h2>", unsafe_allow_html=True)
+
+    tab_emp, tab_finanzas, tab_logo = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual"])
+
     with tab_emp:
-        st.session_state.empresa_info["nombre"] = st.text_input("Empresa", st.session_state.empresa_info["nombre"])
+        c1, c2 = st.columns(2)
+        st.session_state.empresa_info["nombre"] = c1.text_input(
+            "Razón Social", st.session_state.empresa_info.get("nombre", "MÁRMOLES COLLANTE & CASTRO LTDA."))
+        st.session_state.empresa_info["nit"] = c2.text_input(
+            "NIT", st.session_state.empresa_info.get("nit", "NIT: 900.111.561-1"))
+        st.session_state.empresa_info["ciudad"] = c1.text_input(
+            "Ciudad / Dirección", st.session_state.empresa_info.get("ciudad", "Barranquilla, Atlántico — Colombia"))
+        st.session_state.empresa_info["tel"] = c2.text_input(
+            "Teléfono Comercial", st.session_state.empresa_info.get("tel", "+57 300 000 0000"))
+        st.session_state.empresa_info["email"] = st.text_input(
+            "Correo de contacto", st.session_state.empresa_info.get("email", "ventas@marmolescc.com"))
+
+        st.markdown("---")
+        st.markdown("#### 📝 Términos y Garantías (Aparecen en PDFs)")
+        st.session_state.empresa_info["terminos"] = st.text_area(
+            "Cláusulas de garantía y condiciones",
+            value=st.session_state.empresa_info.get(
+                "terminos",
+                "Garantía de 1 año en mano de obra de instalación. No cubre manchas por ácidos, "
+                "golpes, mal uso o intervención de terceros. Los daños causados por otros gremios "
+                "durante la construcción no están cubiertos."
+            ),
+            height=110,
+            placeholder="Ej: Garantía de 1 año en instalación, no cubre manchas por ácidos...",
+            help="Este texto aparecerá en el pie de página de las cotizaciones y cuentas de cobro PDF."
+        )
+
+    with tab_finanzas:
+        st.markdown("#### 🏦 Datos Bancarios (Aparecen en los PDFs de cobro)")
+        b1, b2 = st.columns(2)
+        st.session_state.empresa_info["banco"] = b1.text_input(
+            "Banco", st.session_state.empresa_info.get("banco", "Davivienda"))
+        _tipos_cuenta = ["Cuenta Corriente Empresas", "Cuenta de Ahorros", "Cuenta Corriente Personal"]
+        _tipo_actual = st.session_state.empresa_info.get("cuenta_tipo", "Cuenta Corriente Empresas")
+        _tipo_idx = _tipos_cuenta.index(_tipo_actual) if _tipo_actual in _tipos_cuenta else 0
+        st.session_state.empresa_info["cuenta_tipo"] = b2.selectbox("Tipo de Cuenta", _tipos_cuenta, index=_tipo_idx)
+        st.session_state.empresa_info["cuenta_numero"] = b1.text_input(
+            "Número de Cuenta", st.session_state.empresa_info.get("cuenta_numero", "108900027484"))
+
+        st.markdown("---")
+        st.markdown("#### 📊 Parámetros Comerciales por Defecto")
+        a1, a2 = st.columns(2)
+        st.session_state.empresa_info["anticipo_pct"] = a1.number_input(
+            "Anticipo exigido (%)",
+            min_value=10, max_value=100,
+            value=int(st.session_state.empresa_info.get("anticipo_pct", 60)),
+            step=5,
+            help="Porcentaje de anticipo estándar que aparece en los PDFs de cotización."
+        )
+        st.session_state.empresa_info["dias_validez"] = a2.number_input(
+            "Días de validez de la cotización",
+            min_value=5, max_value=90,
+            value=int(st.session_state.empresa_info.get("dias_validez", 30)),
+            step=5,
+            help="Número de días que la cotización tiene validez comercial."
+        )
+        st.session_state.empresa_info["iva_defecto"] = a1.toggle(
+            "Incluir IVA 19% por defecto",
+            value=bool(st.session_state.empresa_info.get("iva_defecto", False)),
+            help="Si se activa, las nuevas cotizaciones incluirán IVA por defecto."
+        )
+
+        # Mostrar resumen bancario
+        _emp = st.session_state.empresa_info
+        st.markdown(
+            f'<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);'
+            f'border-radius:10px;padding:14px 18px;margin-top:12px">'
+            f'<div style="font-size:0.75rem;font-weight:700;opacity:0.5;margin-bottom:6px">VISTA PREVIA EN PDF</div>'
+            f'<div style="font-size:0.88rem"><strong>{_emp.get("banco","")}</strong> · {_emp.get("cuenta_tipo","")} '
+            f'· Cta. {_emp.get("cuenta_numero","")}<br>'
+            f'Anticipo: <strong>{_emp.get("anticipo_pct",60)}%</strong> · Validez: <strong>{_emp.get("dias_validez",30)} días</strong></div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
     with tab_logo:
-        logo = st.file_uploader("Sube tu logo (PNG/JPG)", type=["png","jpg"])
-        if logo: st.session_state.logo_bytes = logo.read()
+        st.info("El logo se redimensiona automáticamente para el sidebar y los encabezados PDF.", icon="🎨")
+        _base_dir_cfg = os.path.dirname(os.path.abspath(__file__))
+        _logo_path_cfg = next(
+            (os.path.join(_base_dir_cfg, n) for n in
+             ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png", "Logo_cc.jpeg"]
+             if os.path.exists(os.path.join(_base_dir_cfg, n))),
+            None
+        )
+        if st.session_state.get("logo_bytes"):
+            st.image(st.session_state.logo_bytes, width=220)
+            st.caption("✅ Logo en memoria (subido en esta sesión)")
+        elif _logo_path_cfg:
+            st.image(_logo_path_cfg, width=220)
+            st.caption(f"📁 Logo desde disco: `{os.path.basename(_logo_path_cfg)}`")
+
+        logo = st.file_uploader("Subir nuevo logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
+        if logo:
+            st.session_state.logo_bytes = logo.read()
+            st.success("✅ Logo cargado. Ya aparece en el sidebar y en los PDFs.")
+            st.rerun()
