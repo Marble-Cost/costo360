@@ -127,7 +127,7 @@ def _stats_db():
     s["margen_prom"]= cur.fetchone()[0] or 0
     cur.execute("SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones WHERE estado='Aprobada' GROUP BY material")
     s["por_material"]= cur.fetchall()
-    cur.execute("SELECT SUBSTR(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones GROUP BY SUBSTR(fecha,1,7) ORDER BY SUBSTR(fecha,1,7) DESC LIMIT 6")
+    cur.execute("SELECT SUBSTR(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones WHERE estado='Aprobada' GROUP BY SUBSTR(fecha,1,7) ORDER BY SUBSTR(fecha,1,7) DESC LIMIT 6")
     s["por_mes"]    = cur.fetchall()
     cur.close()
     conn.close()
@@ -1537,7 +1537,7 @@ elif pagina == "Dashboard":
                 "<br>".join([
                     f"<b style='font-size:13px'>{r['MesLabel']}</b>",
                     f"Facturación: <b>{_fmt_cop2(r['Facturación'])}</b>",
-                    f"Cotizaciones aprobadas: <b>{int(r['Cotizaciones'])}</b>",
+                    f"Proyectos aprobados: <b>{int(r['Cotizaciones'])}</b>",
                 ])
                 for _, r in _df_mes.iterrows()
             ]
