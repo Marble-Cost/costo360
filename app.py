@@ -583,11 +583,19 @@ elif pagina == "Cotizacion Directa":
 
     nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente", ""), placeholder="Ej: Juan Garcia / Constructora XYZ")
 
-    st.markdown("**Zocalos**")
-    zocalo_activo = st.checkbox("Este proyecto lleva zocalos", value=pre.get("zocalo_activo", False))
+    st.markdown("**Zócalos**")
+    zocalo_activo = st.checkbox(
+        "Este proyecto lleva zócalos",
+        value=pre.get("zocalo_activo", False),
+        help="El zócalo o guardaescoba requiere un trabajo de corte y brillo de cantos independiente al mesón. Se cobra por metro lineal (ML)."
+    )
     zocalo_ml = 0.0
     if zocalo_activo:
-        zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5)
+        zocalo_ml = st.number_input(
+            "Metros lineales de zócalo (ml)",
+            min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5,
+            help="Suma el largo de todos los zócalos. El sistema multiplicará esto por la tarifa de zócalo definida en Parámetros."
+        )
 
     # ── Gestión de Desperdicio Inteligente ──────────────────────────────────
     st.markdown("**Gestión de Desperdicio (Retal)**")
@@ -599,7 +607,7 @@ elif pagina == "Cotizacion Directa":
             min_value=0.0,
             value=float(pre.get("extra_corte", desperdicio_sugerido)),
             step=0.05,
-            help="Históricamente se pierde un 15% a 20% del material en cortes y empates."
+            help="Ningún proyecto usa el 100% de la placa. Los empates, bordes y cortes del lavaplatos generan pérdida. Agregar este extra asegura que el costo de ese material perdido se incluya en el precio final."
         )
     with col_d2:
         st.info(f"💡 Sugerido técnico (15%): **{desperdicio_sugerido:.2f} m²**", icon="📊")
@@ -812,6 +820,22 @@ elif pagina == "Cotizacion Directa":
                 alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA 19% s/total: **{numero_completo(_sim_p + _sim_iva)}**", "info")
             else:
                 alerta(f"Precio total (sin IVA): **{numero_completo(_sim_p)}**", "info")
+
+        # ── AUDITORÍA DE FÓRMULAS (Modo Aprendizaje) ──────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("💡 ¿Cómo calculó la aplicación este precio? (Auditoría de datos)"):
+            st.markdown(f"""
+Esta herramienta no suma números al azar. Aquí tienes el modelo matemático exacto utilizado para tu proyecto en **{r['categoria']}**:
+
+- **Material ({numero_completo(r['c1_material'])}):** Se multiplicó el Área de placa comprada ({r['area_placa']:.3f} m²) por el Precio por m² que te cobra tu proveedor ({numero_completo(r['precio_m2'])}/m²).
+- **Producción / Mano de Obra ({numero_completo(r['c2_mano_obra'])}):** Se multiplicaron los metros lineales del proyecto ({r['ml_proyecto']:.2f} ml) por la tarifa de producción configurada en Parámetros para {r['categoria']}.
+- **Insumos y Consumibles ({numero_completo(r['c4_insumos'])}):** El sistema calculó tres sub-costos: desgaste de disco/máquina ({numero_completo(r.get('c4_disco_maq', 0))}), consumibles como masilla y lijas ({numero_completo(r.get('c4_consumibles', 0))}), y una provisión de riesgo de rotura ({numero_completo(r.get('c4_riesgo', 0))}).
+- **Logística ({numero_completo(r['c5_logistica'])}):** Se calculó usando el rendimiento del vehículo seleccionado, el precio de la gasolina actual y la distancia en km, más peajes y herramientas.
+- **Precio Sugerido ({numero_completo(r['precio_sugerido'])}):** No es una suma simple. Para garantizar un margen real del **{r['margen_pct']}%** sobre la venta, se usó la fórmula financiera: `Precio = Costo Total ÷ (1 − Margen)` = {numero_completo(r['costo_total'])} ÷ (1 − {r['margen_pct']/100:.2f}) = **{numero_completo(r['precio_sugerido'])}**.
+
+> 💰 Utilidad proyectada: **{numero_completo(r['utilidad'])}** — lo que entra al bolsillo después de cubrir todos los costos.
+            """)
+        # ─────────────────────────────────────────────────────────────────────
 
         st.markdown("---")
         st.markdown("#### Exportar documentos comerciales")
