@@ -253,8 +253,13 @@ with st.sidebar:
          if os.path.exists(os.path.join(_base_dir, n))),
         None
     )
-    if _logo_path:
+    # 1. Prioridad a la imagen subida en Configuración (Memoria)
+    if st.session_state.get("logo_bytes"):
+        st.image(st.session_state.logo_bytes, use_container_width=True)
+    # 2. Si no hay en memoria, busca en el disco duro
+    elif _logo_path:
         st.image(_logo_path, use_container_width=True)
+    # 3. Fallback (Texto)
     else:
         st.markdown(
             '<div style="text-align:center;padding:14px 0 8px">'
@@ -583,6 +588,33 @@ elif pagina == "Cotizacion Directa":
     zocalo_ml = 0.0
     if zocalo_activo:
         zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5)
+
+    # ── Gestión de Desperdicio Inteligente ──────────────────────────────────
+    st.markdown("**Gestión de Desperdicio (Retal)**")
+    desperdicio_sugerido = round(m2_real * 0.15, 2)
+    col_d1, col_d2 = st.columns([1, 1])
+    with col_d1:
+        extra_corte = st.number_input(
+            "m² adicionales por cortes/desperdicio",
+            min_value=0.0,
+            value=float(pre.get("extra_corte", desperdicio_sugerido)),
+            step=0.05,
+            help="Históricamente se pierde un 15% a 20% del material en cortes y empates."
+        )
+    with col_d2:
+        st.info(f"💡 Sugerido técnico (15%): **{desperdicio_sugerido:.2f} m²**", icon="📊")
+    m2_cortados_total += extra_corte
+
+    st.markdown("---")
+
+    # ── Respaldo Visual (Planos / Modelado 3D) ───────────────────────────────
+    st.markdown("**Respaldo Visual (Planos / Modelado 3D)**")
+    plano_file = st.file_uploader("Adjuntar plano del cliente o render 3D (PDF, JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"])
+    if plano_file:
+        st.session_state.pre["plano_nombre"] = plano_file.name
+        st.success(f"📎 Documento adjunto: {plano_file.name}")
+    elif st.session_state.pre.get("plano_nombre"):
+        st.info(f"📎 Documento previo en memoria: {st.session_state.pre['plano_nombre']}")
 
     st.markdown("---")
 
