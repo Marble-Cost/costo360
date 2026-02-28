@@ -1,7 +1,7 @@
 # parametros.py — Sistema de Cotización v4
 # MARMOLES COLLANTE & CASTRO LTDA. · Feb 2026 · Barranquilla, Colombia
 
-CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Cuarcita"]
+CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
 
 # ── TARIFAS DE PRODUCCIÓN ────────────────────────────────────────────────────
 # En Colombia la mano de obra en marmolería se paga POR METRO LINEAL (ml),
@@ -42,7 +42,7 @@ TARIFAS = {
         "disco":     5_200,
         "maquina":  27_000,
     },
-    "Cuarcita": {
+    "Quarzita": {
         "prod_ml":  70_000,
         "zocalo":   15_000,
         "disco":     8_000,
@@ -132,7 +132,7 @@ BADGE_COLORS = {
     "Granito":     ("#e4f0e8", "#1a5a2a"),
     "Sinterizado": ("#ede8f8", "#4a1a8a"),
     "Quarztone":   ("#f8f0e4", "#7a4a1a"),
-    "Cuarcita":    ("#fce8ea", "#8a1a1a"),
+    "Quarzita":    ("#fce8ea", "#8a1a1a"),
 }
 
 DESCRIPCIONES_CATEGORIA = {
@@ -140,53 +140,22 @@ DESCRIPCIONES_CATEGORIA = {
     "Granito":     "Muy resistente. Ideal para cocinas y exteriores.",
     "Sinterizado": "Material técnico de última generación. Alta resistencia.",
     "Quarztone":   "Cuarzo compactado. Consistencia de color perfecta.",
-    "Cuarcita":    "Piedra natural de dureza superior al mármol.",
+    "Quarzita":    "Piedra natural de dureza superior al mármol.",
 }
 
-
-# ── TIPOS DE SUPERFICIE — unidad de venta y anchos estándar ──────────────────
-#
-# "unidad_venta": cómo se COBRA al cliente
-#   "ml"  → se cobra por metro lineal (largo × precio/ml).
-#            El ancho es fijo y conocido → se usa internamente para calcular m²
-#            de material comprado, pero el cliente paga por ml.
-#   "m2"  → se cobra por metro cuadrado (ancho libre × largo × precio/m²).
-#            Típico en pisos, revestimientos y paneles grandes.
-#
-# "ancho": en metros. None = el usuario debe ingresar el ancho manualmente.
-#
-# Regla de mano de obra:
-#   - ML: costo_produccion = ml × tarifa_prod_ml  (operario cobra por ml)
-#   - m²: costo_produccion = m² × tarifa_prod_m2  (tarifa diferente, menos cortes)
-#
 ANCHOS_ESTANDAR = {
-    # ── VENTA EN ML ────────────────────────────────────────────────────────────
-    "Mesón de cocina":          {"ancho": 0.60, "unidad_venta": "ml", "desc": "Profundidad estándar 60 cm"},
-    "Encimera / Worktop":       {"ancho": 0.60, "unidad_venta": "ml", "desc": "Igual que mesón, 60 cm"},
-    "Isla de cocina":           {"ancho": 1.00, "unidad_venta": "ml", "desc": "Ancho estándar isla 1 m — cotizar en ml"},
-    "Mesón ancho especial":     {"ancho": None, "unidad_venta": "ml", "desc": "Isla o mesón con ancho personalizado → ingresar ancho"},
-    "Baño / Mueble de baño":    {"ancho": 0.50, "unidad_venta": "ml", "desc": "Profundidad mueble baño 50 cm"},
-    "Lavamanos / Vanity":       {"ancho": 0.45, "unidad_venta": "ml", "desc": "Profundidad lavamanos 45 cm"},
-    "Salpicadero / Frente":     {"ancho": 0.60, "unidad_venta": "ml", "desc": "Backsplash entre mesón y gabinetes"},
-    "Huella escalón":           {"ancho": 0.30, "unidad_venta": "ml", "desc": "Profundidad huella 30 cm"},
-    "Contrahuella escalón":     {"ancho": 0.18, "unidad_venta": "ml", "desc": "Altura contrahuella 18 cm"},
-    "Escalón completo (h+c)":   {"ancho": 0.48, "unidad_venta": "ml", "desc": "Huella + contrahuella"},
-    "Repisa / Shelf":           {"ancho": 0.25, "unidad_venta": "ml", "desc": "Repisa profundidad estándar 25 cm"},
-    "Alféizar / Umbral":        {"ancho": 0.20, "unidad_venta": "ml", "desc": "Alféizar ventana o umbral puerta"},
-    "Zócalo":                   {"ancho": 0.10, "unidad_venta": "ml", "desc": "Zócalo 10 cm de alto"},
-    # ── VENTA EN m² ───────────────────────────────────────────────────────────
-    "Piso / Pavimento":         {"ancho": None, "unidad_venta": "m2", "desc": "Ingresa largo y ancho — se cobra por m²"},
-    "Revestimiento de pared":   {"ancho": None, "unidad_venta": "m2", "desc": "Paredes completas — se cobra por m²"},
-    "Fachada / Panel":          {"ancho": None, "unidad_venta": "m2", "desc": "Fachada o panel grande — se cobra por m²"},
-    "Terraza / Exterior":       {"ancho": None, "unidad_venta": "m2", "desc": "Pisos exteriores — se cobra por m²"},
-    # ── LIBRE ─────────────────────────────────────────────────────────────────
-    "Personalizado (ML)":       {"ancho": None, "unidad_venta": "ml", "desc": "Largo × ancho personalizado — se cobra por ml"},
-    "Personalizado (m²)":       {"ancho": None, "unidad_venta": "m2", "desc": "Área libre — se cobra por m²"},
+    "Mesón de cocina":       {"ancho": 0.60, "unidad": "m", "desc": "Ancho estándar mesón"},
+    "Isla de cocina":        {"ancho": 1.00, "unidad": "m", "desc": "Ancho estándar isla"},
+    "Encimera":              {"ancho": 0.60, "unidad": "m", "desc": "Igual que mesón"},
+    "Salpicadero / Frente":  {"ancho": 0.60, "unidad": "m", "desc": "Altura backsplash estándar"},
+    "Baño / Lavamanos":      {"ancho": 0.45, "unidad": "m", "desc": "Profundidad estándar baño"},
+    "Mueble de baño":        {"ancho": 0.50, "unidad": "m", "desc": "Profundidad mueble baño"},
+    "Zócalo":                {"ancho": 0.10, "unidad": "m", "desc": "Alto estándar zócalo 10cm"},
+    "Huella escalón":        {"ancho": 0.30, "unidad": "m", "desc": "Profundidad huella escalera"},
+    "Escalón completo":      {"ancho": 0.90, "unidad": "m", "desc": "Ancho escalera estándar"},
+    "Fachada / Panel":       {"ancho": 1.00, "unidad": "m", "desc": "Módulos de 1m de ancho"},
+    "Personalizado":         {"ancho": None, "unidad": "m", "desc": "Ingresa el ancho manualmente"},
 }
-
-# Clasificación rápida para la UI
-TIPOS_ML = [k for k, v in ANCHOS_ESTANDAR.items() if v["unidad_venta"] == "ml"]
-TIPOS_M2 = [k for k, v in ANCHOS_ESTANDAR.items() if v["unidad_venta"] == "m2"]
 
 MATERIALES_CATALOGO = [
     {"nombre": "Crema Marfil Clásico",  "categoria": "Mármol",      "precio_m2": 220_000, "area_placa": 5.94},
