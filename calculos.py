@@ -72,7 +72,10 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     es_externo = veh_cfg.get("tipo") == "externo"
 
     if es_externo:
-        flete_ext = veh_cfg.get("flete", p.get("externo", {}).get("flete", 165_000))
+        # Soporte para externo como dict {"flete": N} o como int legacy
+        _ext_src = p.get("externo", {})
+        _ext_flete_default = _ext_src.get("flete", 165_000) if isinstance(_ext_src, dict) else int(_ext_src)
+        flete_ext = veh_cfg.get("flete", _ext_flete_default)
         costo_vehiculo = flete_ext
         costo_km   = 0.0
         costo_base = 0.0
@@ -312,7 +315,28 @@ def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
 
 def cop(valor: float) -> str:
     """Formato moneda colombiana: $1.250.000"""
-    return f"${int(round(valor)):,}".replace(",", ".")
+    return "$" + f"{int(round(valor)):,}".replace(",", ".")
+
+
+def fmt_decimal(valor: float, decimales: int = 2) -> str:
+    """Número decimal colombiano: 3.450,75  (miles=punto, decimal=coma)"""
+    fmt = f"{valor:,.{decimales}f}"          # Python: "3,450.75"
+    partes = fmt.split(".")
+    entero = partes[0].replace(",", ".")     # miles con punto
+    dec    = partes[1] if len(partes) > 1 else ""
+    if not dec or all(c == "0" for c in dec):
+        return entero
+    return f"{entero},{dec}"
+
+
+def fmt_m2(valor: float, decimales: int = 3) -> str:
+    """Metros cuadrados: 3,450 m²"""
+    return fmt_decimal(valor, decimales) + " m²"
+
+
+def fmt_ml(valor: float, decimales: int = 2) -> str:
+    """Metros lineales: 3,50 ml"""
+    return fmt_decimal(valor, decimales) + " ml"
 
 
 def pct(valor: float) -> str:
