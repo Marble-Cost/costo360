@@ -1989,86 +1989,79 @@ elif pagina == "Asistente IA":
     if "chat_input_key" not in st.session_state:
         st.session_state.chat_input_key = 0
 
-    # ── CSS del chat ──────────────────────────────────────────────────────────
+    # ── CSS refinado ──────────────────────────────────────────────────────────
     st.markdown("""
     <style>
-    .msg-user {
+    /* Burbujas de chat */
+    .burbuja-wrap-user { display:flex; flex-direction:column; align-items:flex-end; margin: 6px 0; }
+    .burbuja-wrap-ai   { display:flex; flex-direction:column; align-items:flex-start; margin: 6px 0; }
+
+    .burbuja-label {
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        opacity: 0.38;
+        margin-bottom: 4px;
+        padding: 0 4px;
+    }
+    .burbuja-user {
         background: #1B5FA8;
         color: white;
-        border-radius: 16px 16px 3px 16px;
-        padding: 11px 16px;
-        margin: 2px 0 2px 18%;
-        font-size: 0.91rem;
+        border-radius: 18px 18px 4px 18px;
+        padding: 10px 16px;
+        max-width: 78%;
+        font-size: 0.9rem;
         line-height: 1.6;
+        word-break: break-word;
     }
-    .msg-ai {
+    .burbuja-ai {
         background: var(--secondary-background-color);
         border: 1px solid var(--border-color);
-        border-radius: 16px 16px 16px 3px;
-        padding: 11px 16px;
-        margin: 2px 18% 2px 0;
-        font-size: 0.91rem;
-        line-height: 1.65;
+        border-radius: 18px 18px 18px 4px;
+        padding: 10px 16px;
+        max-width: 84%;
+        font-size: 0.9rem;
+        line-height: 1.68;
+        word-break: break-word;
     }
-    .msg-label {
-        font-size: 0.65rem;
-        font-weight: 700;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        opacity: 0.4;
-        margin-bottom: 3px;
-    }
-    .arranque-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-top: 16px;
-    }
+
+    /* Tarjetas de inicio */
     .arranque-card {
         border: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 14px 16px;
-        cursor: pointer;
+        border-radius: 14px;
+        padding: 16px 18px;
         background: var(--secondary-background-color);
-        font-size: 0.87rem;
-        line-height: 1.45;
+        height: 100%;
         transition: border-color 0.15s;
     }
-    .arranque-titulo {
-        font-weight: 700;
-        margin-bottom: 4px;
-        font-size: 0.88rem;
-    }
-    .arranque-desc {
-        opacity: 0.55;
-        font-size: 0.78rem;
-    }
-    .cta-calculadora {
-        display: inline-block;
-        background: #1B5FA8;
-        color: white !important;
-        font-size: 0.82rem;
-        font-weight: 700;
-        padding: 7px 16px;
-        border-radius: 8px;
-        margin-top: 10px;
-        cursor: pointer;
-        letter-spacing: 0.02em;
-    }
-    .sugerencia-row {
-        display: flex;
-        flex-wrap: wrap;
+    .arranque-card:hover { border-color: #1B5FA8; }
+    .arranque-icono   { font-size: 1.3rem; margin-bottom: 8px; }
+    .arranque-titulo  { font-weight: 700; font-size: 0.9rem; margin-bottom: 5px; }
+    .arranque-desc    { opacity: 0.52; font-size: 0.79rem; line-height: 1.5; }
+
+    /* Pill de proyecto detectado */
+    .pill-proyecto {
+        display: inline-flex;
+        align-items: center;
         gap: 7px;
-        margin: 10px 0 4px;
+        border: 1.5px solid #1B5FA8;
+        border-radius: 10px;
+        padding: 7px 13px;
+        font-size: 0.81rem;
+        font-weight: 600;
+        margin: 8px 0 4px;
+        background: rgba(27,95,168,0.06);
+        color: #1B5FA8;
     }
-    .sugerencia-pill {
-        border: 1px solid var(--border-color);
-        border-radius: 20px;
-        padding: 4px 13px;
-        font-size: 0.79rem;
-        background: transparent;
-        cursor: pointer;
-        white-space: nowrap;
+    .pill-proyecto span { opacity: 0.65; font-weight: 400; }
+
+    /* Separador decorativo */
+    .chat-divider {
+        border: none;
+        border-top: 1px solid var(--border-color);
+        margin: 14px 0 10px;
+        opacity: 0.4;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -2076,164 +2069,179 @@ elif pagina == "Asistente IA":
     # ── Guard: IA no disponible ───────────────────────────────────────────────
     if not ia_disponible():
         st.markdown(
-            "<h2 style='font-family:Playfair Display,serif;margin-bottom:8px'>Asistente</h2>",
+            "<h2 style='font-family:Playfair Display,serif;margin-bottom:8px'>Asistente IA</h2>",
             unsafe_allow_html=True
         )
-        st.markdown(
-            '<div style="border:1px solid var(--border-color);border-radius:12px;'
-            'padding:24px 28px;max-width:520px;margin-top:12px">'
-            '<div style="font-weight:700;font-size:1rem;margin-bottom:8px">API key no configurada</div>'
-            '<div style="font-size:0.88rem;line-height:1.6;opacity:0.75">'
-            'Para activar el asistente ve a <strong>Configuración</strong> '
-            'e ingresa tu API key de Anthropic.'
-            '</div></div>',
-            unsafe_allow_html=True
-        )
+        with st.container(border=True):
+            st.markdown("#### 🔑 API key no configurada")
+            st.markdown(
+                "Para activar el asistente, ve a **Configuración** e ingresa tu API key de Anthropic.  \n"
+                "El asistente te permite describir proyectos en lenguaje natural, "
+                "consultar márgenes y recibir análisis de cotizaciones."
+            )
+            if st.button("Ir a Configuración →", type="primary"):
+                st.session_state.nav_radio = "Configuracion"
+                st.session_state._radio_ui = "Configuracion"
+                st.rerun()
         st.stop()
 
     # ── Header ────────────────────────────────────────────────────────────────
-    col_h, col_clear = st.columns([5, 1])
-    with col_h:
+    _col_hdr, _col_clr = st.columns([6, 1])
+    with _col_hdr:
         st.markdown(
-            "<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>Asistente</h2>"
-            "<p style='opacity:0.5;font-size:0.82rem;margin:0'>Describe un proyecto o consulta cualquier duda sobre costos y cotización.</p>",
+            "<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>Asistente IA</h2>"
+            "<p style='opacity:0.48;font-size:0.83rem;margin:0 0 8px'>"
+            "Describe un proyecto o consulta cualquier duda sobre costos y cotización."
+            "</p>",
             unsafe_allow_html=True
         )
-    with col_clear:
+    with _col_clr:
         if st.session_state.chat:
-            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-            if st.button("Limpiar", use_container_width=True):
+            st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+            if st.button("🗑️ Limpiar", use_container_width=True, help="Borra el historial de esta conversación"):
                 st.session_state.chat = []
                 st.session_state.chat_input_key += 1
                 st.rerun()
 
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
     # ── Estado vacío: tarjetas de inicio ─────────────────────────────────────
     if not st.session_state.chat:
         st.markdown(
-            "<div style='font-size:0.72rem;font-weight:700;opacity:0.4;letter-spacing:0.08em;"
-            "text-transform:uppercase;margin-bottom:14px'>Por dónde empezar</div>",
+            "<div style='font-size:0.7rem;font-weight:700;opacity:0.38;letter-spacing:0.09em;"
+            "text-transform:uppercase;margin:12px 0 14px'>¿Por dónde empezar?</div>",
             unsafe_allow_html=True
         )
         _arranques = [
             {
+                "icono": "🧮",
                 "titulo": "Cotizar un proyecto",
-                "desc": "Describe el material, medidas y tipo de obra. La IA extrae los datos y los carga en la calculadora.",
-                "msg": "Tengo un mesón de cocina en mármol crema marfil, 3,5 metros de largo por 60 cm de ancho. El proveedor me cobró $220.000/m² por una placa de 5,94 m². ¿Me ayudas a cotizarlo?"
+                "desc":   "Describe el material, medidas y tipo de obra. La IA extrae los datos y los carga en la calculadora.",
+                "msg":    "Tengo un mesón de cocina en mármol crema marfil, 3,5 metros de largo por 60 cm de ancho. El proveedor me cobró $220.000/m² por una placa de 5,94 m². ¿Me ayudas a cotizarlo?"
             },
             {
+                "icono": "💰",
                 "titulo": "¿Estoy cobrando bien?",
-                "desc": "Ingresa tu precio y la IA revisa si el margen es saludable para el mercado de Barranquilla.",
-                "msg": "Le voy a cobrar $3.200.000 a un cliente por 4 metros lineales de granito instalado en cocina. ¿Ese precio tiene buen margen o estoy dejando plata sobre la mesa?"
+                "desc":   "Ingresa tu precio y la IA revisa si el margen es saludable para el mercado de Barranquilla.",
+                "msg":    "Le voy a cobrar $3.200.000 a un cliente por 4 metros lineales de granito instalado en cocina. ¿Ese precio tiene buen margen o estoy dejando plata sobre la mesa?"
             },
             {
+                "icono": "⚖️",
                 "titulo": "Comparar materiales",
-                "desc": "Descubre cuál material deja más utilidad para un mismo proyecto.",
-                "msg": "Para un mesón de 5 ml, ¿qué me conviene más cotizar: mármol, granito o sinterizado? ¿Cuál deja mejor margen normalmente?"
+                "desc":   "Descubre cuál material deja más utilidad para un mismo proyecto.",
+                "msg":    "Para un mesón de 5 ml, ¿qué me conviene más cotizar: mármol, granito o sinterizado? ¿Cuál deja mejor margen normalmente?"
             },
             {
-                "titulo": "Entender los costos ocultos",
-                "desc": "La IA explica qué cargos debes incluir para no quedar en rojo.",
-                "msg": "Siempre que termino un proyecto siento que gané menos de lo esperado. ¿Qué costos suele olvidar un marmolero al cotizar?"
+                "icono": "🔍",
+                "titulo": "Costos que se te olvidan",
+                "desc":   "La IA explica qué cargos debes incluir para no quedar en rojo al final del proyecto.",
+                "msg":    "Siempre que termino un proyecto siento que gané menos de lo esperado. ¿Qué costos suele olvidar un marmolero al cotizar?"
             },
         ]
         _col_a, _col_b = st.columns(2)
         for _i, _ar in enumerate(_arranques):
             _col = _col_a if _i % 2 == 0 else _col_b
             with _col:
-                st.markdown(
-                    f'<div class="arranque-card">'
-                    f'<div class="arranque-titulo">{_ar["titulo"]}</div>'
-                    f'<div class="arranque-desc">{_ar["desc"]}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-                if st.button("Empezar", key=f"arr_{_i}", use_container_width=True):
-                    st.session_state.chat.append({"role": "user", "content": _ar["msg"]})
-                    with st.spinner(""):
-                        _r = chat_con_ia([], _ar["msg"])
-                        # Detectar si hay datos de proyecto
-                        _datos = None
-                        if any(w in _ar["msg"].lower() for w in ["mesón", "cocina", "ml", "metros", "placa"]):
-                            _datos = interpretar_proyecto(_ar["msg"])
-                    _msg_ia = {"role": "assistant", "content": _r}
-                    if _datos and _datos.get("categoria"):
-                        _msg_ia["datos_proyecto"] = _datos
-                    st.session_state.chat.append(_msg_ia)
-                    st.rerun()
+                # Tarjeta + botón dentro de un contenedor unificado
+                with st.container(border=True):
+                    st.markdown(
+                        f'<div class="arranque-icono">{_ar["icono"]}</div>'
+                        f'<div class="arranque-titulo">{_ar["titulo"]}</div>'
+                        f'<div class="arranque-desc">{_ar["desc"]}</div>',
+                        unsafe_allow_html=True
+                    )
+                    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+                    if st.button("Consultar →", key=f"arr_{_i}", use_container_width=True):
+                        st.session_state.chat.append({"role": "user", "content": _ar["msg"]})
+                        with st.spinner("El asistente está analizando…"):
+                            _r = chat_con_ia([], _ar["msg"])
+                            _datos = None
+                            if any(w in _ar["msg"].lower() for w in ["mesón", "cocina", "ml", "metros", "placa"]):
+                                _datos = interpretar_proyecto(_ar["msg"])
+                        _msg_ia = {"role": "assistant", "content": _r}
+                        if _datos and _datos.get("categoria"):
+                            _msg_ia["datos_proyecto"] = _datos
+                        st.session_state.chat.append(_msg_ia)
+                        st.rerun()
 
     else:
         # ── Render del historial ──────────────────────────────────────────────
         for _midx, _msg in enumerate(st.session_state.chat):
             if _msg["role"] == "user":
+                # Burbuja usuario — derecha, azul
                 st.markdown(
-                    f'<div class="msg-label" style="text-align:right">Tú</div>'
-                    f'<div class="msg-user">{_msg["content"]}</div>',
+                    '<div class="burbuja-wrap-user">'
+                    '<div class="burbuja-label">Tú</div>'
+                    f'<div class="burbuja-user">{_msg["content"]}</div>'
+                    '</div>',
                     unsafe_allow_html=True
                 )
             else:
-                st.markdown(
-                    f'<div class="msg-label">Asistente</div>'
-                    f'<div class="msg-ai">{_msg["content"]}</div>',
-                    unsafe_allow_html=True
-                )
-                # Si el mensaje tiene datos de proyecto extraídos, ofrecer carga
+                # Burbuja asistente — izquierda, fondo neutro
+                # Usamos st.chat_message internamente para que el Markdown se renderice bien
+                with st.chat_message("assistant", avatar="🤖"):
+                    st.markdown(_msg["content"])
+
+                # Si el último mensaje de la IA detectó datos de proyecto → CTA
                 if _msg.get("datos_proyecto") and _midx == len(st.session_state.chat) - 1:
                     _d = _msg["datos_proyecto"]
-                    _resumen_datos = []
-                    if _d.get("categoria"): _resumen_datos.append(_d["categoria"])
-                    if _d.get("referencia"): _resumen_datos.append(_d["referencia"])
-                    if _d.get("m2_proyecto"): _resumen_datos.append(f'{_d["m2_proyecto"]} m²')
-                    _resumen_str = " · ".join(_resumen_datos) if _resumen_datos else "datos detectados"
-                    _cc1, _cc2 = st.columns([2, 3])
-                    with _cc1:
+                    _partes = []
+                    if _d.get("categoria"):   _partes.append(_d["categoria"])
+                    if _d.get("referencia"):  _partes.append(_d["referencia"])
+                    if _d.get("m2_proyecto"): _partes.append(f'{_d["m2_proyecto"]} m²')
+                    _resumen_str = " · ".join(_partes) if _partes else "datos detectados"
+
+                    _cta_col, _ = st.columns([2, 3])
+                    with _cta_col:
                         st.markdown(
-                            f'<div style="border:1px solid #1B5FA8;border-radius:10px;'
-                            f'padding:10px 14px;margin:8px 0">'
-                            f'<div style="font-size:0.68rem;font-weight:700;opacity:0.5;margin-bottom:4px">PROYECTO DETECTADO</div>'
-                            f'<div style="font-size:0.82rem;font-weight:600">{_resumen_str}</div>'
-                            f'</div>',
+                            f'<div class="pill-proyecto">📋 Proyecto detectado '
+                            f'<span>— {_resumen_str}</span></div>',
                             unsafe_allow_html=True
                         )
-                        if st.button("Cargar en la calculadora →", key=f"cargar_{_midx}", type="primary", use_container_width=True):
+                        if st.button("Cargar en la calculadora →", key=f"cargar_{_midx}",
+                                     type="primary", use_container_width=True):
                             st.session_state.pre = _d
                             st.session_state.nav_radio = "Cotizacion Directa"
                             st.session_state._radio_ui = "Cotizacion Directa"
                             st.query_params["pagina"] = "Cotizacion Directa"
                             st.rerun()
 
-        # ── Sugerencias contextuales (generadas desde la respuesta real) ──────
+        # ── Sugerencias contextuales ──────────────────────────────────────────
         _ultimo_ai = next(
-            (_m for _m in reversed(st.session_state.chat) if _m["role"] == "assistant"),
-            None
+            (_m for _m in reversed(st.session_state.chat) if _m["role"] == "assistant"), None
         )
         if _ultimo_ai:
-            _ult = _ultimo_ai["content"].lower()
+            _ult  = _ultimo_ai["content"].lower()
             _sugs = []
             if any(w in _ult for w in ["margen", "utilidad", "precio sugerido"]):
-                _sugs += ["¿Cómo mejorar el margen sin subir el precio?", "¿Cuánto es un margen mínimo aceptable?"]
+                _sugs += ["¿Cómo mejorar el margen?", "¿Cuál es el mínimo aceptable?"]
             if any(w in _ult for w in ["retal", "desperdicio", "aprovechamiento"]):
-                _sugs += ["¿Cómo reduzco el retal en cortes complejos?"]
-            if any(w in _ult for w in ["material", "mármol", "granito", "sinterizado", "quarztone"]):
-                _sugs += ["¿Cuál material tiene más riesgo de rotura?", "¿El sinterizado vale la pena cobrarlo diferente?"]
+                _sugs += ["¿Cómo reduzco el retal?"]
+            if any(w in _ult for w in ["material", "mármol", "granito", "sinterizado"]):
+                _sugs += ["¿Cuál material tiene más riesgo de rotura?", "¿Sinterizado vs granito: cuál conviene más?"]
             if any(w in _ult for w in ["logística", "transporte", "flete", "vehículo"]):
-                _sugs += ["¿Cuándo usar la Frontier vs la Cheyenne?"]
+                _sugs += ["¿Cuándo uso la Frontier vs la Cheyenne?"]
             if any(w in _ult for w in ["aiu", "imprevisto", "administración"]):
                 _sugs += ["¿Cuándo aplica la estructura AIU?", "¿El IVA va sobre todo o solo sobre la utilidad?"]
             if not _sugs:
-                _sugs = ["¿Qué más debo incluir en el precio?", "¿Cuál es el error más común al cotizar?", "Hazme un ejemplo con números reales"]
+                _sugs = ["¿Qué más debo incluir en el precio?", "¿Cuál es el error más común al cotizar?", "Dame un ejemplo con números reales"]
 
             _sugs = _sugs[:3]
+            st.markdown("<hr class='chat-divider'>", unsafe_allow_html=True)
+            st.markdown(
+                "<div style='font-size:0.68rem;font-weight:700;opacity:0.38;"
+                "letter-spacing:0.07em;text-transform:uppercase;margin-bottom:8px'>"
+                "Seguir preguntando</div>",
+                unsafe_allow_html=True
+            )
             _sug_cols = st.columns(len(_sugs))
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
             for _si, _sug in enumerate(_sugs):
                 with _sug_cols[_si]:
-                    if st.button(_sug, key=f"sug_{_si}_{st.session_state.chat_input_key}", use_container_width=True):
+                    if st.button(_sug, key=f"sug_{_si}_{st.session_state.chat_input_key}",
+                                 use_container_width=True):
                         st.session_state.chat.append({"role": "user", "content": _sug})
-                        with st.spinner(""):
+                        with st.spinner("El asistente está pensando…"):
                             _sr = chat_con_ia(
-                                [m for m in st.session_state.chat[:-1] if m["role"] in ("user", "assistant")],
+                                [m for m in st.session_state.chat[:-1]
+                                 if m["role"] in ("user", "assistant")],
                                 _sug
                             )
                         st.session_state.chat.append({"role": "assistant", "content": _sr})
@@ -2241,36 +2249,37 @@ elif pagina == "Asistente IA":
                         st.rerun()
 
     # ── Input de texto ────────────────────────────────────────────────────────
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    st.markdown("<hr class='chat-divider'>", unsafe_allow_html=True)
+
     _ic, _sc = st.columns([6, 1])
     with _ic:
         _nuevo = st.text_input(
-            "Mensaje",
+            "Escribe tu mensaje",
             key=f"chat_inp_{st.session_state.chat_input_key}",
-            placeholder="Describe tu proyecto o escribe tu pregunta...",
+            placeholder="Describe tu proyecto o escribe tu pregunta…",
             label_visibility="collapsed",
         )
     with _sc:
-        _enviar = st.button("Enviar", type="primary", use_container_width=True,
-                            key=f"enviar_{st.session_state.chat_input_key}")
+        _enviar = st.button(
+            "Enviar ➤",
+            type="primary",
+            use_container_width=True,
+            key=f"enviar_{st.session_state.chat_input_key}"
+        )
 
     if _enviar and _nuevo.strip():
         _texto = _nuevo.strip()
         st.session_state.chat.append({"role": "user", "content": _texto})
 
-        with st.spinner(""):
-            # Detectar si describe un proyecto concreto (≥2 palabras clave)
-            _kw_proyecto = ["mesón", "meson", "cocina", "baño", "bano", "escalera",
-                            "fachada", "piso", "ml", "metro", "placa", "granito",
-                            "mármol", "sinterizado", "quarztone", "quarzita", "cuarzo"]
+        with st.spinner("El asistente está analizando tu consulta…"):
+            _kw_proyecto = ["mesón","meson","cocina","baño","bano","escalera","fachada",
+                            "piso","ml","metro","placa","granito","mármol","sinterizado",
+                            "quarztone","quarzita","cuarzo"]
             _es_proyecto = sum(1 for w in _kw_proyecto if w in _texto.lower()) >= 2
-
-            _datos_ext = None
-            if _es_proyecto:
-                _datos_ext = interpretar_proyecto(_texto)
-
-            _resp = chat_con_ia(
-                [m for m in st.session_state.chat[:-1] if m["role"] in ("user", "assistant")],
+            _datos_ext   = interpretar_proyecto(_texto) if _es_proyecto else None
+            _resp        = chat_con_ia(
+                [m for m in st.session_state.chat[:-1] if m["role"] in ("user","assistant")],
                 _texto
             )
 
