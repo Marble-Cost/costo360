@@ -1,5 +1,5 @@
 # app.py — CostoMármol v6 · Adaptive UX & Fixes
-# MARMOLES COLLANTE & CASTRO LTDA. · Feb 2026
+# Mármoles Collante & Castro Ltda. · Feb 2026
 
 import io
 import base64
@@ -20,7 +20,7 @@ from parametros import (
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
 
 st.set_page_config(
-    page_title="CostoMarMol — MARMOLES COLLANTE & CASTRO",
+    page_title="CostoMármol — Mármoles Collante & Castro",
     page_icon="🪨",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -255,7 +255,7 @@ _defaults = {
     "tarifas_custom": None, "logistica_custom": None, "viaticos_custom": None,
     "logo_bytes": None, "logo_mime": None,
     "empresa_info": {
-        "nombre": "MARMOLES COLLANTE & CASTRO LTDA.", "nit": "NIT: 900.111.561-1",
+        "nombre": "MÁRMOLES COLLANTE & CASTRO LTDA.", "nit": "NIT: 900.111.561-1",
         "tel": "+57 300 000 0000", "email": "ventas@marmolescc.com",
         "ciudad": "Barranquilla, Atlántico — Colombia", "banco": "Davivienda",
         "cuenta_tipo": "Cuenta Corriente Empresas", "cuenta_numero": "108900027484",
@@ -363,31 +363,55 @@ if st.session_state.get("onboarding_activo"):
     with st.container(border=True):
         # ── Encabezado: etiqueta dorada + contador ────────────────────────────
         _etiqueta = _paso.get("etiqueta", f"PASO {_op + 1}")
-        st.markdown(
-            f"<div style='display:flex;align-items:center;justify-content:space-between;"
-            f"margin-bottom:14px'>"
-            f"<span style='font-size:0.62rem;font-weight:800;letter-spacing:0.16em;"
-            f"color:#C9A84C;text-transform:uppercase'>{_etiqueta}</span>"
-            f"<span style='font-size:0.62rem;font-weight:600;letter-spacing:0.06em;"
-            f"opacity:0.4;text-transform:uppercase'>PASO {_op + 1} DE {_total}</span>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-        # ── Ícono + título en columnas ────────────────────────────────────────
-        _col_icon, _col_text = st.columns([0.6, 9.4])
-        with _col_icon:
+        _es_bienvenida = (_paso.get("id") == "bienvenida")
+        if _es_bienvenida:
+            # Paso de bienvenida: nombre empresa como identidad, sin badge pequeño
             st.markdown(
-                f"<div style='font-size:2.1rem;padding-top:2px;line-height:1'>"
-                f"{_paso.get('icono', '📋')}</div>",
+                f"<div style='display:flex;align-items:center;justify-content:space-between;"
+                f"margin-bottom:14px'>"
+                f"<span style='font-size:0.70rem;font-weight:900;letter-spacing:0.18em;"
+                f"color:#C9A84C;text-transform:uppercase;border-bottom:2px solid #C9A84C;"
+                f"padding-bottom:3px'>{_etiqueta}</span>"
+                f"<span style='font-size:0.62rem;font-weight:600;letter-spacing:0.06em;"
+                f"opacity:0.4;text-transform:uppercase'>PASO {_op + 1} DE {_total}</span>"
+                f"</div>",
                 unsafe_allow_html=True,
             )
-        with _col_text:
+        else:
+            st.markdown(
+                f"<div style='display:flex;align-items:center;justify-content:space-between;"
+                f"margin-bottom:14px'>"
+                f"<span style='font-size:0.62rem;font-weight:800;letter-spacing:0.16em;"
+                f"color:#C9A84C;text-transform:uppercase'>{_etiqueta}</span>"
+                f"<span style='font-size:0.62rem;font-weight:600;letter-spacing:0.06em;"
+                f"opacity:0.4;text-transform:uppercase'>PASO {_op + 1} DE {_total}</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        # ── Ícono + título en columnas ────────────────────────────────────────
+        if _es_bienvenida:
+            # Paso bienvenida: título prominente sin ícono lateral
             st.markdown(
                 f"<h3 style='margin:0 0 2px;font-family:Playfair Display,serif;"
-                f"color:#1B5FA8;font-size:1.25rem;line-height:1.2'>"
+                f"color:#1B5FA8;font-size:1.35rem;line-height:1.2'>"
                 f"{_paso['titulo']}</h3>",
                 unsafe_allow_html=True,
             )
+        else:
+            _col_icon, _col_text = st.columns([0.6, 9.4])
+            with _col_icon:
+                st.markdown(
+                    f"<div style='font-size:2.1rem;padding-top:2px;line-height:1'>"
+                    f"{_paso.get('icono', '📋')}</div>",
+                    unsafe_allow_html=True,
+                )
+            with _col_text:
+                st.markdown(
+                    f"<h3 style='margin:0 0 2px;font-family:Playfair Display,serif;"
+                    f"color:#1B5FA8;font-size:1.25rem;line-height:1.2'>"
+                    f"{_paso['titulo']}</h3>",
+                    unsafe_allow_html=True,
+                )
         # ── Cuerpo del texto ──────────────────────────────────────────────────
         st.markdown(
             f"<div style='margin-top:12px;font-size:0.9rem;line-height:1.72;opacity:0.82'>"
@@ -434,7 +458,7 @@ if pagina == "Inicio":
     st.markdown(f"""
     <div style="background:var(--secondary-background-color); border-radius:16px;padding:40px 44px;margin-bottom:28px; border:2px solid #1B5FA8;">
       <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
-        MARMOLES COLLANTE &amp; CASTRO LTDA.
+        Mármoles Collante &amp; Castro Ltda.
       </div>
       <div style="font-size:2.4rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:14px; color:var(--text-color);">
         Sistema de Cotización<br>Profesional
@@ -2568,7 +2592,7 @@ elif pagina == "Configuracion":
     with tab_emp:
         c1, c2 = st.columns(2)
         st.session_state.empresa_info["nombre"] = c1.text_input(
-            "Razón Social", st.session_state.empresa_info.get("nombre", "MARMOLES COLLANTE & CASTRO LTDA."))
+            "Razón Social", st.session_state.empresa_info.get("nombre", "MÁRMOLES COLLANTE & CASTRO LTDA."))
         st.session_state.empresa_info["nit"] = c2.text_input(
             "NIT", st.session_state.empresa_info.get("nit", "NIT: 900.111.561-1"))
         st.session_state.empresa_info["ciudad"] = c1.text_input(
