@@ -19,34 +19,44 @@ CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzi
 
 TARIFAS = {
     "Mármol": {
-        "prod_ml":  60_000,   # COP/ml — lo que cobra el operario por cada ml cortado e instalado
-        "zocalo":   12_000,   # COP/ml de zócalo instalado
-        "disco":     2_200,   # COP/m² cortado (disco diamantado rinde ~90 m² en mármol)
-        "maquina":  20_000,   # COP/día de uso de la cortadora
+        "prod_ml":       60_000,  # COP/ml — lo que cobra el operario por cada ml cortado e instalado
+        "zocalo":        12_000,  # COP/ml de zócalo instalado
+        "disco":          2_200,  # COP/m² cortado (disco diamantado rinde ~90 m² en mármol)
+        "maquina":       20_000,  # COP/día de uso de la cortadora
+        "consumibles":    8_500,  # COP/m² — lijas, masilla de poliéster, ceras, sellador, estopa
+        "riesgo_rotura":   0.02,  # 2% del costo del material (provisión de rotura)
     },
     "Granito": {
-        "prod_ml":  55_000,
-        "zocalo":   14_000,
-        "disco":     6_000,
-        "maquina":  25_000,
+        "prod_ml":       55_000,
+        "zocalo":        14_000,
+        "disco":          6_000,
+        "maquina":       25_000,
+        "consumibles":   10_000,  # Adhesivos más resistentes por dureza del granito
+        "riesgo_rotura":   0.01,  # Granito es menos frágil que mármol
     },
     "Sinterizado": {
-        "prod_ml":  85_000,
-        "zocalo":   20_000,
-        "disco":    18_000,
-        "maquina":  32_000,
+        "prod_ml":       85_000,
+        "zocalo":        20_000,
+        "disco":         18_000,
+        "maquina":       32_000,
+        "consumibles":   25_000,  # Adhesivos especiales + herramientas específicas
+        "riesgo_rotura":   0.08,  # Alta tensión superficial — mayor riesgo de rotura
     },
     "Quarztone": {
-        "prod_ml":  65_000,
-        "zocalo":   16_000,
-        "disco":     5_200,
-        "maquina":  27_000,
+        "prod_ml":       65_000,
+        "zocalo":        16_000,
+        "disco":          5_200,
+        "maquina":       27_000,
+        "consumibles":    9_000,
+        "riesgo_rotura":   0.01,
     },
     "Quarzita": {
-        "prod_ml":  70_000,
-        "zocalo":   15_000,
-        "disco":     8_000,
-        "maquina":  28_000,
+        "prod_ml":       70_000,
+        "zocalo":        15_000,
+        "disco":          8_000,
+        "maquina":       28_000,
+        "consumibles":   15_000,  # Mayor consumo de lijas por dureza
+        "riesgo_rotura":   0.05,  # Dureza superior genera más riesgo de fractura en corte
     },
 }
 
@@ -71,7 +81,19 @@ LOGISTICA = {
     "herram":   4_500,
 }
 
-VIATICOS = {"pueblo": 145_000, "ciudad": 178_000}
+VIATICOS = {
+    # Desglose real por componente — suma = costo diario por persona
+    "pueblo": {
+        "hospedaje":         60_000,  # Alojamiento en pueblo/corregimiento
+        "alimentacion":      65_000,  # Desayuno + almuerzo + cena
+        "transporte_local":  20_000,  # Movilidad local (moto, taxi, buseta)
+    },
+    "ciudad": {
+        "hospedaje":         90_000,  # Hotel o posada en ciudad capital
+        "alimentacion":      68_000,  # Comidas en ciudad (ligeramente más caro)
+        "transporte_local":  20_000,  # Transporte urbano
+    },
+}
 
 ADICIONALES = [
     {"concepto": "Fregadero instalación bajo cubierta", "unidad": "und",   "terminada": 35_000, "acabados": 42_000, "estructura": 50_000, "comercial": 55_000},
