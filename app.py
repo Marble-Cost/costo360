@@ -60,6 +60,120 @@ def _init_db():
             margen REAL, estado TEXT DEFAULT 'Pendiente', datos_json TEXT
         )
     """)
+    # ── Banco de Retales Digital ──────────────────────────────────────────────
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS inventario_retales (
+            id SERIAL PRIMARY KEY,
+            material_categoria  TEXT NOT NULL,
+            referencia          TEXT,
+            m2_disponibles      REAL NOT NULL,
+            m2_original         REAL NOT NULL,
+            origen_cotizacion_id INTEGER REFERENCES cotizaciones(id) ON DELETE SET NULL,
+            origen_numero       TEXT,
+            origen_cliente      TEXT,
+            fecha_ingreso       TEXT NOT NULL,
+            estado              TEXT DEFAULT 'Disponible',
+            notas               TEXT
+        )
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# ── CRUD Banco de Retales ─────────────────────────────────────────────────────
+
+def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, referencia: str, m2_retal: float):
+    """Registra el retal de una cotización aprobada en el inventario."""
+    if m2_retal <= 0:
+        return
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    # Evitar duplicados: solo inyectar una vez por cotización
+    cur.execute("SELECT COUNT(*) FROM inventario_retales WHERE origen_cotizacion_id = %s", (cot_id,))
+    if cur.fetchone()[0] == 0:
+        cur.execute(
+            """INSERT INTO inventario_retales
+               (material_categoria, referencia, m2_disponibles, m2_original,
+                origen_cotizacion_id, origen_numero, origen_cliente, fecha_ingreso, estado)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible')""",
+            (categoria, referencia or "", round(m2_retal, 4), round(m2_retal, 4),
+             cot_id, numero, cliente or "Sin nombre", date.today().isoformat())
+        )
+        conn.commit()
+    cur.close()
+    conn.close()
+
+def _consultar_retal(categoria: str, referencia: str) -> list:
+    """Retorna retales disponibles para un material/referencia."""
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
+           FROM inventario_retales
+           WHERE material_categoria = %s
+             AND estado = 'Disponible'
+             AND m2_disponibles > 0.05
+           ORDER BY fecha_ingreso ASC""",
+        (categoria,)
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    # Si hay referencia específica, filtrar por ella; si no, devolver todos del material
+    if referencia and referencia.strip():
+        filtradas = [r for r in rows if r[1].strip().lower() == referencia.strip().lower()]
+        return filtradas if filtradas else rows  # fallback: misma categoría
+    return rows
+
+def _marcar_retal_usado(retal_id: int, m2_consumidos: float):
+    """Descuenta m² usados; si queda menos de 0.05 m², pasa a Usado."""
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT m2_disponibles FROM inventario_retales WHERE id = %s", (retal_id,))
+    row = cur.fetchone()
+    if row:
+        nuevo = round(row[0] - m2_consumidos, 4)
+        if nuevo <= 0.05:
+            cur.execute("UPDATE inventario_retales SET m2_disponibles=0, estado='Usado' WHERE id=%s", (retal_id,))
+        else:
+            cur.execute("UPDATE inventario_retales SET m2_disponibles=%s WHERE id=%s", (nuevo, retal_id))
+        conn.commit()
+    cur.close()
+    conn.close()
+
+def _listar_retales() -> list:
+    """Lista completa del banco de retales para la vista de inventario."""
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
+                  origen_numero, origen_cliente, fecha_ingreso, estado, notas
+           FROM inventario_retales
+           ORDER BY estado ASC, fecha_ingreso DESC"""
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+def _actualizar_notas_retal(retal_id: int, notas: str):
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE inventario_retales SET notas=%s WHERE id=%s", (notas, retal_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def _eliminar_retal(retal_id: int):
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM inventario_retales WHERE id=%s", (retal_id,))
     conn.commit()
     cur.close()
     conn.close()
@@ -98,6 +212,28 @@ def _actualizar_estado(cot_id, nuevo_estado):
     cur = conn.cursor()
     cur.execute("UPDATE cotizaciones SET estado=%s WHERE id=%s", (nuevo_estado, cot_id))
     conn.commit()
+
+    # ── Automatización: inyectar retal cuando se aprueba ─────────────────────
+    if nuevo_estado == "Aprobada":
+        cur.execute(
+            "SELECT numero, cliente, material, datos_json FROM cotizaciones WHERE id=%s",
+            (cot_id,)
+        )
+        row = cur.fetchone()
+        if row:
+            _numero, _cliente, _material, _datos_json = row
+            try:
+                _datos = json.loads(_datos_json) if _datos_json else {}
+                _retal = float(_datos.get("retal", 0))
+                _referencia = _datos.get("referencia", "")
+                if _retal > 0.05:
+                    cur.close()
+                    conn.close()
+                    _inyectar_retal(cot_id, _numero, _cliente, _material, _referencia, _retal)
+                    return
+            except Exception:
+                pass
+
     cur.close()
     conn.close()
 
@@ -327,13 +463,12 @@ with st.sidebar:
 
     # Historial: redirección legacy si alguien tenía ruta guardada sin "Historial"
     if st.session_state.get("nav_radio") not in ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
-                                                   "Historial", "Dashboard", "Parametros",
-                                                   "Asistente IA", "Configuracion"]:
+                                                   "Historial", "Dashboard", "Banco de Retales",
+                                                   "Parametros", "Asistente IA", "Configuracion"]:
         st.session_state.nav_radio = "Inicio"
-        st.session_state.nav_radio  = "Historial"
-        st.session_state._radio_ui  = "Historial"
+        st.session_state._radio_ui = "Inicio"
 
-    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Parametros", "Asistente IA", "Configuracion"]
+    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Banco de Retales", "Parametros", "Asistente IA", "Configuracion"]
 
     def update_nav():
         st.session_state.nav_radio = st.session_state._radio_ui
@@ -548,7 +683,73 @@ elif pagina == "Cotizacion Directa":
 
             costo_m = precio_m2_m * area_placa_m
             st.caption(f"Costo: {numero_completo(precio_m2_m)}/m² × {area_placa_m} m² = **{numero_completo(costo_m)}**")
-            mats_nuevos.append({"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m})
+
+            # ── Banco de Retales: detectar disponibilidad ─────────────────────
+            _mat_dict = {"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m}
+            try:
+                _retales_disp = _consultar_retal(cat_sel_m, referencia_m)
+            except Exception:
+                _retales_disp = []
+
+            if _retales_disp:
+                _m2_total_retal = sum(r[2] for r in _retales_disp)
+                _retal_key = f"usar_retal_{midx}"
+                _usando_retal = st.session_state.get(_retal_key, False)
+
+                if not _usando_retal:
+                    # Aviso visual elegante
+                    _num_piezas = len(_retales_disp)
+                    _orig_txt = _retales_disp[0][3] if _num_piezas == 1 else f"{_num_piezas} proyectos anteriores"
+                    st.markdown(
+                        f'<div style="border:1px solid #1B5FA8;border-left:4px solid #1B5FA8;'
+                        f'border-radius:8px;padding:10px 16px;margin:8px 0;'
+                        f'background:rgba(27,95,168,0.06);">'
+                        f'<div style="font-size:0.8rem;font-weight:700;color:#1B5FA8;margin-bottom:4px">'
+                        f'Tienes {fmt_m2(_m2_total_retal, 2)} de este material en tu Banco de Retales'
+                        f'</div>'
+                        f'<div style="font-size:0.75rem;opacity:0.65">'
+                        f'Origen: {_orig_txt} · Usar retal fija el precio en $0 y dispara el margen</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+                    _col_rb, _ = st.columns([1.4, 2.6])
+                    with _col_rb:
+                        if st.button("Usar retal existente →", key=f"btn_retal_{midx}", type="primary", use_container_width=True):
+                            st.session_state[_retal_key] = True
+                            # Seleccionar el retal con más m²
+                            _retal_sel = max(_retales_disp, key=lambda r: r[2])
+                            st.session_state[f"retal_id_{midx}"]  = _retal_sel[0]
+                            st.session_state[f"retal_m2_{midx}"]  = _retal_sel[2]
+                            st.rerun()
+                else:
+                    # Estado activo: retal en uso — sobreescribir valores del dict
+                    _rid_activo = st.session_state.get(f"retal_id_{midx}")
+                    _rm2_activo = st.session_state.get(f"retal_m2_{midx}", _m2_total_retal)
+
+                    _mat_dict["precio_m2"]  = 0        # costo de material = $0
+                    _mat_dict["area_placa"] = _rm2_activo
+                    _mat_dict["es_retal"]   = True
+                    _mat_dict["retal_id"]   = _rid_activo
+
+                    st.markdown(
+                        f'<div style="border:1px solid #15803d;border-left:4px solid #15803d;'
+                        f'border-radius:8px;padding:10px 16px;margin:8px 0;'
+                        f'background:rgba(21,128,61,0.06);">'
+                        f'<div style="font-size:0.8rem;font-weight:700;color:#15803d;margin-bottom:3px">'
+                        f'Retal activo — Precio/m² fijado en $0 · Área disponible: {fmt_m2(_rm2_activo, 3)}'
+                        f'</div>'
+                        f'<div style="font-size:0.75rem;opacity:0.65">'
+                        f'Costo de material = $0 · El margen sube al 80-90%+ según los demás costos</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+                    if st.button("Cancelar — usar material nuevo", key=f"btn_cancel_retal_{midx}"):
+                        st.session_state.pop(_retal_key, None)
+                        st.session_state.pop(f"retal_id_{midx}", None)
+                        st.session_state.pop(f"retal_m2_{midx}", None)
+                        st.rerun()
+
+            mats_nuevos.append(_mat_dict)
 
     st.session_state.materiales_proyecto = mats_nuevos
 
@@ -983,6 +1184,18 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
         import random as _rand
         _num_auto = f"COT-{date.today().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
         _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
+
+        # ── Banco de Retales: descontar m² consumidos si se usó retal ─────────
+        for _mi, _md in enumerate(st.session_state.get("materiales_proyecto", [])):
+            if _md.get("es_retal") and _md.get("retal_id"):
+                try:
+                    _marcar_retal_usado(_md["retal_id"], _md.get("area_placa", 0))
+                    st.session_state.pop(f"usar_retal_{_mi}", None)
+                    st.session_state.pop(f"retal_id_{_mi}", None)
+                    st.session_state.pop(f"retal_m2_{_mi}", None)
+                except Exception:
+                    pass
+
         st.success("✅ Cotización guardada exitosamente en el Historial.")
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") != "Licitación AIU":
@@ -1845,6 +2058,181 @@ elif pagina == "Dashboard":
             help="Porcentaje de cotizaciones rechazadas sobre el total. "
                  "Una tasa mayor al 40% es una señal de alerta en precios o presentación.",
         )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BANCO DE RETALES DIGITAL
+# ═══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Banco de Retales":
+    st.markdown(
+        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>Banco de Retales</h2>"
+        "<p style='opacity:0.6;font-size:0.85rem;margin:0 0 20px'>Inventario de material sobrante con costo $0 — margen puro</p>",
+        unsafe_allow_html=True
+    )
+
+    # ── Métricas del banco ────────────────────────────────────────────────────
+    try:
+        _todos_retales = _listar_retales()
+    except Exception:
+        _todos_retales = []
+
+    _disp = [r for r in _todos_retales if r[8] == "Disponible"]
+    _usados = [r for r in _todos_retales if r[8] == "Usado"]
+    _m2_disp_total = sum(r[3] for r in _disp)
+    _m2_orig_total = sum(r[4] for r in _todos_retales)
+
+    _rm1, _rm2, _rm3, _rm4 = st.columns(4)
+    _rm1.metric("Piezas disponibles", len(_disp))
+    _rm2.metric("m² disponibles", f"{_m2_disp_total:.2f} m²")
+    _rm3.metric("Piezas consumidas", len(_usados))
+    _rm4.metric("Total registrado", f"{len(_todos_retales)} piezas")
+
+    st.markdown("<hr style='margin:10px 0 20px'>", unsafe_allow_html=True)
+
+    # ── Filtro y herramientas ─────────────────────────────────────────────────
+    _rf1, _rf2, _rf3 = st.columns([2, 1.5, 1])
+    with _rf1:
+        _rfiltro_cat = st.selectbox(
+            "Filtrar por material",
+            ["Todos"] + CATEGORIAS_MATERIAL,
+            key="retal_filtro_cat", label_visibility="collapsed"
+        )
+    with _rf2:
+        _rfiltro_est = st.selectbox(
+            "Estado",
+            ["Disponible", "Todos los estados", "Usado"],
+            key="retal_filtro_est", label_visibility="collapsed"
+        )
+    with _rf3:
+        if st.button("+ Registrar retal manual", use_container_width=True, type="primary"):
+            st.session_state["retal_form_abierto"] = True
+
+    # ── Formulario de registro manual ─────────────────────────────────────────
+    if st.session_state.get("retal_form_abierto"):
+        with st.container(border=True):
+            st.markdown("<div style='font-weight:700;margin-bottom:10px'>Registrar retal manualmente</div>", unsafe_allow_html=True)
+            _rf_c1, _rf_c2, _rf_c3 = st.columns([1.5, 1.5, 1])
+            with _rf_c1:
+                _ncat = st.selectbox("Categoría", CATEGORIAS_MATERIAL, key="rfm_cat")
+                _nref = st.text_input("Referencia", key="rfm_ref", placeholder="Ej: Calacatta Dorato")
+            with _rf_c2:
+                _nm2 = st.number_input("m² disponibles", min_value=0.05, max_value=50.0, value=1.0, step=0.05, key="rfm_m2", format="%.3f")
+                _nnota = st.text_input("Notas (opcional)", key="rfm_nota", placeholder="Ej: Guardado en taller, estante 3")
+            with _rf_c3:
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                if st.button("Guardar", key="rfm_save", type="primary", use_container_width=True):
+                    try:
+                        _init_db()
+                        _conn = _get_db_connection()
+                        _cur = _conn.cursor()
+                        _cur.execute(
+                            """INSERT INTO inventario_retales
+                               (material_categoria, referencia, m2_disponibles, m2_original,
+                                fecha_ingreso, estado, notas)
+                               VALUES (%s, %s, %s, %s, %s, 'Disponible', %s)""",
+                            (_ncat, _nref, _nm2, _nm2, date.today().isoformat(), _nnota)
+                        )
+                        _conn.commit()
+                        _cur.close()
+                        _conn.close()
+                        st.session_state["retal_form_abierto"] = False
+                        st.success("Retal registrado.")
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"Error: {_e}")
+                if st.button("Cancelar", key="rfm_cancel", use_container_width=True):
+                    st.session_state["retal_form_abierto"] = False
+                    st.rerun()
+
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+    # ── Tabla de inventario ───────────────────────────────────────────────────
+    _filas_filtradas = _todos_retales
+    if _rfiltro_cat != "Todos":
+        _filas_filtradas = [r for r in _filas_filtradas if r[1] == _rfiltro_cat]
+    if _rfiltro_est == "Disponible":
+        _filas_filtradas = [r for r in _filas_filtradas if r[8] == "Disponible"]
+    elif _rfiltro_est == "Usado":
+        _filas_filtradas = [r for r in _filas_filtradas if r[8] == "Usado"]
+
+    if not _filas_filtradas:
+        st.markdown(
+            '<div style="text-align:center;padding:56px 0;opacity:0.38">'
+            '<div style="font-size:0.95rem;font-weight:700;margin-bottom:8px">Sin retales en el inventario</div>'
+            '<div style="font-size:0.83rem">Los retales se registran automáticamente cuando apruebas una cotización<br>'
+            'que generó sobrante de material. También puedes registrarlos manualmente.</div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
+    else:
+        # Cabecera de tabla
+        _th = st.columns([1.8, 1.4, 0.8, 0.8, 1.2, 1.2, 1.1, 0.7])
+        for _tc, _tl in zip(_th, ["Material", "Referencia", "Disp. (m²)", "Original (m²)",
+                                   "Origen", "Cliente", "Fecha", "Acción"]):
+            _tc.markdown(
+                f"<div style='font-size:0.68rem;font-weight:800;opacity:0.5;text-transform:uppercase;"
+                f"letter-spacing:0.06em;padding-bottom:4px'>{_tl}</div>",
+                unsafe_allow_html=True
+            )
+        st.markdown("<hr style='margin:0 0 8px'>", unsafe_allow_html=True)
+
+        for _rr in _filas_filtradas:
+            _rr_id, _rr_cat, _rr_ref, _rr_m2d, _rr_m2o, _rr_onum, _rr_ocli, _rr_fech, _rr_est, _rr_nota = _rr
+            _pct_rest = (_rr_m2d / _rr_m2o * 100) if _rr_m2o > 0 else 0
+            _est_color = "#15803d" if _rr_est == "Disponible" else "#6b7280"
+
+            _rc = st.columns([1.8, 1.4, 0.8, 0.8, 1.2, 1.2, 1.1, 0.7])
+            _rc[0].markdown(
+                f'<span style="font-size:0.82rem;font-weight:700">{_rr_cat}</span>',
+                unsafe_allow_html=True
+            )
+            _rc[1].markdown(
+                f'<span style="font-size:0.8rem;opacity:0.8">{_rr_ref or "—"}</span>',
+                unsafe_allow_html=True
+            )
+            _rc[2].markdown(
+                f'<span style="font-size:0.88rem;font-weight:800;color:{_est_color}">'
+                f'{_rr_m2d:.3f}</span>',
+                unsafe_allow_html=True
+            )
+            _rc[3].markdown(
+                f'<span style="font-size:0.8rem;opacity:0.55">{_rr_m2o:.3f}</span>',
+                unsafe_allow_html=True
+            )
+            _rc[4].markdown(
+                f'<span style="font-size:0.78rem;opacity:0.7">{_rr_onum or "Manual"}</span>',
+                unsafe_allow_html=True
+            )
+            _rc[5].markdown(
+                f'<span style="font-size:0.78rem;opacity:0.7">{_rr_ocli or "—"}</span>',
+                unsafe_allow_html=True
+            )
+            _rc[6].markdown(
+                f'<span style="font-size:0.78rem;opacity:0.55">{_rr_fech}</span>',
+                unsafe_allow_html=True
+            )
+            with _rc[7]:
+                _del_retal_key = f"del_retal_ok_{_rr_id}"
+                if not st.session_state.get(_del_retal_key):
+                    if st.button("Eliminar", key=f"del_retal_{_rr_id}", use_container_width=True):
+                        st.session_state[_del_retal_key] = True
+                        st.rerun()
+                else:
+                    if st.button("Confirmar", key=f"delconf_retal_{_rr_id}", use_container_width=True, type="primary"):
+                        _eliminar_retal(_rr_id)
+                        st.session_state.pop(_del_retal_key, None)
+                        st.rerun()
+
+            # Barra de progreso de cuánto queda
+            if _rr_m2o > 0 and _rr_est == "Disponible":
+                st.markdown(
+                    f'<div style="height:3px;background:#e5e7eb;border-radius:2px;margin:2px 0 8px">'
+                    f'<div style="height:100%;width:{_pct_rest:.0f}%;background:#15803d;border-radius:2px"></div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
