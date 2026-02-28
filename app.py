@@ -202,7 +202,26 @@ def bloque_costos(items_label_valor, total_label, total_val):
     st.markdown(f'<div class="card-custom">{html}</div>', unsafe_allow_html=True)
 
 def numero_completo(valor):
-    return f"${int(round(valor)):,}".replace(",", ".")
+    """Moneda colombiana: $1.250.000"""
+    return "$" + f"{int(round(valor)):,}".replace(",", ".")
+
+def fmt_decimal(valor: float, decimales: int = 2) -> str:
+    """Número decimal colombiano: miles=punto, decimal=coma  →  3.450,75"""
+    fmt = f"{valor:,.{decimales}f}"
+    partes = fmt.split(".")
+    entero = partes[0].replace(",", ".")
+    dec    = partes[1] if len(partes) > 1 else ""
+    if not dec or all(c == "0" for c in dec):
+        return entero
+    return f"{entero},{dec}"
+
+def fmt_m2(valor: float, decimales: int = 3) -> str:
+    """Metros cuadrados: 3,450 m²"""
+    return fmt_decimal(valor, decimales) + " m²"
+
+def fmt_ml(valor: float, decimales: int = 2) -> str:
+    """Metros lineales: 3,50 ml"""
+    return fmt_decimal(valor, decimales) + " ml"
 
 # ── SESSION STATE DATA ────────────────────────────────────────────────────────
 _defaults = {
@@ -462,7 +481,7 @@ elif pagina == "Cotizacion Directa":
     # Precio_m2 efectivo para que calcular_cotizacion_directa compute correctamente c1
     precio_m2_efectivo = costo_mat_total / area_placa if area_placa > 0 else precio_m2
 
-    alerta(f"Total material: **{numero_completo(costo_mat_total)}** en {area_placa:.2f} m² comprados", "info")
+    alerta(f"Total material: **{numero_completo(costo_mat_total)}** en {fmt_m2(area_placa, 2)} comprados", "info")
 
     st.markdown("---")
 
@@ -509,7 +528,7 @@ elif pagina == "Cotizacion Directa":
                 ancho_p = st.number_input("Ancho", value=float(ancho_def), min_value=0.01, step=0.01, key=f"panc_{idx}", label_visibility="collapsed")
             m2_p = ml_a_m2(ml_p, ancho_p)
             total_m2_piezas += m2_p
-            with c4: st.markdown(f"<div style='padding:8px 4px;font-weight:700;'>{m2_p:.3f} m²</div>", unsafe_allow_html=True)
+            with c4: st.markdown(f"<div style='padding:8px 4px;font-weight:700;'>{fmt_m2(m2_p)}</div>", unsafe_allow_html=True)
             with c5:
                 if st.button("X", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
                     st.session_state.piezas.pop(idx)
@@ -531,8 +550,8 @@ elif pagina == "Cotizacion Directa":
                 st.markdown(
                     f'''<div style="background:var(--secondary-background-color); border:1px solid var(--border-color); border-radius:10px;padding:12px 18px;text-align:center">
                   <div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total del proyecto</div>
-                  <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{_ml_total:.2f} ml</div>
-                  <div style="font-size:0.85rem;opacity:0.7;margin-top:2px">{m2_real:.3f} m² de material</div>
+                  <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{fmt_ml(_ml_total)}</div>
+                  <div style="font-size:0.85rem;opacity:0.7;margin-top:2px">{fmt_m2(m2_real)} de material</div>
                 </div>''', unsafe_allow_html=True)
         extra_corte = st.number_input("m² adicionales cortados no aprovechados (desperdicios manuales)", min_value=0.0, value=0.0, step=0.05)
         m2_cortados_total += extra_corte
@@ -556,7 +575,7 @@ elif pagina == "Cotizacion Directa":
             aprv = min(100, m2_usados / area_placa * 100)
             retal = max(0, area_placa - m2_usados)
             estado_a = "bueno" if aprv >= 80 else "acepta" if aprv >= 50 else "bajo"
-            alerta(f"Aprovechamiento: **{aprv:.1f}%** — Retal: {retal:.3f} m²", estado_a)
+            alerta(f"Aprovechamiento: **{aprv:.1f}%** — Retal: {fmt_m2(retal)}", estado_a)
 
     st.markdown("---")
 
@@ -583,19 +602,11 @@ elif pagina == "Cotizacion Directa":
 
     nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente", ""), placeholder="Ej: Juan Garcia / Constructora XYZ")
 
-    st.markdown("**Zócalos**")
-    zocalo_activo = st.checkbox(
-        "Este proyecto lleva zócalos",
-        value=pre.get("zocalo_activo", False),
-        help="El zócalo o guardaescoba requiere un trabajo de corte y brillo de cantos independiente al mesón. Se cobra por metro lineal (ML)."
-    )
+    st.markdown("**Zocalos**")
+    zocalo_activo = st.checkbox("Este proyecto lleva zocalos", value=pre.get("zocalo_activo", False))
     zocalo_ml = 0.0
     if zocalo_activo:
-        zocalo_ml = st.number_input(
-            "Metros lineales de zócalo (ml)",
-            min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5,
-            help="Suma el largo de todos los zócalos. El sistema multiplicará esto por la tarifa de zócalo definida en Parámetros."
-        )
+        zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5)
 
     # ── Gestión de Desperdicio Inteligente ──────────────────────────────────
     st.markdown("**Gestión de Desperdicio (Retal)**")
@@ -607,10 +618,10 @@ elif pagina == "Cotizacion Directa":
             min_value=0.0,
             value=float(pre.get("extra_corte", desperdicio_sugerido)),
             step=0.05,
-            help="Ningún proyecto usa el 100% de la placa. Los empates, bordes y cortes del lavaplatos generan pérdida. Agregar este extra asegura que el costo de ese material perdido se incluya en el precio final."
+            help="Históricamente se pierde un 15% a 20% del material en cortes y empates."
         )
     with col_d2:
-        st.info(f"💡 Sugerido técnico (15%): **{desperdicio_sugerido:.2f} m²**", icon="📊")
+        st.info(f"💡 Sugerido técnico (15%): **{fmt_m2(desperdicio_sugerido, 2)}**", icon="📊")
     m2_cortados_total += extra_corte
 
     st.markdown("---")
@@ -809,7 +820,7 @@ elif pagina == "Cotizacion Directa":
 
         with col_det:
             c1a, c2a = st.columns(2)
-            c1a.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {r['retal']:.3f} m²")
+            c1a.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {fmt_m2(r['retal'])}")
             c2a.metric("Costo/m² instalado", numero_completo(r['costo_total']/max(r['m2_real'],0.001)))
             st.markdown(f"<div style='font-weight:700;margin:14px 0 8px'>Simulador en tiempo real</div>", unsafe_allow_html=True)
             _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
@@ -820,22 +831,6 @@ elif pagina == "Cotizacion Directa":
                 alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA 19% s/total: **{numero_completo(_sim_p + _sim_iva)}**", "info")
             else:
                 alerta(f"Precio total (sin IVA): **{numero_completo(_sim_p)}**", "info")
-
-        # ── AUDITORÍA DE FÓRMULAS (Modo Aprendizaje) ──────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("💡 ¿Cómo calculó la aplicación este precio? (Auditoría de datos)"):
-            st.markdown(f"""
-Esta herramienta no suma números al azar. Aquí tienes el modelo matemático exacto utilizado para tu proyecto en **{r['categoria']}**:
-
-- **Material ({numero_completo(r['c1_material'])}):** Se multiplicó el Área de placa comprada ({r['area_placa']:.3f} m²) por el Precio por m² que te cobra tu proveedor ({numero_completo(r['precio_m2'])}/m²).
-- **Producción / Mano de Obra ({numero_completo(r['c2_mano_obra'])}):** Se multiplicaron los metros lineales del proyecto ({r['ml_proyecto']:.2f} ml) por la tarifa de producción configurada en Parámetros para {r['categoria']}.
-- **Insumos y Consumibles ({numero_completo(r['c4_insumos'])}):** El sistema calculó tres sub-costos: desgaste de disco/máquina ({numero_completo(r.get('c4_disco_maq', 0))}), consumibles como masilla y lijas ({numero_completo(r.get('c4_consumibles', 0))}), y una provisión de riesgo de rotura ({numero_completo(r.get('c4_riesgo', 0))}).
-- **Logística ({numero_completo(r['c5_logistica'])}):** Se calculó usando el rendimiento del vehículo seleccionado, el precio de la gasolina actual y la distancia en km, más peajes y herramientas.
-- **Precio Sugerido ({numero_completo(r['precio_sugerido'])}):** No es una suma simple. Para garantizar un margen real del **{r['margen_pct']}%** sobre la venta, se usó la fórmula financiera: `Precio = Costo Total ÷ (1 − Margen)` = {numero_completo(r['costo_total'])} ÷ (1 − {r['margen_pct']/100:.2f}) = **{numero_completo(r['precio_sugerido'])}**.
-
-> 💰 Utilidad proyectada: **{numero_completo(r['utilidad'])}** — lo que entra al bolsillo después de cubrir todos los costos.
-            """)
-        # ─────────────────────────────────────────────────────────────────────
 
         st.markdown("---")
         st.markdown("#### Exportar documentos comerciales")
@@ -1132,7 +1127,7 @@ elif pagina == "Historial":
         {f"{float(_rmrg):.0f}%" if _rmrg else "—"}</div>
     </div>
     {"<div><div style='font-size:0.6rem;font-weight:700;opacity:0.5;text-transform:uppercase;letter-spacing:0.05em'>ML</div>" +
-     f"<div style='font-size:1rem;font-weight:700'>{float(_rml):.1f} ml</div></div>"
+     f"<div style='font-size:1rem;font-weight:700'>{fmt_ml(float(_rml), 1)}</div></div>"
      if _rml and float(_rml) > 0 else ""}
   </div>
 </div>""", unsafe_allow_html=True)
@@ -1260,7 +1255,7 @@ elif pagina == "Parametros":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Parámetros Operativos y Costos</h2>", unsafe_allow_html=True)
     st.markdown("Ten control total de los costos de la empresa. Modifica las tablas manualmente o pídele al asistente que lo haga por ti.")
 
-    t_ia, t_tar, t_via = st.tabs(["🤖 Asistente IA (Modificación Automática)", "📊 Tarifas y Producción", "🚗 Viáticos y Logística"])
+    t_ia, t_tar, t_via, t_log = st.tabs(["🤖 Asistente IA (Modificación Automática)", "📊 Tarifas y Producción", "🚗 Viáticos", "🚛 Logística y Vehículos"])
 
     with t_ia:
         _ia_ok = ia_disponible()
@@ -1413,11 +1408,65 @@ elif pagina == "Parametros":
         totales = df_via_edit.copy()
         totales["Total diario/persona"] = totales[["hospedaje", "alimentacion", "transporte_local"]].sum(axis=1)
         for _, row in totales.iterrows():
-            st.caption(f"**{row['Destino'].capitalize()}** → Total diario/persona: **${int(row['Total diario/persona']):,}**".replace(",", "."))
+            st.caption(f"**{row['Destino'].capitalize()}** → Total diario/persona: **{numero_completo(row['Total diario/persona'])}**")
         if st.button("💾 Guardar Viáticos", type="primary"):
             df_via_indexed = df_via_edit.set_index("Destino")
             st.session_state.viaticos_custom = df_via_indexed.T.to_dict()
             st.success("✅ Viáticos actualizados en memoria para esta sesión.")
+
+    with t_log:
+        st.markdown("### Logística y Vehículos")
+        st.caption("Configura los costos de transporte, vehículos propios, peajes y fletes.")
+        log_act = get_logistica()
+
+        st.markdown("#### ⛽ Insumos logísticos")
+        c1l, c2l, c3l = st.columns(3)
+        gasolina_edit  = c1l.number_input("Gasolina (COP/galón)",   min_value=1_000, value=int(log_act.get("gasolina", 16_000)), step=500,   format="%d")
+        peaje_edit     = c2l.number_input("Peaje promedio (COP)",    min_value=0,     value=int(log_act.get("peaje", 19_500)),    step=500,   format="%d")
+        herram_edit    = c3l.number_input("Desgaste herramientas (COP/viaje)", min_value=0, value=int(log_act.get("herram", 4_500)), step=500, format="%d")
+        agente_edit    = c1l.number_input("Flete agente externo (COP)", min_value=0,  value=int(log_act.get("agente", 85_000)),   step=1_000, format="%d",
+                                          help="Lo que cobra el proveedor por traer el material hasta tu taller.")
+
+        st.markdown("---")
+        st.markdown("#### 🚙 Frontier NP300 (camioneta propia)")
+        vc = log_act.get("frontier", {})
+        cf1, cf2, cf3 = st.columns(3)
+        fr_rend  = cf1.number_input("Rendimiento (km/galón)",     min_value=1.0,   value=float(vc.get("rend", 7.2)),    step=0.1,   format="%.1f")
+        fr_desg  = cf2.number_input("Desgaste por km (COP/km)",   min_value=0,     value=int(vc.get("desgaste", 148)),  step=5,     format="%d")
+        fr_base  = cf3.number_input("Flete base mínimo (COP)",    min_value=0,     value=int(vc.get("base", 65_000)),   step=1_000, format="%d")
+        _fr_km_costo = (gasolina_edit / fr_rend) + fr_desg
+        cf1.caption(f"Costo por km (ida+vuelta): **{numero_completo(_fr_km_costo * 2)}/km**")
+
+        st.markdown("---")
+        st.markdown("#### 🚛 Cheyenne V8 (camión propio)")
+        vc2 = log_act.get("cheyenne", {})
+        cc1, cc2, cc3 = st.columns(3)
+        ch_rend  = cc1.number_input("Rendimiento (km/galón)",     min_value=1.0,   value=float(vc2.get("rend", 4.1)),   step=0.1,   format="%.1f")
+        ch_desg  = cc2.number_input("Desgaste por km (COP/km)",   min_value=0,     value=int(vc2.get("desgaste", 340)), step=5,     format="%d")
+        ch_base  = cc3.number_input("Flete base mínimo (COP)",    min_value=0,     value=int(vc2.get("base", 85_000)),  step=1_000, format="%d")
+        _ch_km_costo = (gasolina_edit / ch_rend) + ch_desg
+        cc1.caption(f"Costo por km (ida+vuelta): **{numero_completo(_ch_km_costo * 2)}/km**")
+
+        st.markdown("---")
+        st.markdown("#### 🤝 Vehículo externo / Tercero")
+        ve = log_act.get("externo", {})
+        flete_ext_edit = st.number_input("Flete fijo externo (COP/viaje)", min_value=0,
+                                         value=int(ve.get("flete", 165_000) if isinstance(ve, dict) else int(ve)),
+                                         step=5_000, format="%d",
+                                         help="Precio acordado con el flete contratado — aplica sin importar la distancia.")
+
+        st.markdown("---")
+        if st.button("💾 Guardar Logística", type="primary"):
+            st.session_state.logistica_custom = {
+                "gasolina": gasolina_edit,
+                "peaje":    peaje_edit,
+                "herram":   herram_edit,
+                "agente":   agente_edit,
+                "frontier": {"rend": fr_rend, "desgaste": fr_desg, "base": fr_base},
+                "cheyenne": {"rend": ch_rend, "desgaste": ch_desg, "base": ch_base},
+                "externo":  {"flete": flete_ext_edit},
+            }
+            st.success("✅ Logística actualizada en memoria para esta sesión.")
 
 elif pagina == "Asistente IA":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
