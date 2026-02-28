@@ -237,53 +237,45 @@ def get_vehiculos_dict():
 
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
-    # ── Logo corporativo ──────────────────────────────────────────────────────
+    # ── Logo corporativo — st.image() es el método nativo más confiable ───────
     _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_cc.jpeg")
-    _logo_sidebar_b64 = None
     if os.path.exists(_logo_path):
-        try:
-            import base64 as _b64
-            with open(_logo_path, "rb") as _f:
-                _logo_sidebar_b64 = _b64.b64encode(_f.read()).decode()
-        except Exception:
-            pass
-
-    if _logo_sidebar_b64:
-        st.markdown(
-            f'<div style="padding:18px 12px 10px;text-align:center;">'
-            f'<img src="data:image/jpeg;base64,{_logo_sidebar_b64}" '
-            f'style="max-width:180px;width:100%;height:auto;display:block;margin:0 auto;" '
-            f'alt="MARMOLES COLLANTE & CASTRO LTDA."/>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+        st.image(_logo_path, use_container_width=True)
     else:
-        # Fallback si no existe el archivo
         st.markdown(
-            f'<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);'
-            f'border-radius:12px;padding:22px 16px;text-align:center;margin-bottom:4px">'
-            f'<div style="color:#C9A84C;font-size:2rem;font-weight:900;font-family:Playfair Display,serif;">CC</div>'
-            f'<div style="font-size:0.75rem;font-weight:700;margin-top:6px;letter-spacing:0.04em">MARMOLES COLLANTE & CASTRO LTDA.</div>'
-            f'</div>',
+            '<div style="text-align:center;padding:14px 0 8px">'
+            '<span style="color:#C9A84C;font-size:2rem;font-weight:900;'
+            'font-family:Playfair Display,serif">CC</span><br>'
+            '<span style="font-size:0.72rem;font-weight:700;opacity:0.8">'
+            'MARMOLES COLLANTE &amp; CASTRO</span>'
+            '</div>',
             unsafe_allow_html=True
         )
 
-    
     st.markdown(
-        f'<div style="margin:6px 0 14px;text-align:center">'
-        f'<div style="font-size:0.78rem;font-weight:700;line-height:1.4;opacity:0.85">'
-        f'{st.session_state.empresa_info["nombre"]}</div>'
-        f'</div>',
+        '<div style="text-align:center;margin:2px 0 14px;padding-bottom:10px;'
+        'border-bottom:1px solid var(--border-color)">'
+        '<div style="font-size:0.66rem;font-weight:600;opacity:0.5;letter-spacing:0.07em;'
+        'text-transform:uppercase">Sistema de Cotización Profesional</div>'
+        '</div>',
         unsafe_allow_html=True
     )
 
-    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Parametros", "Asistente IA", "Configuracion"]
-    
-    # Callback para sincronizar navegación
+    # Dashboard eliminado — redirigir si alguien tenía esa ruta guardada
+    if st.session_state.get("nav_radio") == "Dashboard":
+        st.session_state.nav_radio  = "Historial"
+        st.session_state._radio_ui  = "Historial"
+
+    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Parametros", "Asistente IA", "Configuracion"]
+
     def update_nav():
         st.session_state.nav_radio = st.session_state._radio_ui
-        
-    st.radio("Menú", opciones_menu, key="_radio_ui", index=opciones_menu.index(st.session_state.nav_radio), on_change=update_nav, label_visibility="collapsed")
+
+    _nav_idx = opciones_menu.index(st.session_state.nav_radio) \
+               if st.session_state.nav_radio in opciones_menu else 0
+    st.radio("Menú", opciones_menu, key="_radio_ui",
+             index=_nav_idx, on_change=update_nav,
+             label_visibility="collapsed")
     pagina = st.session_state.nav_radio
 
     st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
@@ -931,98 +923,260 @@ elif pagina == "Cotizacion AIU":
                 st.download_button("⬇ Descargar Cobro", cc_bytes, file_name=f"{num_cc_a}.pdf", mime="application/pdf", use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HISTORIAL Y DASHBOARD
+# HISTORIAL DE COTIZACIONES — Tarjetas + métricas integradas (Dashboard eliminado)
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Historial":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Historial de cotizaciones</h2>", unsafe_allow_html=True)
-    _bus = st.text_input("Buscar", placeholder="Cliente, número o material...")
+    st.markdown(
+        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>"
+        "Historial de cotizaciones</h2>",
+        unsafe_allow_html=True
+    )
+
+    # ── Métricas rápidas (integradas — ya no hay Dashboard separado) ──────────
+    _s = _stats_db()
+    if _s["total"] > 0:
+        _tasa = round(_s["aprobadas"] / _s["total"] * 100) if _s["total"] else 0
+        _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+        _mc1.metric("Total",      _s["total"])
+        _mc2.metric("Aprobadas",  _s["aprobadas"],  f"{_tasa}% cierre")
+        _mc3.metric("Pendientes", _s["pendientes"])
+        _mc4.metric("Facturado (aprobadas)",
+                    numero_completo(_s["facturacion"]) if _s["facturacion"] else "—")
+        st.markdown("<hr style='margin:10px 0 18px'>", unsafe_allow_html=True)
+
+    # ── Barra de herramientas ─────────────────────────────────────────────────
+    _tb1, _tb2, _tb3 = st.columns([3, 1.6, 1.1])
+    with _tb1:
+        _bus = st.text_input(
+            "buscar", placeholder="🔍  Buscar por cliente, número o material…",
+            label_visibility="collapsed", key="hist_bus"
+        )
+    with _tb2:
+        _filtro = st.selectbox(
+            "filtro", ["Todos los estados", "Pendiente", "Aprobada", "Rechazada", "En revision"],
+            label_visibility="collapsed", key="hist_filtro"
+        )
+    with _tb3:
+        _vista = st.radio(
+            "vista", ["🃏 Tarjetas", "📋 Tabla"],
+            horizontal=True, label_visibility="collapsed", key="hist_vista"
+        )
+
+    # ── Cargar y filtrar filas ────────────────────────────────────────────────
     _rows = _listar_cotizaciones(_bus)
-    
+    if _filtro != "Todos los estados":
+        _rows = [r for r in _rows if r[8] == _filtro]
+
+    # ── Estado vacío ─────────────────────────────────────────────────────────
     if not _rows:
-        alerta("No hay cotizaciones guardadas aún.", "info")
+        st.markdown(
+            '<div style="text-align:center;padding:64px 0;opacity:0.4">'
+            '<div style="font-size:3.5rem">📋</div>'
+            '<div style="font-size:1rem;font-weight:700;margin-top:10px">Sin cotizaciones</div>'
+            '<div style="font-size:0.85rem;margin-top:6px">Genera tu primera cotización '
+            'en <b>Cotizacion Directa</b></div>'
+            '</div>',
+            unsafe_allow_html=True
+        )
     else:
         _ESTADOS = ["Pendiente", "Aprobada", "Rechazada", "En revision"]
-        _hdr = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.6, 0.6])
-        for _col, _lbl in zip(_hdr, ["Numero", "Fecha", "Cliente", "Material", "Precio", "Estado", "✏️", "🗑️"]):
-            _col.markdown(f"<div style='font-size:0.75rem;font-weight:700;opacity:0.7'>{_lbl}</div>", unsafe_allow_html=True)
-        st.markdown("<hr style='margin:4px 0 8px'>", unsafe_allow_html=True)
-        
-        for _row in _rows:
-            _rid, _rnum, _rfec, _rcli, _rmat, _rml, _rpre, _rmrg, _rest, _rjson = _row
-            _cols = st.columns([1.2, 1.2, 2.5, 1.5, 1.2, 1.5, 0.6, 0.6])
-            _cols[0].markdown(f"<span style='font-size:0.85rem;font-weight:600'>{_rnum}</span>", unsafe_allow_html=True)
-            _cols[1].caption(_rfec)
-            _cols[2].markdown(f"<span style='font-size:0.85rem'>{_rcli}</span>", unsafe_allow_html=True)
-            _cols[3].caption(_rmat)
-            _cols[4].markdown(f"<span style='font-size:0.85rem;font-weight:700'>{numero_completo(_rpre)}</span>", unsafe_allow_html=True)
-            
-            _est_sel = _cols[5].selectbox("Estado", _ESTADOS, index=_ESTADOS.index(_rest) if _rest in _ESTADOS else 0, key=f"est_{_rid}", label_visibility="collapsed")
-            if _est_sel != _rest:
-                _actualizar_estado(_rid, _est_sel)
+
+        # Color + icono por estado
+        _EC = {
+            "Pendiente":   ("#B8962E", "🟡"),
+            "Aprobada":    ("#155724", "🟢"),
+            "Rechazada":   ("#7B1A1A", "🔴"),
+            "En revision": ("#1B5FA8", "🔵"),
+        }
+
+        # Helper: cargar cotización en la calculadora
+        def _cargar_en_calculadora(rid, rnum, rjson):
+            try:
+                datos = json.loads(rjson)
+                eg = datos.get("_estado_guardado", datos)
+                if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
+                        or eg.get("tipo_proyecto") == "Licitación AIU":
+                    st.session_state.aiu_items = eg.get("aiu_items", st.session_state.aiu_items)
+                    st.session_state.pre = eg
+                    st.session_state.nav_radio = st.session_state._radio_ui = "Cotizacion AIU"
+                else:
+                    st.session_state.pre = eg
+                    st.session_state.nav_radio = st.session_state._radio_ui = "Cotizacion Directa"
                 st.rerun()
-                
-            if _cols[6].button("✏️", key=f"ed_{_rid}", help="Recargar en la calculadora para editar o generar PDF"):
-                try:
-                    datos = json.loads(_rjson)
-                    estado_guardado = datos.get("_estado_guardado", datos) 
-                    
-                    if "AIU" in _rnum or datos.get("tipo_proyecto") == "Licitación AIU" or estado_guardado.get("tipo_proyecto") == "Licitación AIU":
-                        st.session_state.aiu_items = estado_guardado.get("aiu_items", st.session_state.aiu_items)
-                        st.session_state.pre = estado_guardado
-                        st.session_state.nav_radio = "Cotizacion AIU"
-                        st.session_state._radio_ui = "Cotizacion AIU"
-                    else:
-                        st.session_state.pre = estado_guardado
-                        st.session_state.nav_radio = "Cotizacion Directa"
-                        st.session_state._radio_ui = "Cotizacion Directa"
+            except Exception:
+                st.error("No se pudo cargar esta cotización.")
+
+        # ── VISTA TARJETAS ────────────────────────────────────────────────────
+        if _vista == "🃏 Tarjetas":
+            _col_a, _col_b = st.columns(2, gap="medium")
+
+            for _i, _row in enumerate(_rows):
+                _rid, _rnum, _rfec, _rcli, _rmat, _rml, _rpre, _rmrg, _rest, _rjson = _row
+                _fc, _ico = _EC.get(_rest, ("#888888", "⚪"))
+                _badge = "AIU" if "AIU" in _rnum else "Directa"
+                _mrg_color = (
+                    "#155724" if _rmrg and float(_rmrg) >= 30
+                    else "#B8962E" if _rmrg and float(_rmrg) >= 20
+                    else "#7B1A1A"
+                )
+                _tgt = _col_a if _i % 2 == 0 else _col_b
+
+                with _tgt:
+                    # ── Tarjeta visual ────────────────────────────────────────
+                    st.markdown(f"""
+<div style="background:var(--secondary-background-color);
+            border:1px solid var(--border-color);
+            border-left:4px solid {_fc};
+            border-radius:12px;
+            padding:16px 18px 14px;
+            margin-bottom:4px">
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:0.7rem;font-weight:800;color:{_fc};text-transform:uppercase;
+                   letter-spacing:0.07em">{_ico} {_rest}</span>
+      <span style="font-size:0.65rem;background:#1B5FA8;color:#fff;
+                   padding:2px 8px;border-radius:20px;font-weight:700">{_badge}</span>
+    </div>
+    <span style="font-size:0.72rem;opacity:0.45">{_rfec}</span>
+  </div>
+
+  <div style="font-size:1.05rem;font-weight:800;line-height:1.25;margin-bottom:3px">{_rcli}</div>
+  <div style="font-size:0.78rem;opacity:0.55;margin-bottom:12px">{_rnum} · {_rmat or "—"}</div>
+
+  <div style="display:flex;gap:20px;padding-top:10px;
+              border-top:1px solid var(--border-color)">
+    <div>
+      <div style="font-size:0.6rem;font-weight:700;opacity:0.5;text-transform:uppercase;
+                  letter-spacing:0.05em">Precio</div>
+      <div style="font-size:1rem;font-weight:900;color:#1B5FA8">{numero_completo(_rpre)}</div>
+    </div>
+    <div>
+      <div style="font-size:0.6rem;font-weight:700;opacity:0.5;text-transform:uppercase;
+                  letter-spacing:0.05em">Margen</div>
+      <div style="font-size:1rem;font-weight:800;color:{_mrg_color}">
+        {f"{float(_rmrg):.0f}%" if _rmrg else "—"}</div>
+    </div>
+    {"<div><div style='font-size:0.6rem;font-weight:700;opacity:0.5;text-transform:uppercase;letter-spacing:0.05em'>ML</div>" +
+     f"<div style='font-size:1rem;font-weight:700'>{float(_rml):.1f} ml</div></div>"
+     if _rml and float(_rml) > 0 else ""}
+  </div>
+</div>""", unsafe_allow_html=True)
+
+                    # ── Controles debajo de la tarjeta ────────────────────────
+                    _ca, _cb, _cc = st.columns([2.2, 1, 0.7])
+
+                    with _ca:
+                        _new_est = st.selectbox(
+                            "Estado", _ESTADOS,
+                            index=_ESTADOS.index(_rest) if _rest in _ESTADOS else 0,
+                            key=f"est_{_rid}", label_visibility="collapsed"
+                        )
+                        if _new_est != _rest:
+                            _actualizar_estado(_rid, _new_est)
+                            st.rerun()
+
+                    with _cb:
+                        if st.button("✏️ Editar", key=f"ed_{_rid}",
+                                     use_container_width=True, help="Recargar en la calculadora"):
+                            _cargar_en_calculadora(_rid, _rnum, _rjson)
+
+                    with _cc:
+                        _ck = f"del_ok_{_rid}"
+                        if _ck not in st.session_state:
+                            st.session_state[_ck] = False
+
+                        if not st.session_state[_ck]:
+                            if st.button("🗑️", key=f"del_{_rid}",
+                                         use_container_width=True, help="Eliminar"):
+                                st.session_state[_ck] = True
+                                st.rerun()
+                        else:
+                            st.warning(f"¿Eliminar **{_rnum}**?")
+                            _dx, _dy = st.columns(2)
+                            if _dx.button("Sí", key=f"dsi_{_rid}",
+                                          type="primary", use_container_width=True):
+                                _eliminar_cotizacion(_rid)
+                                st.session_state.pop(_ck, None)
+                                st.rerun()
+                            if _dy.button("No", key=f"dno_{_rid}",
+                                          use_container_width=True):
+                                st.session_state[_ck] = False
+                                st.rerun()
+
+                    st.markdown("<div style='margin-bottom:14px'></div>",
+                                unsafe_allow_html=True)
+
+        # ── VISTA TABLA ───────────────────────────────────────────────────────
+        else:
+            _th = st.columns([1.0, 0.9, 2.2, 1.3, 1.2, 0.95, 1.5, 0.55, 0.55])
+            for _col, _lbl in zip(_th, ["Número","Fecha","Cliente","Material",
+                                        "Precio","Margen","Estado","✏️","🗑️"]):
+                _col.markdown(
+                    f"<div style='font-size:0.7rem;font-weight:800;opacity:0.55;"
+                    f"text-transform:uppercase;letter-spacing:0.04em'>{_lbl}</div>",
+                    unsafe_allow_html=True
+                )
+            st.markdown("<hr style='margin:4px 0 8px'>", unsafe_allow_html=True)
+
+            for _row in _rows:
+                _rid, _rnum, _rfec, _rcli, _rmat, _rml, _rpre, _rmrg, _rest, _rjson = _row
+                _fc, _ico = _EC.get(_rest, ("#888888", "⚪"))
+                _mrg_color = (
+                    "#155724" if _rmrg and float(_rmrg) >= 30
+                    else "#B8962E" if _rmrg and float(_rmrg) >= 20
+                    else "#7B1A1A"
+                )
+                _tc = st.columns([1.0, 0.9, 2.2, 1.3, 1.2, 0.95, 1.5, 0.55, 0.55])
+                _tc[0].markdown(f"<span style='font-size:0.82rem;font-weight:700'>{_rnum}</span>",
+                                unsafe_allow_html=True)
+                _tc[1].caption(_rfec)
+                _tc[2].markdown(f"<span style='font-size:0.83rem'>{_rcli}</span>",
+                                unsafe_allow_html=True)
+                _tc[3].caption(_rmat or "—")
+                _tc[4].markdown(
+                    f"<span style='font-size:0.85rem;font-weight:900;color:#1B5FA8'>"
+                    f"{numero_completo(_rpre)}</span>",
+                    unsafe_allow_html=True
+                )
+                _tc[5].markdown(
+                    f"<span style='font-size:0.85rem;font-weight:700;color:{_mrg_color}'>"
+                    f"{f'{float(_rmrg):.0f}%' if _rmrg else '—'}</span>",
+                    unsafe_allow_html=True
+                )
+
+                _new_est = _tc[6].selectbox(
+                    "est", _ESTADOS,
+                    index=_ESTADOS.index(_rest) if _rest in _ESTADOS else 0,
+                    key=f"est_t_{_rid}", label_visibility="collapsed"
+                )
+                if _new_est != _rest:
+                    _actualizar_estado(_rid, _new_est)
                     st.rerun()
-                except Exception as e:
-                    st.error("No se pudo cargar el archivo antiguo.")
-            
-            # Botón borrar con confirmación
-            if f"confirmar_borrar_{_rid}" not in st.session_state:
-                st.session_state[f"confirmar_borrar_{_rid}"] = False
-            
-            if not st.session_state[f"confirmar_borrar_{_rid}"]:
-                if _cols[7].button("🗑️", key=f"del_{_rid}", help="Eliminar esta cotización del historial"):
-                    st.session_state[f"confirmar_borrar_{_rid}"] = True
-                    st.rerun()
-            else:
-                with st.container():
-                    st.warning(f"⚠️ ¿Eliminar **{_rnum}** ({_rcli})? Esta acción no se puede deshacer.")
-                    _c1, _c2 = st.columns(2)
-                    if _c1.button("✅ Sí, eliminar", key=f"conf_si_{_rid}", type="primary", use_container_width=True):
-                        _eliminar_cotizacion(_rid)
-                        st.session_state.pop(f"confirmar_borrar_{_rid}", None)
-                        st.success("Cotización eliminada.")
+
+                if _tc[7].button("✏️", key=f"edt_{_rid}", help="Editar"):
+                    _cargar_en_calculadora(_rid, _rnum, _rjson)
+
+                _ck2 = f"del_ok_t_{_rid}"
+                if _ck2 not in st.session_state:
+                    st.session_state[_ck2] = False
+                if not st.session_state[_ck2]:
+                    if _tc[8].button("🗑️", key=f"delt_{_rid}", help="Eliminar"):
+                        st.session_state[_ck2] = True
                         st.rerun()
-                    if _c2.button("❌ Cancelar", key=f"conf_no_{_rid}", use_container_width=True):
-                        st.session_state[f"confirmar_borrar_{_rid}"] = False
+                else:
+                    st.warning(f"¿Eliminar **{_rnum}** — {_rcli}? Esta acción no se puede deshacer.")
+                    _dx2, _dy2 = st.columns(2)
+                    if _dx2.button("Sí, eliminar", key=f"dsit_{_rid}",
+                                   type="primary", use_container_width=True):
+                        _eliminar_cotizacion(_rid)
+                        st.session_state.pop(_ck2, None)
+                        st.rerun()
+                    if _dy2.button("Cancelar", key=f"dnot_{_rid}",
+                                   use_container_width=True):
+                        st.session_state[_ck2] = False
                         st.rerun()
 
-elif pagina == "Dashboard":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Dashboard Gerencial</h2>", unsafe_allow_html=True)
-    _s = _stats_db()
-    if _s["total"] == 0:
-        alerta("Genera cotizaciones para ver métricas aquí.", "info")
-    else:
-        _m1, _m2, _m3, _m4 = st.columns(4)
-        _m1.metric("Total cotizaciones", _s["total"])
-        _m2.metric("Aprobadas", _s["aprobadas"])
-        _m3.metric("Pendientes", _s["pendientes"])
-        _m4.metric("Facturacion (aprobadas)", numero_completo(_s["facturacion"]))
-        st.markdown("---")
-        _da, _db = st.columns(2)
-        with _da:
-            seccion_titulo("Por material (Facturado)")
-            for _mat, _cnt, _mrg, _tot in (_s["por_material"] or []):
-                _pct = min(100, (_tot / max(_s["facturacion"], 1)) * 100)
-                st.markdown(f"**{_mat}** — {numero_completo(_tot)} ({_mrg:.0f}% margen)")
-                st.progress(_pct/100)
-        with _db:
-            seccion_titulo("Últimos meses")
-            for _mes, _cnt, _tot in (_s["por_mes"] or []):
-                st.markdown(f"**{_mes}** — {numero_completo(_tot)} ({_cnt} cotizaciones)")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PARÁMETROS, ASISTENTE IA Y CONFIGURACIÓN
