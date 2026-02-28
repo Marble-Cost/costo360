@@ -26,16 +26,23 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN ──────────────────────────────────
+# ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
 if "primera_visita" not in st.session_state:
     st.session_state.primera_visita = True
-    st.session_state.onboarding_activo = True
+    # Leer de la URL si la guía ya fue cerrada — sobrevive a F5
+    if st.query_params.get("guia") == "terminada":
+        st.session_state.onboarding_activo = False
+        st.session_state.tour_completado   = True
+    else:
+        st.session_state.onboarding_activo = True
+        st.session_state.tour_completado   = False
     st.session_state.onboarding_paso = 0
-    st.session_state.tour_completado = False
 
 if "nav_radio" not in st.session_state:
-    st.session_state.nav_radio = "Inicio"
-    st.session_state._radio_ui = "Inicio"
+    # Leer la página actual desde la URL, si no hay → Inicio
+    pag_url = st.query_params.get("pagina", "Inicio")
+    st.session_state.nav_radio = pag_url
+    st.session_state._radio_ui = pag_url
 
 # ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
 def _get_db_connection():
@@ -237,9 +244,16 @@ def get_vehiculos_dict():
 
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
-    # ── Logo corporativo — st.image() es el método nativo más confiable ───────
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_cc.jpeg")
-    if os.path.exists(_logo_path):
+    # ── Logo corporativo — busca entre extensiones posibles automáticamente ───
+    _base_dir  = os.path.dirname(os.path.abspath(__file__))
+    _logo_path = next(
+        (os.path.join(_base_dir, n) for n in
+         ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
+          "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
+         if os.path.exists(os.path.join(_base_dir, n))),
+        None
+    )
+    if _logo_path:
         st.image(_logo_path, use_container_width=True)
     else:
         st.markdown(
@@ -270,6 +284,8 @@ with st.sidebar:
 
     def update_nav():
         st.session_state.nav_radio = st.session_state._radio_ui
+        # Persistir la página en la URL para sobrevivir a F5
+        st.query_params["pagina"] = st.session_state.nav_radio
 
     _nav_idx = opciones_menu.index(st.session_state.nav_radio) \
                if st.session_state.nav_radio in opciones_menu else 0
@@ -309,6 +325,7 @@ if st.session_state.get("onboarding_activo"):
             if st.button("✕ Saltar guía", use_container_width=True):
                 st.session_state.onboarding_activo = False
                 st.session_state.tour_completado = True
+                st.query_params["guia"] = "terminada"   # persiste en URL
                 st.rerun()
         with c3:
             if _op < _total - 1:
@@ -319,6 +336,7 @@ if st.session_state.get("onboarding_activo"):
                 if st.button("🚀 Finalizar y usar app", type="primary", use_container_width=True):
                     st.session_state.onboarding_activo = False
                     st.session_state.tour_completado = True
+                    st.query_params["guia"] = "terminada"   # persiste en URL
                     st.rerun()
     st.markdown("---")
 
