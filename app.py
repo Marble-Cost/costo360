@@ -626,17 +626,6 @@ elif pagina == "Cotizacion Directa":
 
     st.markdown("---")
 
-    # ── Respaldo Visual (Planos / Modelado 3D) ───────────────────────────────
-    st.markdown("**Respaldo Visual (Planos / Modelado 3D)**")
-    plano_file = st.file_uploader("Adjuntar plano del cliente o render 3D (PDF, JPG, PNG)", type=["pdf", "png", "jpg", "jpeg"])
-    if plano_file:
-        st.session_state.pre["plano_nombre"] = plano_file.name
-        st.success(f"📎 Documento adjunto: {plano_file.name}")
-    elif st.session_state.pre.get("plano_nombre"):
-        st.info(f"📎 Documento previo en memoria: {st.session_state.pre['plano_nombre']}")
-
-    st.markdown("---")
-
     # ── PASO 4: LOGÍSTICA ────────────────────────────────────────────────────
     seccion_titulo("Paso 4 — Logistica")
 
@@ -1352,111 +1341,184 @@ elif pagina == "Parametros":
                 st.rerun()
 
     with t_tar:
-        st.markdown("### Costos base por material")
-        st.caption("Edita directamente en la tabla. Los cambios se aplican al presionar 'Guardar'.")
-        tarifas_actuales = get_tarifas()
-        df_tarifas = pd.DataFrame(tarifas_actuales).T.reset_index().rename(columns={"index": "Material"})
-        col_order = ["Material", "prod_ml", "zocalo", "disco", "maquina", "consumibles", "riesgo_rotura"]
-        col_order = [c for c in col_order if c in df_tarifas.columns]
-        df_tarifas = df_tarifas[col_order]
-        df_edit = st.data_editor(
-            df_tarifas,
-            use_container_width=True,
-            key="editor_tarifas",
-            column_config={
-                "Material":       st.column_config.TextColumn("Material", disabled=True),
-                "prod_ml":        st.column_config.NumberColumn("Prod/ml (COP)", format="$ %d"),
-                "zocalo":         st.column_config.NumberColumn("Zócalo/ml (COP)", format="$ %d"),
-                "disco":          st.column_config.NumberColumn("Disco/m² (COP)", format="$ %d"),
-                "maquina":        st.column_config.NumberColumn("Máquina/día (COP)", format="$ %d"),
-                "consumibles":    st.column_config.NumberColumn("Consumibles/m² (COP)", format="$ %d",
-                                    help="Masilla, lijas diamantadas, ceras, sellador, estopa"),
-                "riesgo_rotura":  st.column_config.NumberColumn("Riesgo rotura (%)", format="%.3f",
-                                    help="% del costo del material provisionado por riesgo de rotura"),
-            },
-            hide_index=True,
-        )
-        if st.button("💾 Guardar Tarifas", type="primary"):
-            df_edit_indexed = df_edit.set_index("Material")
-            st.session_state.tarifas_custom = df_edit_indexed.T.to_dict()
-            st.success("✅ Tarifas actualizadas en memoria para esta sesión.")
+        st.caption("Costos de mano de obra e insumos por material. Modifica cada campo y presiona **Guardar Tarifas**.")
+        tar_act = get_tarifas()
+        tar_edit = {}
+
+        _MAT_ICONS = {"Mármol": "🪨", "Granito": "🟫", "Sinterizado": "⬜", "Quarztone": "🔵", "Quarzita": "🟡"}
+        for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+            _t = tar_act.get(_mat, {})
+            tar_edit[_mat] = {}
+            with st.container(border=True):
+                st.markdown(f"**{_MAT_ICONS.get(_mat, '')} {_mat}**")
+                _ca, _cb, _cc = st.columns(3)
+                _cd, _ce, _cf = st.columns(3)
+                tar_edit[_mat]["prod_ml"] = _ca.number_input(
+                    "Producción / ml (COP)", min_value=0,
+                    value=int(_t.get("prod_ml", 60_000)), step=1_000, format="%d",
+                    key=f"tar_pml_{_mat}",
+                    help="Lo que cobra el operario por cada metro lineal cortado e instalado.")
+                tar_edit[_mat]["zocalo"] = _cb.number_input(
+                    "Zócalo / ml (COP)", min_value=0,
+                    value=int(_t.get("zocalo", 12_000)), step=500, format="%d",
+                    key=f"tar_zoc_{_mat}",
+                    help="Tarifa por metro lineal de zócalo instalado.")
+                tar_edit[_mat]["disco"] = _cc.number_input(
+                    "Disco diamantado / m² (COP)", min_value=0,
+                    value=int(_t.get("disco", 2_200)), step=100, format="%d",
+                    key=f"tar_dis_{_mat}",
+                    help="Desgaste del disco diamantado por m² cortado.")
+                tar_edit[_mat]["maquina"] = _cd.number_input(
+                    "Máquina cortadora / día (COP)", min_value=0,
+                    value=int(_t.get("maquina", 20_000)), step=1_000, format="%d",
+                    key=f"tar_maq_{_mat}",
+                    help="Depreciación y mantenimiento de la cortadora por día de uso.")
+                tar_edit[_mat]["consumibles"] = _ce.number_input(
+                    "Consumibles / m² (COP)", min_value=0,
+                    value=int(_t.get("consumibles", 10_000)), step=500, format="%d",
+                    key=f"tar_con_{_mat}",
+                    help="Masilla de poliéster, lijas diamantadas (50–3000), ceras, sellador y estopa.")
+                tar_edit[_mat]["riesgo_rotura"] = _cf.number_input(
+                    "Riesgo de rotura (%)", min_value=0.0, max_value=0.50,
+                    value=float(_t.get("riesgo_rotura", 0.02)), step=0.01, format="%.2f",
+                    key=f"tar_rie_{_mat}",
+                    help="Porcentaje del costo del material reservado como provisión por rotura accidental.")
+
+        st.markdown("")
+        if st.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar"):
+            st.session_state.tarifas_custom = tar_edit
+            st.success("✅ Tarifas actualizadas. Aplican a todos los cálculos de esta sesión.")
 
     with t_via:
-        st.markdown("### Desglose de Viáticos (COP por noche/persona)")
-        st.caption("Cada fila es un destino. Las columnas son los componentes del costo diario.")
-        viaticos_actuales = get_viaticos()
-        # Normalizar a formato desglosado si viene legacy (valor plano)
-        via_norm = {}
-        for k, v in viaticos_actuales.items():
+        st.caption("Costos de desplazamiento para proyectos fuera de Barranquilla. Modifica y presiona **Guardar Viáticos**.")
+        via_act = get_viaticos()
+
+        def _normalizar_via(key):
+            v = via_act.get(key, {})
             if isinstance(v, dict):
-                via_norm[k] = v
-            else:
-                via_norm[k] = {"hospedaje": int(v * 0.41), "alimentacion": int(v * 0.45), "transporte_local": int(v * 0.14)}
-        df_via = pd.DataFrame(via_norm).T.reset_index().rename(columns={"index": "Destino"})
-        df_via_edit = st.data_editor(
-            df_via,
-            use_container_width=True,
-            key="editor_viaticos",
-            column_config={
-                "Destino":           st.column_config.TextColumn("Destino", disabled=True),
-                "hospedaje":         st.column_config.NumberColumn("Hospedaje (COP/noche)", format="$ %d"),
-                "alimentacion":      st.column_config.NumberColumn("Alimentación (COP/día)", format="$ %d"),
-                "transporte_local":  st.column_config.NumberColumn("Transporte local (COP/día)", format="$ %d"),
-            },
-            hide_index=True,
-        )
-        totales = df_via_edit.copy()
-        totales["Total diario/persona"] = totales[["hospedaje", "alimentacion", "transporte_local"]].sum(axis=1)
-        for _, row in totales.iterrows():
-            st.caption(f"**{row['Destino'].capitalize()}** → Total diario/persona: **{numero_completo(row['Total diario/persona'])}**")
-        if st.button("💾 Guardar Viáticos", type="primary"):
-            df_via_indexed = df_via_edit.set_index("Destino")
-            st.session_state.viaticos_custom = df_via_indexed.T.to_dict()
-            st.success("✅ Viáticos actualizados en memoria para esta sesión.")
+                return v
+            # Formato legacy: valor plano → desglosar proporcionalmente
+            return {"hospedaje": int(v * 0.41), "alimentacion": int(v * 0.45), "transporte_local": int(v * 0.14)}
+
+        via_edit = {}
+        for _dest_key, _dest_label, _dest_icon in [
+            ("pueblo", "Pueblo / Corregimiento", "🏘️"),
+            ("ciudad", "Ciudad Capital",          "🏙️"),
+        ]:
+            _vd = _normalizar_via(_dest_key)
+            with st.container(border=True):
+                st.markdown(f"**{_dest_icon} {_dest_label}**")
+                _va, _vb, _vc = st.columns(3)
+                _hosp = _va.number_input(
+                    "Hospedaje (COP/noche)", min_value=0,
+                    value=int(_vd.get("hospedaje", 60_000)), step=1_000, format="%d",
+                    key=f"via_{_dest_key}_hosp",
+                    help="Costo de alojamiento por persona por noche.")
+                _alim = _vb.number_input(
+                    "Alimentación (COP/día)", min_value=0,
+                    value=int(_vd.get("alimentacion", 65_000)), step=1_000, format="%d",
+                    key=f"via_{_dest_key}_alim",
+                    help="Desayuno + almuerzo + cena por persona.")
+                _tran = _vc.number_input(
+                    "Transporte local (COP/día)", min_value=0,
+                    value=int(_vd.get("transporte_local", 20_000)), step=500, format="%d",
+                    key=f"via_{_dest_key}_tran",
+                    help="Movilidad local: moto, taxi o buseta.")
+                _total_via = _hosp + _alim + _tran
+                st.caption(f"Total diario por persona: **{numero_completo(_total_via)}**")
+                via_edit[_dest_key] = {"hospedaje": _hosp, "alimentacion": _alim, "transporte_local": _tran}
+
+        st.markdown("")
+        if st.button("💾 Guardar Viáticos", type="primary", key="btn_save_via"):
+            st.session_state.viaticos_custom = via_edit
+            st.success("✅ Viáticos actualizados. Aplican a todos los cálculos de esta sesión.")
 
     with t_log:
-        st.markdown("### Logística y Vehículos")
-        st.caption("Configura los costos de transporte, vehículos propios, peajes y fletes.")
+        st.caption("Costos de transporte, vehículos propios, peajes y fletes. Modifica y presiona **Guardar Logística**.")
         log_act = get_logistica()
 
-        st.markdown("#### ⛽ Insumos logísticos")
-        c1l, c2l, c3l = st.columns(3)
-        gasolina_edit  = c1l.number_input("Gasolina (COP/galón)",   min_value=1_000, value=int(log_act.get("gasolina", 16_000)), step=500,   format="%d")
-        peaje_edit     = c2l.number_input("Peaje promedio (COP)",    min_value=0,     value=int(log_act.get("peaje", 19_500)),    step=500,   format="%d")
-        herram_edit    = c3l.number_input("Desgaste herramientas (COP/viaje)", min_value=0, value=int(log_act.get("herram", 4_500)), step=500, format="%d")
-        agente_edit    = c1l.number_input("Flete agente externo (COP)", min_value=0,  value=int(log_act.get("agente", 85_000)),   step=1_000, format="%d",
-                                          help="Lo que cobra el proveedor por traer el material hasta tu taller.")
+        with st.container(border=True):
+            st.markdown("**⛽ Insumos generales**")
+            _lg1, _lg2, _lg3, _lg4 = st.columns(4)
+            gasolina_edit = _lg1.number_input(
+                "Gasolina (COP/galón)", min_value=1_000,
+                value=int(log_act.get("gasolina", 16_000)), step=500, format="%d",
+                key="log_gas",
+                help="Precio de la gasolina corriente en Barranquilla.")
+            peaje_edit = _lg2.number_input(
+                "Peaje promedio (COP)", min_value=0,
+                value=int(log_act.get("peaje", 19_500)), step=500, format="%d",
+                key="log_pea",
+                help="Peaje promedio Galapa / Juan Mina, ida + vuelta.")
+            herram_edit = _lg3.number_input(
+                "Herramientas (COP/viaje)", min_value=0,
+                value=int(log_act.get("herram", 4_500)), step=500, format="%d",
+                key="log_her",
+                help="Desgaste de llaves, niveles, espátulas, etc. por viaje.")
+            agente_edit = _lg4.number_input(
+                "Agente externo (COP)", min_value=0,
+                value=int(log_act.get("agente", 85_000)), step=1_000, format="%d",
+                key="log_age",
+                help="Lo que cobra el agente por traer el material desde el proveedor hasta el taller.")
 
-        st.markdown("---")
-        st.markdown("#### 🚙 Frontier NP300 (camioneta propia)")
-        vc = log_act.get("frontier", {})
-        cf1, cf2, cf3 = st.columns(3)
-        fr_rend  = cf1.number_input("Rendimiento (km/galón)",     min_value=1.0,   value=float(vc.get("rend", 7.2)),    step=0.1,   format="%.1f")
-        fr_desg  = cf2.number_input("Desgaste por km (COP/km)",   min_value=0,     value=int(vc.get("desgaste", 148)),  step=5,     format="%d")
-        fr_base  = cf3.number_input("Flete base mínimo (COP)",    min_value=0,     value=int(vc.get("base", 65_000)),   step=1_000, format="%d")
-        _fr_km_costo = (gasolina_edit / fr_rend) + fr_desg
-        cf1.caption(f"Costo por km (ida+vuelta): **{numero_completo(_fr_km_costo * 2)}/km**")
+        with st.container(border=True):
+            st.markdown("**🚙 Frontier NP300 — camioneta propia**")
+            _vc = log_act.get("frontier", {})
+            _cf1, _cf2, _cf3 = st.columns(3)
+            fr_rend = _cf1.number_input(
+                "Rendimiento (km/galón)", min_value=1.0,
+                value=float(_vc.get("rend", 7.2)), step=0.1, format="%.1f",
+                key="log_fr_rend",
+                help="Rendimiento real con carga. Promedio cargada ≈ 7 km/gal.")
+            fr_desg = _cf2.number_input(
+                "Desgaste por km (COP/km)", min_value=0,
+                value=int(_vc.get("desgaste", 148)), step=5, format="%d",
+                key="log_fr_desg",
+                help="Amortización de llantas, frenos y suspensión por kilómetro.")
+            fr_base = _cf3.number_input(
+                "Flete base mínimo (COP)", min_value=0,
+                value=int(_vc.get("base", 65_000)), step=1_000, format="%d",
+                key="log_fr_base",
+                help="Costo mínimo por viaje sin importar la distancia.")
+            _fr_km = (gasolina_edit / fr_rend) + fr_desg
+            st.caption(f"Costo estimado por km ida+vuelta: **{numero_completo(_fr_km * 2)}/km** · "
+                       f"Ejemplo 10 km → **{numero_completo(fr_base + _fr_km * 20)}** total")
 
-        st.markdown("---")
-        st.markdown("#### 🚛 Cheyenne V8 (camión propio)")
-        vc2 = log_act.get("cheyenne", {})
-        cc1, cc2, cc3 = st.columns(3)
-        ch_rend  = cc1.number_input("Rendimiento (km/galón)",     min_value=1.0,   value=float(vc2.get("rend", 4.1)),   step=0.1,   format="%.1f")
-        ch_desg  = cc2.number_input("Desgaste por km (COP/km)",   min_value=0,     value=int(vc2.get("desgaste", 340)), step=5,     format="%d")
-        ch_base  = cc3.number_input("Flete base mínimo (COP)",    min_value=0,     value=int(vc2.get("base", 85_000)),  step=1_000, format="%d")
-        _ch_km_costo = (gasolina_edit / ch_rend) + ch_desg
-        cc1.caption(f"Costo por km (ida+vuelta): **{numero_completo(_ch_km_costo * 2)}/km**")
+        with st.container(border=True):
+            st.markdown("**🚛 Cheyenne V8 — camión propio**")
+            _vc2 = log_act.get("cheyenne", {})
+            _cc1, _cc2, _cc3 = st.columns(3)
+            ch_rend = _cc1.number_input(
+                "Rendimiento (km/galón)", min_value=1.0,
+                value=float(_vc2.get("rend", 4.1)), step=0.1, format="%.1f",
+                key="log_ch_rend",
+                help="Rendimiento real del V8 con carga pesada.")
+            ch_desg = _cc2.number_input(
+                "Desgaste por km (COP/km)", min_value=0,
+                value=int(_vc2.get("desgaste", 340)), step=5, format="%d",
+                key="log_ch_desg",
+                help="Mayor desgaste por tonelaje.")
+            ch_base = _cc3.number_input(
+                "Flete base mínimo (COP)", min_value=0,
+                value=int(_vc2.get("base", 85_000)), step=1_000, format="%d",
+                key="log_ch_base",
+                help="Costo mínimo por viaje del camión.")
+            _ch_km = (gasolina_edit / ch_rend) + ch_desg
+            st.caption(f"Costo estimado por km ida+vuelta: **{numero_completo(_ch_km * 2)}/km** · "
+                       f"Ejemplo 10 km → **{numero_completo(ch_base + _ch_km * 20)}** total")
 
-        st.markdown("---")
-        st.markdown("#### 🤝 Vehículo externo / Tercero")
-        ve = log_act.get("externo", {})
-        flete_ext_edit = st.number_input("Flete fijo externo (COP/viaje)", min_value=0,
-                                         value=int(ve.get("flete", 165_000) if isinstance(ve, dict) else int(ve)),
-                                         step=5_000, format="%d",
-                                         help="Precio acordado con el flete contratado — aplica sin importar la distancia.")
+        with st.container(border=True):
+            st.markdown("**🤝 Externo / Tercero — flete contratado**")
+            _ve = log_act.get("externo", {})
+            _flete_val = int(_ve.get("flete", 165_000)) if isinstance(_ve, dict) else int(_ve)
+            ext_flete = st.number_input(
+                "Flete fijo por viaje (COP)", min_value=0,
+                value=_flete_val, step=5_000, format="%d",
+                key="log_ext_flete",
+                help="Precio pactado con el flete externo. Aplica sin importar la distancia.")
 
-        st.markdown("---")
-        if st.button("💾 Guardar Logística", type="primary"):
+        st.markdown("")
+        if st.button("💾 Guardar Logística", type="primary", key="btn_save_log"):
             st.session_state.logistica_custom = {
                 "gasolina": gasolina_edit,
                 "peaje":    peaje_edit,
@@ -1464,9 +1526,9 @@ elif pagina == "Parametros":
                 "agente":   agente_edit,
                 "frontier": {"rend": fr_rend, "desgaste": fr_desg, "base": fr_base},
                 "cheyenne": {"rend": ch_rend, "desgaste": ch_desg, "base": ch_base},
-                "externo":  {"flete": flete_ext_edit},
+                "externo":  {"flete": ext_flete},
             }
-            st.success("✅ Logística actualizada en memoria para esta sesión.")
+            st.success("✅ Logística actualizada. Aplica a todos los cálculos de esta sesión.")
 
 elif pagina == "Asistente IA":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
