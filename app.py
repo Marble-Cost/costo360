@@ -243,6 +243,7 @@ _defaults = {
         "cuenta_tipo": "Cuenta Corriente Empresas", "cuenta_numero": "108900027484",
     },
     "vehiculos_custom": None, "cat_sel": "Mármol",
+    "adicionales_custom": None,
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -251,6 +252,9 @@ for k, v in _defaults.items():
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
 def get_viaticos(): return st.session_state.viaticos_custom or VIATICOS
+def get_adicionales():
+    import copy
+    return copy.deepcopy(st.session_state.adicionales_custom) if st.session_state.adicionales_custom else copy.deepcopy(ADICIONALES)
 def get_vehiculos_config():
     import copy
     base = copy.deepcopy(VEHICULOS_CONFIG)
@@ -661,10 +665,14 @@ elif pagina == "Cotizacion Directa":
 
     # ── PASO 6: ADICIONALES ──────────────────────────────────────────────────
     seccion_titulo("Paso 6 — Costos adicionales")
+    _ADICIONALES_ACT = get_adicionales()
     adicionales_activos = st.checkbox("Agregar costos adicionales (silicona, impermeabilizante)", value=pre.get("adicionales_activos", False))
-    cantidades_add = pre.get("cantidades_add", [0.0] * len(ADICIONALES)) if pre.get("adicionales_activos") else [0.0] * len(ADICIONALES)
+    cantidades_add = pre.get("cantidades_add", [0.0] * len(_ADICIONALES_ACT)) if pre.get("adicionales_activos") else [0.0] * len(_ADICIONALES_ACT)
+    # Ajustar longitud si la lista cambió
+    while len(cantidades_add) < len(_ADICIONALES_ACT):
+        cantidades_add.append(0.0)
     if adicionales_activos:
-        for i, a in enumerate(ADICIONALES):
+        for i, a in enumerate(_ADICIONALES_ACT):
             c1, c2 = st.columns([3, 1])
             c1.markdown(f"<div style='font-size:0.85rem;'>{a['concepto']} — {numero_completo(a.get(etapa, 0))}/{a['unidad']}</div>", unsafe_allow_html=True)
             cantidades_add[i] = c2.number_input("Cant.", min_value=0.0, value=float(cantidades_add[i]), step=1.0, key=f"add_{i}", label_visibility="collapsed")
@@ -708,7 +716,7 @@ elif pagina == "Cotizacion Directa":
             agente_externo_taller=agente_ext_taller, vehiculo_entrega=vehiculo, km=km, num_peajes=peajes,
             foraneo_activo=foraneo_activo, viaticos_activos=viaticos_activos, tipo_aloj=tipo_aloj, noches=noches,
             adicionales_activos=adicionales_activos, cantidades_add=cantidades_add, etapa=etapa,
-            adicionales_lista=ADICIONALES, tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
+            adicionales_lista=_ADICIONALES_ACT, tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
             ml_proyecto=_ml_tot, logistica_override=st.session_state.get("logistica_custom"),
             vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
             tarifas_override=st.session_state.get("tarifas_custom"),
@@ -1244,7 +1252,7 @@ elif pagina == "Parametros":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Parámetros Operativos y Costos</h2>", unsafe_allow_html=True)
     st.markdown("Ten control total de los costos de la empresa. Modifica las tablas manualmente o pídele al asistente que lo haga por ti.")
 
-    t_ia, t_tar, t_via, t_log = st.tabs(["🤖 Asistente IA (Modificación Automática)", "📊 Tarifas y Producción", "🚗 Viáticos", "🚛 Logística y Vehículos"])
+    t_ia, t_tar, t_via, t_log, t_add = st.tabs(["🤖 Asistente IA (Modificación Automática)", "📊 Tarifas y Producción", "🚗 Viáticos", "🚛 Logística y Vehículos", "➕ Costos Adicionales"])
 
     with t_ia:
         _ia_ok = ia_disponible()
@@ -1616,7 +1624,143 @@ elif pagina == "Parametros":
             st.toast("↺ Logística restaurada a valores por defecto", icon="🔄")
             st.rerun()
 
-elif pagina == "Asistente IA":
+    with t_add:
+        st.caption("Edita los ítems de costos adicionales que aparecen en el Paso 6 de la cotización. Puedes cambiar el nombre, la unidad y el precio por etapa de obra.")
+
+        add_act = get_adicionales()
+
+        # Inicializar editor en session_state si no existe O si custom cambió externamente
+        if "add_editor" not in st.session_state or (st.session_state.adicionales_custom and st.session_state.add_editor is ADICIONALES):
+            st.session_state.add_editor = add_act
+
+        add_rows = st.session_state.add_editor
+        UNIDADES = ["und", "ml", "m²", "viaje", "glb", "día", "kg"]
+        ETAPAS_LIST = ["terminada", "acabados", "estructura", "comercial"]
+        ETAPAS_LABELS = {
+            "terminada": "Casa terminada",
+            "acabados":  "En acabados",
+            "estructura": "En estructura",
+            "comercial": "Proyecto comercial",
+        }
+
+        # ── Encabezados de la tabla ───────────────────────────────────────────
+        _hcols = st.columns([3, 1, 1, 1, 1, 1, 0.5])
+        for _hc, _hl in zip(_hcols, ["Concepto / Descripción", "Unidad", "Casa terminada", "En acabados", "En estructura", "Proyecto comercial", ""]):
+            _hc.markdown(f"<div style='font-size:0.71rem;font-weight:700;opacity:0.55;text-transform:uppercase'>{_hl}</div>", unsafe_allow_html=True)
+
+        add_rows_nuevas = []
+        for _ai, _ar in enumerate(add_rows):
+            _ac0, _ac1, _ac2, _ac3, _ac4, _ac5, _ac6 = st.columns([3, 1, 1, 1, 1, 1, 0.5])
+
+            with _ac0:
+                _concepto = st.text_input(
+                    "Concepto", value=_ar.get("concepto", ""),
+                    key=f"add_con_{_ai}", label_visibility="collapsed",
+                    placeholder="Ej: Sellante y silicona")
+
+            with _ac1:
+                _und_idx = UNIDADES.index(_ar.get("unidad", "und")) if _ar.get("unidad") in UNIDADES else 0
+                _unidad = st.selectbox(
+                    "Und", UNIDADES, index=_und_idx,
+                    key=f"add_und_{_ai}", label_visibility="collapsed")
+
+            with _ac2:
+                _v_ter = int(_ar.get("terminada", 0))
+                _terminada = st.number_input(
+                    "Terminada", min_value=0, value=_v_ter, step=1_000, format="%d",
+                    key=f"add_ter_{_ai}", label_visibility="collapsed")
+                st.caption(numero_completo(st.session_state.get(f"add_ter_{_ai}", _v_ter)))
+
+            with _ac3:
+                _v_aca = int(_ar.get("acabados", 0))
+                _acabados = st.number_input(
+                    "Acabados", min_value=0, value=_v_aca, step=1_000, format="%d",
+                    key=f"add_aca_{_ai}", label_visibility="collapsed")
+                st.caption(numero_completo(st.session_state.get(f"add_aca_{_ai}", _v_aca)))
+
+            with _ac4:
+                _v_est = int(_ar.get("estructura", 0))
+                _estructura = st.number_input(
+                    "Estructura", min_value=0, value=_v_est, step=1_000, format="%d",
+                    key=f"add_est_{_ai}", label_visibility="collapsed")
+                st.caption(numero_completo(st.session_state.get(f"add_est_{_ai}", _v_est)))
+
+            with _ac5:
+                _v_com = int(_ar.get("comercial", 0))
+                _comercial = st.number_input(
+                    "Comercial", min_value=0, value=_v_com, step=1_000, format="%d",
+                    key=f"add_com_{_ai}", label_visibility="collapsed")
+                st.caption(numero_completo(st.session_state.get(f"add_com_{_ai}", _v_com)))
+
+            with _ac6:
+                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                if st.button("✕", key=f"add_del_{_ai}", help="Eliminar este ítem") and len(add_rows) > 1:
+                    st.session_state.add_editor.pop(_ai)
+                    # Limpiar keys del ítem eliminado
+                    for _sfx in ["con", "und", "ter", "aca", "est", "com"]:
+                        st.session_state.pop(f"add_{_sfx}_{_ai}", None)
+                    st.rerun()
+
+            add_rows_nuevas.append({
+                "concepto": _concepto,
+                "unidad": _unidad,
+                "terminada": _terminada,
+                "acabados": _acabados,
+                "estructura": _estructura,
+                "comercial": _comercial,
+            })
+
+        st.session_state.add_editor = add_rows_nuevas
+
+        st.markdown("")
+        _col_add_new, _ = st.columns([1, 3])
+        with _col_add_new:
+            if st.button("＋ Agregar ítem", use_container_width=True):
+                st.session_state.add_editor.append({
+                    "concepto": "Nuevo costo adicional",
+                    "unidad": "und",
+                    "terminada": 0,
+                    "acabados": 0,
+                    "estructura": 0,
+                    "comercial": 0,
+                })
+                st.rerun()
+
+        st.markdown("")
+        _col_save_add, _col_reset_add = st.columns([3, 1])
+        if _col_save_add.button("💾 Guardar Adicionales", type="primary", key="btn_save_add", use_container_width=True):
+            # Leer valores actuales de los widgets
+            _saved_add = []
+            for _ai in range(len(st.session_state.add_editor)):
+                _saved_add.append({
+                    "concepto":   st.session_state.get(f"add_con_{_ai}", st.session_state.add_editor[_ai].get("concepto", "")),
+                    "unidad":     st.session_state.get(f"add_und_{_ai}", st.session_state.add_editor[_ai].get("unidad", "und")),
+                    "terminada":  int(st.session_state.get(f"add_ter_{_ai}", 0)),
+                    "acabados":   int(st.session_state.get(f"add_aca_{_ai}", 0)),
+                    "estructura": int(st.session_state.get(f"add_est_{_ai}", 0)),
+                    "comercial":  int(st.session_state.get(f"add_com_{_ai}", 0)),
+                })
+            st.session_state.adicionales_custom = _saved_add
+            st.session_state.add_editor = _saved_add
+            # Limpiar keys para que se reinicialicen con los nuevos valores
+            for _ai in range(len(_saved_add)):
+                for _sfx in ["con", "und", "ter", "aca", "est", "com"]:
+                    st.session_state.pop(f"add_{_sfx}_{_ai}", None)
+            st.toast("✅ Costos adicionales guardados", icon="💾")
+            st.rerun()
+
+        if _col_reset_add.button("↺ Restaurar", key="btn_reset_add", use_container_width=True,
+                                  help="Vuelve a la lista original de fábrica"):
+            import copy
+            st.session_state.adicionales_custom = None
+            st.session_state.add_editor = copy.deepcopy(ADICIONALES)
+            for _ai in range(20):  # limpiar hasta 20 posibles keys
+                for _sfx in ["con", "und", "ter", "aca", "est", "com"]:
+                    st.session_state.pop(f"add_{_sfx}_{_ai}", None)
+            st.toast("↺ Adicionales restaurados a valores por defecto", icon="🔄")
+            st.rerun()
+
+
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
     st.write("Escribe un mensaje en lenguaje natural describiendo tu proyecto. La IA lo interpretará y pre-llenará la calculadora.")
     desc = st.text_area("Describe tu proyecto:", placeholder="Ej: Mesón en granito san gabriel, 3 metros por 60cm...")
