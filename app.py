@@ -1760,7 +1760,7 @@ elif pagina == "Parametros":
             st.toast("↺ Adicionales restaurados a valores por defecto", icon="🔄")
             st.rerun()
 
-
+elif pagina == "Asistente IA":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
     st.write("Escribe un mensaje en lenguaje natural describiendo tu proyecto. La IA lo interpretará y pre-llenará la calculadora.")
     desc = st.text_area("Describe tu proyecto:", placeholder="Ej: Mesón en granito san gabriel, 3 metros por 60cm...")
