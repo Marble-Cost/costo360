@@ -1428,44 +1428,66 @@ elif pagina == "Dashboard":
             _df_mat = pd.DataFrame(
                 _s["por_material"],
                 columns=["Material", "Proyectos", "Margen %", "Facturación"],
-            )
-            _df_mat = _df_mat.sort_values("Facturación", ascending=False)
-            # Formatear etiquetas hover en pesos colombianos
-            def _cop_fmt(v): return "$" + f"{int(v):,}".replace(",", ".")
-            _mat_hover = [
-                f"<b>{r['Material']}</b><br>"
-                + f"Facturación: <b>{_cop_fmt(r['Facturación'])}</b><br>"
-                + f"Proyectos: {int(r['Proyectos'])}<br>"
-                + f"Margen prom.: {r['Margen %']:.1f}%"
+            ).sort_values("Facturación", ascending=False)
+
+            def _fmt_cop(v):
+                return "$" + f"{int(round(v)):,}".replace(",", ".")
+
+            _hover_mat = [
+                "<br>".join([
+                    f"<b style='font-size:13px'>{r['Material']}</b>",
+                    f"Facturación: <b>{_fmt_cop(r['Facturación'])}</b>",
+                    f"Proyectos aprobados: <b>{int(r['Proyectos'])}</b>",
+                    f"Margen promedio: <b>{r['Margen %']:.1f}%</b>",
+                ])
                 for _, r in _df_mat.iterrows()
             ]
+
             _fig_mat = go.Figure(go.Bar(
                 x=_df_mat["Material"],
                 y=_df_mat["Facturación"],
-                marker_color="#1B5FA8",
-                text=[_cop_fmt(v) for v in _df_mat["Facturación"]],
-                textposition="outside",
-                textfont=dict(size=11),
-                hovertext=_mat_hover,
-                hoverinfo="text",
+                marker=dict(
+                    color="#1B5FA8",
+                    line=dict(color="#0d3d73", width=1.2),
+                ),
+                customdata=list(zip(
+                    [_fmt_cop(v) for v in _df_mat["Facturación"]],
+                    _df_mat["Proyectos"].astype(int),
+                    _df_mat["Margen %"],
+                )),
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    "Facturación: <b>%{customdata[0]}</b><br>"
+                    "Proyectos: <b>%{customdata[1]}</b><br>"
+                    "Margen prom.: <b>%{customdata[2]:.1f}%</b>"
+                    "<extra></extra>"
+                ),
             ))
             _fig_mat.update_layout(
-                height=260,
-                margin=dict(t=10, b=0, l=0, r=0),
+                height=270,
+                margin=dict(t=6, b=4, l=0, r=6),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
                 yaxis=dict(
-                    tickformat="$,.0f",
-                    tickprefix="$",
+                    tickfont=dict(size=10, color="rgba(200,200,200,0.7)"),
+                    gridcolor="rgba(255,255,255,0.07)",
+                    tickformat="~s",  # 12M, 4M, etc.
                     showgrid=True,
-                    gridcolor="rgba(128,128,128,0.15)",
-                    tickfont=dict(size=10),
-                    # Formato colombiano en el eje Y via tickvals
+                    zeroline=False,
                 ),
-                xaxis=dict(tickfont=dict(size=11)),
-                hoverlabel=dict(bgcolor="#1B5FA8", font_color="white", font_size=12),
+                xaxis=dict(
+                    tickfont=dict(size=12, color="rgba(200,200,200,0.9)"),
+                    showgrid=False,
+                ),
+                hoverlabel=dict(
+                    bgcolor="#0d2a4a",
+                    bordercolor="#1B5FA8",
+                    font=dict(color="white", size=12, family="monospace"),
+                    align="left",
+                ),
+                bargap=0.35,
             )
-            st.plotly_chart(_fig_mat, use_container_width=True)
+            st.plotly_chart(_fig_mat, use_container_width=True, config={"displayModeBar": False})
         else:
             st.caption("Sin datos de materiales aún.")
 
@@ -1494,42 +1516,81 @@ elif pagina == "Dashboard":
             _df_mes = pd.DataFrame(
                 _s["por_mes"],
                 columns=["Mes", "Cotizaciones", "Facturación"],
-            )
-            _df_mes = _df_mes.sort_values("Mes")
-            def _cop_mes(v): return "$" + f"{int(v):,}".replace(",", ".")
-            _mes_hover = [
-                f"<b>{r['Mes']}</b><br>"
-                + f"Facturación: <b>{_cop_mes(r['Facturación'])}</b><br>"
-                + f"Cotizaciones: {int(r['Cotizaciones'])}"
+            ).sort_values("Mes")
+
+            # Convertir "2026-02" → "Feb 2026" para el eje X
+            import calendar
+            def _fmt_mes(m):
+                try:
+                    y, mo = str(m).split("-")
+                    return f"{calendar.month_abbr[int(mo)]} {y}"
+                except Exception:
+                    return str(m)
+            _df_mes["MesLabel"] = _df_mes["Mes"].apply(_fmt_mes)
+
+            if "numero_completo" in dir():
+                _fmt_cop2 = numero_completo
+            else:
+                def _fmt_cop2(v): return "$" + f"{int(round(v)):,}".replace(",", ".")
+
+            _hover_mes = [
+                "<br>".join([
+                    f"<b style='font-size:13px'>{r['MesLabel']}</b>",
+                    f"Facturación: <b>{_fmt_cop2(r['Facturación'])}</b>",
+                    f"Cotizaciones aprobadas: <b>{int(r['Cotizaciones'])}</b>",
+                ])
                 for _, r in _df_mes.iterrows()
             ]
+
             _fig_mes = go.Figure()
             _fig_mes.add_trace(go.Scatter(
-                x=_df_mes["Mes"],
+                x=_df_mes["MesLabel"],
                 y=_df_mes["Facturación"],
                 mode="lines+markers",
-                line=dict(color="#C9A84C", width=2.5),
-                marker=dict(color="#C9A84C", size=7, line=dict(color="white", width=1.5)),
+                line=dict(color="#C9A84C", width=2.5, shape="spline"),
+                marker=dict(
+                    color="#C9A84C", size=8,
+                    line=dict(color="#0d0d0d", width=2),
+                ),
                 fill="tozeroy",
-                fillcolor="rgba(201,168,76,0.10)",
-                hovertext=_mes_hover,
-                hoverinfo="text",
+                fillcolor="rgba(201,168,76,0.08)",
+                customdata=list(zip(
+                    [_fmt_cop2(v) for v in _df_mes["Facturación"]],
+                    _df_mes["Cotizaciones"].astype(int),
+                    _df_mes["MesLabel"],
+                )),
+                hovertemplate=(
+                    "<b>%{customdata[2]}</b><br>"
+                    "Facturación: <b>%{customdata[0]}</b><br>"
+                    "Cotizaciones: <b>%{customdata[1]}</b>"
+                    "<extra></extra>"
+                ),
             ))
             _fig_mes.update_layout(
-                height=260,
-                margin=dict(t=10, b=0, l=0, r=0),
+                height=270,
+                margin=dict(t=6, b=4, l=0, r=6),
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
                 yaxis=dict(
+                    tickfont=dict(size=10, color="rgba(200,200,200,0.7)"),
+                    gridcolor="rgba(255,255,255,0.07)",
+                    tickformat="~s",
                     showgrid=True,
-                    gridcolor="rgba(128,128,128,0.15)",
-                    tickfont=dict(size=10),
+                    zeroline=False,
                 ),
-                xaxis=dict(tickfont=dict(size=11)),
-                hoverlabel=dict(bgcolor="#2a2a2a", font_color="#C9A84C", font_size=12,
-                                bordercolor="#C9A84C"),
+                xaxis=dict(
+                    tickfont=dict(size=11, color="rgba(200,200,200,0.9)"),
+                    showgrid=False,
+                    type="category",  # ← evita que Plotly interprete como datetime
+                ),
+                hoverlabel=dict(
+                    bgcolor="#1a1408",
+                    bordercolor="#C9A84C",
+                    font=dict(color="#f5e6c0", size=12, family="monospace"),
+                    align="left",
+                ),
             )
-            st.plotly_chart(_fig_mes, use_container_width=True)
+            st.plotly_chart(_fig_mes, use_container_width=True, config={"displayModeBar": False})
         else:
             st.caption("Sin datos mensuales aún.")
 
