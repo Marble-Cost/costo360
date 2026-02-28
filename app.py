@@ -1,5 +1,5 @@
 # app.py — CostoMármol v6 · Adaptive UX & Fixes
-# Mármoles Collante & Castro Ltda. · Feb 2026
+# MARMOLES COLLANTE & CASTRO LTDA. · Feb 2026
 
 import io
 import base64
@@ -20,7 +20,7 @@ from parametros import (
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
 
 st.set_page_config(
-    page_title="CostoMármol — Mármoles Collante & Castro",
+    page_title="CostoMarMol — MARMOLES COLLANTE & CASTRO",
     page_icon="🪨",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -255,7 +255,7 @@ _defaults = {
     "tarifas_custom": None, "logistica_custom": None, "viaticos_custom": None,
     "logo_bytes": None, "logo_mime": None,
     "empresa_info": {
-        "nombre": "MÁRMOLES COLLANTE & CASTRO LTDA.", "nit": "NIT: 900.111.561-1",
+        "nombre": "MARMOLES COLLANTE & CASTRO LTDA.", "nit": "NIT: 900.111.561-1",
         "tel": "+57 300 000 0000", "email": "ventas@marmolescc.com",
         "ciudad": "Barranquilla, Atlántico — Colombia", "banco": "Davivienda",
         "cuenta_tipo": "Cuenta Corriente Empresas", "cuenta_numero": "108900027484",
@@ -434,7 +434,7 @@ if pagina == "Inicio":
     st.markdown(f"""
     <div style="background:var(--secondary-background-color); border-radius:16px;padding:40px 44px;margin-bottom:28px; border:2px solid #1B5FA8;">
       <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
-        Mármoles Collante &amp; Castro Ltda.
+        MARMOLES COLLANTE &amp; CASTRO LTDA.
       </div>
       <div style="font-size:2.4rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:14px; color:var(--text-color);">
         Sistema de Cotización<br>Profesional
@@ -2568,7 +2568,7 @@ elif pagina == "Configuracion":
     with tab_emp:
         c1, c2 = st.columns(2)
         st.session_state.empresa_info["nombre"] = c1.text_input(
-            "Razón Social", st.session_state.empresa_info.get("nombre", "MÁRMOLES COLLANTE & CASTRO LTDA."))
+            "Razón Social", st.session_state.empresa_info.get("nombre", "MARMOLES COLLANTE & CASTRO LTDA."))
         st.session_state.empresa_info["nit"] = c2.text_input(
             "NIT", st.session_state.empresa_info.get("nit", "NIT: 900.111.561-1"))
         st.session_state.empresa_info["ciudad"] = c1.text_input(
