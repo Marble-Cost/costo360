@@ -138,10 +138,28 @@ def _chat_parametros(historial: list, mensaje: str) -> str:
         api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
         if not api_key: return "Configura tu API key en .streamlit/secrets.toml"
         client = anthropic.Anthropic(api_key=api_key)
-        SYSTEM_PARAMS = """Eres un asistente experto en costos de marmolería en Colombia... [Responde corto y directo]."""
+        SYSTEM_PARAMS = """Eres el asesor de costos operativos de MARMOLES COLLANTE & CASTRO LTDA., Barranquilla, Colombia.
+Tu función es ayudar a actualizar los parámetros internos de la empresa: tarifas de producción, viáticos, logística.
+
+CONTEXTO DEL MERCADO (Feb 2026, Barranquilla):
+- Gasolina corriente: ~$16.000/galón
+- Mano de obra mármol: $55.000–$70.000/ml | Granito: $50.000–$60.000/ml | Sinterizado: $80.000–$95.000/ml
+- Hospedaje pueblo: $55.000–$70.000/noche | Ciudad: $80.000–$100.000/noche
+- Alimentación diaria: $60.000–$75.000/persona
+
+REGLAS:
+- Responde en español colombiano directo, máximo 3 oraciones.
+- Si el usuario menciona un precio nuevo, confírmalo antes de aplicar y pregunta si desea actualizar.
+- Si el usuario confirma el cambio (dice "sí", "aplica", "actualiza", "correcto", etc.), 
+  incluye AL FINAL un bloque ```json con los valores a actualizar.
+- Para TARIFAS: usa estructura {Material: {prod_ml, zocalo, disco, maquina, consumibles, riesgo_rotura}}
+- Para VIATICOS: usa estructura {pueblo: {hospedaje, alimentacion, transporte_local}, ciudad: {...}}
+- Nunca incluyas el JSON si el usuario no ha confirmado el cambio.
+- No uses emojis.
+- Sé directo: da números concretos basados en el mercado de Barranquilla."""
         messages = [{"role": m["role"], "content": m["content"]} for m in historial]
         messages.append({"role": "user", "content": mensaje})
-        response = client.messages.create(model="claude-opus-4-6", max_tokens=400, system=SYSTEM_PARAMS, messages=messages)
+        response = client.messages.create(model="claude-sonnet-4-6", max_tokens=600, system=SYSTEM_PARAMS, messages=messages)
         return response.content[0].text
     except Exception as e:
         return f"Error: {str(e)}"
@@ -244,6 +262,9 @@ _defaults = {
     },
     "vehiculos_custom": None, "cat_sel": "Mármol",
     "adicionales_custom": None,
+    "chat_input_key": 0,
+    "params_wizard_chat": [],
+    "params_cambios_aplicados": [],
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -1256,97 +1277,297 @@ elif pagina == "Parametros":
 
     with t_ia:
         _ia_ok = ia_disponible()
-        if _ia_ok:
+
+        # ── CSS del panel de parámetros ───────────────────────────────────────
+        st.markdown("""
+        <style>
+        .pmsg-user {
+            background: #1B5FA8; color: white;
+            border-radius: 14px 14px 3px 14px;
+            padding: 9px 14px; margin: 2px 0 2px 25%;
+            font-size: 0.86rem; line-height: 1.55;
+        }
+        .pmsg-ai {
+            background: var(--secondary-background-color);
+            border: 1px solid var(--border-color);
+            border-radius: 14px 14px 14px 3px;
+            padding: 9px 14px; margin: 2px 25% 2px 0;
+            font-size: 0.86rem; line-height: 1.6;
+        }
+        .pmsg-label {
+            font-size: 0.63rem; font-weight: 700; letter-spacing: 0.06em;
+            text-transform: uppercase; opacity: 0.38; margin-bottom: 3px;
+        }
+        .cambio-row {
+            display: flex; align-items: center; gap: 10px;
+            padding: 6px 0; border-bottom: 1px solid var(--border-color);
+            font-size: 0.83rem;
+        }
+        .cambio-campo { font-weight: 600; flex: 2; }
+        .cambio-antes { opacity: 0.45; flex: 1; text-decoration: line-through; }
+        .cambio-despues { color: #16a34a; font-weight: 700; flex: 1; }
+        .val-actual-row {
+            display: flex; justify-content: space-between;
+            padding: 5px 0; border-bottom: 1px solid var(--border-color);
+            font-size: 0.82rem;
+        }
+        .val-label { opacity: 0.65; }
+        .val-num { font-weight: 700; font-variant-numeric: tabular-nums; }
+        .cmd-btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+        </style>
+        """, unsafe_allow_html=True)
+
+        if not _ia_ok:
             st.markdown(
-                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'
-                '<div style="width:9px;height:9px;border-radius:50%;background:#22c55e;flex-shrink:0"></div>'
-                '<span style="font-size:0.82rem;font-weight:600;color:#16a34a">Asistente activo</span>'
-                '</div>', unsafe_allow_html=True
+                '<div style="border:1px solid var(--border-color);border-radius:10px;'
+                'padding:20px 24px;max-width:480px">'
+                '<div style="font-weight:700;margin-bottom:6px">API key no configurada</div>'
+                '<div style="font-size:0.87rem;opacity:0.7">Ve a Configuración para activar el asistente.</div>'
+                '</div>',
+                unsafe_allow_html=True
             )
         else:
-            st.warning("⚠️ La IA no está configurada. Actívala añadiendo tu API key en **Configuración**.", icon="🔑")
+            # ── Layout split: chat + panel de valores actuales ────────────────
+            _col_chat, _col_vals = st.columns([3, 2])
 
-        st.info("💡 **Instrucción:** Dile a la IA qué valores cambiaron (Ej: 'La alimentación en pueblos subió a $75.000'). La IA actualizará las tablas automáticamente.")
+            with _col_chat:
+                # Comandos rápidos del negocio real
+                _comandos_rapidos = [
+                    ("Gasolina subió", "La gasolina corriente subió. ¿A cuánto debería quedar mi costo por km en la Frontier?"),
+                    ("Nuevo precio operario", "El operario de mármol ahora cobra más. ¿Cómo ajusto la tarifa por ml?"),
+                    ("Viáticos fuera de ciudad", "¿Cuánto debería presupuestar por persona para trabajar en Cartagena o Santa Marta?"),
+                    ("¿Mis consumibles son correctos?", "¿Los costos de consumibles que tengo son razonables para el mercado actual de Barranquilla?"),
+                ]
 
-        if "params_wizard_chat" not in st.session_state:
-            st.session_state.params_wizard_chat = []
-
-        chat_container = st.container()
-        with chat_container:
-            if not st.session_state.params_wizard_chat:
                 st.markdown(
-                    '<div style="text-align:center;padding:32px 16px;opacity:0.45;">'
-                    '<div style="font-size:2rem;margin-bottom:8px">💬</div>'
-                    '<div style="font-size:0.88rem">Aún no hay mensajes.<br>'
-                    'Puedes escribir cosas como:<br>'
-                    '<em>"La gasolina subió a $16.500"</em> &nbsp;·&nbsp; '
-                    '<em>"El hospedaje en pueblos ahora vale $70.000"</em> &nbsp;·&nbsp; '
-                    '<em>"¿Cuánto debería cobrar de consumibles por m² en Sinterizado?"</em>'
-                    '</div></div>',
+                    "<div style='font-size:0.68rem;font-weight:700;opacity:0.4;letter-spacing:0.07em;"
+                    "text-transform:uppercase;margin-bottom:8px'>Situaciones frecuentes</div>",
                     unsafe_allow_html=True
                 )
-            else:
-                for _m in st.session_state.params_wizard_chat:
-                    _es_user = _m["role"] == "user"
-                    _bg   = "var(--secondary-background-color)" if _es_user else "transparent"
-                    _bord = "1px solid var(--border-color)" if _es_user else "1px solid transparent"
-                    # Ocultar JSON al usuario — mostrar mensaje amigable
-                    msg_text = _m["content"]
-                    if "```json" in msg_text:
-                        msg_text = msg_text.split("```json")[0].strip() + "\n\n✅ *He aplicado los cambios en las variables del sistema.*"
+                _cmd_c1, _cmd_c2 = st.columns(2)
+                for _ci, (_lbl, _msg_cmd) in enumerate(_comandos_rapidos):
+                    _col_cmd = _cmd_c1 if _ci % 2 == 0 else _cmd_c2
+                    with _col_cmd:
+                        if st.button(_lbl, key=f"pcmd_{_ci}", use_container_width=True):
+                            st.session_state.params_wizard_chat.append({"role": "user", "content": _lbl})
+                            with st.spinner(""):
+                                _r_cmd = _chat_parametros(st.session_state.params_wizard_chat[:-1], _msg_cmd)
+                            _aplicado_cmd = False
+                            if "```json" in _r_cmd:
+                                try:
+                                    _js = _r_cmd.split("```json")[1].split("```")[0]
+                                    _d = json.loads(_js)
+                                    if "pueblo" in _d or "ciudad" in _d:
+                                        _antes = (st.session_state.viaticos_custom or VIATICOS).copy()
+                                        st.session_state.viaticos_custom = _d
+                                        st.session_state.params_cambios_aplicados.append({"tipo": "viaticos", "antes": _antes, "despues": _d})
+                                    elif any(k in _d for k in ["Mármol", "Granito", "Sinterizado"]):
+                                        _antes = (st.session_state.tarifas_custom or TARIFAS).copy()
+                                        st.session_state.tarifas_custom = _d
+                                        st.session_state.params_cambios_aplicados.append({"tipo": "tarifas", "antes": _antes, "despues": _d})
+                                    _aplicado_cmd = True
+                                except Exception:
+                                    pass
+                            st.session_state.params_wizard_chat.append({
+                                "role": "assistant", "content": _r_cmd, "aplicado": _aplicado_cmd
+                            })
+                            st.rerun()
+
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                # Historial de conversación
+                if not st.session_state.params_wizard_chat:
                     st.markdown(
-                        f'<div style="background:{_bg};border:{_bord};border-radius:10px;'
-                        f'padding:10px 14px;margin-bottom:8px">'
-                        f'<div style="font-size:0.72rem;font-weight:700;opacity:0.55;margin-bottom:4px">'
-                        f'{"TÚ" if _es_user else "ASISTENTE IA"}</div>'
-                        f'<div style="font-size:0.9rem">{msg_text}</div>'
-                        f'</div>',
+                        '<div style="border:1px dashed var(--border-color);border-radius:10px;'
+                        'padding:24px 18px;text-align:center;">'
+                        '<div style="font-size:0.85rem;opacity:0.45;line-height:1.7">'
+                        'Cuéntame qué cambió en tu operación.<br>'
+                        '<span style="font-size:0.78rem">"La gasolina subió a $16.800" &nbsp;·&nbsp; '
+                        '"El operario cobra $65.000/ml ahora"</span>'
+                        '</div></div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    for _pm in st.session_state.params_wizard_chat:
+                        _es_u = _pm["role"] == "user"
+                        _ptxt = _pm["content"]
+                        _p_aplicado = _pm.get("aplicado", False)
+                        if not _es_u and "```json" in _ptxt:
+                            _ptxt = _ptxt.split("```json")[0].strip()
+                        if _es_u:
+                            st.markdown(
+                                f'<div class="pmsg-label" style="text-align:right">Tú</div>'
+                                f'<div class="pmsg-user">{_ptxt}</div>',
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            _badge = (
+                                '<div style="display:inline-block;font-size:0.71rem;font-weight:700;'
+                                'background:#dcfce7;color:#15803d;padding:2px 10px;border-radius:6px;margin-top:6px">'
+                                'Valores actualizados</div>'
+                            ) if _p_aplicado else ""
+                            st.markdown(
+                                f'<div class="pmsg-label">Asistente</div>'
+                                f'<div class="pmsg-ai">{_ptxt}{_badge}</div>',
+                                unsafe_allow_html=True
+                            )
+
+                st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+                # Input
+                _pi_c, _ps_c = st.columns([5, 1])
+                with _pi_c:
+                    _pnuevo = st.text_input(
+                        "msg",
+                        key="params_chat_input",
+                        placeholder="¿Qué cambió en tus costos operativos?",
+                        label_visibility="collapsed",
+                    )
+                with _ps_c:
+                    _penviar = st.button("Enviar", key="params_chat_send", type="primary", use_container_width=True)
+
+                if _penviar and _pnuevo.strip():
+                    with st.spinner(""):
+                        _pr = _chat_parametros(st.session_state.params_wizard_chat, _pnuevo.strip())
+                    _p_aplic = False
+                    if "```json" in _pr:
+                        try:
+                            _pjs = _pr.split("```json")[1].split("```")[0]
+                            _pd = json.loads(_pjs)
+                            if "pueblo" in _pd or "ciudad" in _pd:
+                                _pantes = (st.session_state.viaticos_custom or VIATICOS).copy()
+                                st.session_state.viaticos_custom = _pd
+                                st.session_state.params_cambios_aplicados.append({"tipo": "viaticos", "antes": _pantes, "despues": _pd})
+                            elif any(k in _pd for k in ["Mármol", "Granito", "Sinterizado"]):
+                                _pantes = (st.session_state.tarifas_custom or TARIFAS).copy()
+                                st.session_state.tarifas_custom = _pd
+                                st.session_state.params_cambios_aplicados.append({"tipo": "tarifas", "antes": _pantes, "despues": _pd})
+                            _p_aplic = True
+                        except Exception:
+                            pass
+                    st.session_state.params_wizard_chat.append({"role": "user", "content": _pnuevo.strip()})
+                    st.session_state.params_wizard_chat.append({"role": "assistant", "content": _pr, "aplicado": _p_aplic})
+                    st.rerun()
+
+                if st.session_state.params_wizard_chat:
+                    if st.button("Limpiar conversación", key="params_clear"):
+                        st.session_state.params_wizard_chat = []
+                        st.rerun()
+
+            # ── Panel derecho: valores actuales + historial de cambios ─────────
+            with _col_vals:
+                _tar_now = get_tarifas()
+                _via_now = get_viaticos()
+                _log_now = get_logistica()
+
+                # Historial de cambios recientes
+                if st.session_state.params_cambios_aplicados:
+                    st.markdown(
+                        "<div style='font-size:0.68rem;font-weight:700;opacity:0.4;letter-spacing:0.07em;"
+                        "text-transform:uppercase;margin-bottom:8px'>Últimos cambios aplicados</div>",
+                        unsafe_allow_html=True
+                    )
+                    _ultimo_cambio = st.session_state.params_cambios_aplicados[-1]
+                    _tipo_c = _ultimo_cambio["tipo"]
+                    _antes_c = _ultimo_cambio["antes"]
+                    _despues_c = _ultimo_cambio["despues"]
+
+                    if _tipo_c == "viaticos":
+                        for _dk in ["pueblo", "ciudad"]:
+                            if _dk in _antes_c and _dk in _despues_c:
+                                for _sk in ["hospedaje", "alimentacion", "transporte_local"]:
+                                    _va = _antes_c[_dk].get(_sk, 0) if isinstance(_antes_c[_dk], dict) else 0
+                                    _vd = _despues_c[_dk].get(_sk, 0) if isinstance(_despues_c[_dk], dict) else 0
+                                    if _va != _vd:
+                                        _lbl_sk = {"hospedaje": "Hospedaje", "alimentacion": "Alimentación", "transporte_local": "Transporte"}
+                                        st.markdown(
+                                            f'<div class="cambio-row">'
+                                            f'<span class="cambio-campo">{_lbl_sk.get(_sk, _sk)} ({_dk})</span>'
+                                            f'<span class="cambio-antes">${int(_va):,}'.replace(",", ".") + '</span>'
+                                            f'<span class="cambio-despues">${int(_vd):,}'.replace(",", ".") + '</span>'
+                                            f'</div>',
+                                            unsafe_allow_html=True
+                                        )
+                    elif _tipo_c == "tarifas":
+                        for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                            if _mat in _antes_c and _mat in _despues_c:
+                                for _sk in ["prod_ml", "zocalo", "disco", "maquina", "consumibles"]:
+                                    _va = _antes_c[_mat].get(_sk, 0)
+                                    _vd = _despues_c[_mat].get(_sk, 0)
+                                    if _va != _vd:
+                                        _lbl_sk = {"prod_ml": "Prod/ml", "zocalo": "Zócalo", "disco": "Disco", "maquina": "Máquina", "consumibles": "Consumibles"}
+                                        st.markdown(
+                                            f'<div class="cambio-row">'
+                                            f'<span class="cambio-campo">{_mat} — {_lbl_sk.get(_sk, _sk)}</span>'
+                                            f'<span class="cambio-antes">${int(_va):,}'.replace(",", ".") + '</span>'
+                                            f'<span class="cambio-despues">${int(_vd):,}'.replace(",", ".") + '</span>'
+                                            f'</div>',
+                                            unsafe_allow_html=True
+                                        )
+
+                    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+                # Valores actuales resumidos
+                st.markdown(
+                    "<div style='font-size:0.68rem;font-weight:700;opacity:0.4;letter-spacing:0.07em;"
+                    "text-transform:uppercase;margin-bottom:8px'>Valores actuales</div>",
+                    unsafe_allow_html=True
+                )
+
+                # Gasolina + vehículos
+                _gas = _log_now.get("gasolina", 16_000)
+                st.markdown(
+                    f'<div class="val-actual-row"><span class="val-label">Gasolina</span>'
+                    f'<span class="val-num">${int(_gas):,}'.replace(",", ".") + '/gal</span></div>',
+                    unsafe_allow_html=True
+                )
+
+                # Producción por material (prod_ml)
+                for _m in ["Mármol", "Granito", "Sinterizado"]:
+                    _pml = _tar_now.get(_m, {}).get("prod_ml", 0)
+                    st.markdown(
+                        f'<div class="val-actual-row"><span class="val-label">MO {_m}</span>'
+                        f'<span class="val-num">${int(_pml):,}'.replace(",", ".") + '/ml</span></div>',
                         unsafe_allow_html=True
                     )
 
-        # ── Chat input con lógica de IA Ejecutora ─────────────────────────────
-        _col_input, _col_btn = st.columns([5, 1])
-        with _col_input:
-            _nuevo_msg = st.text_input(
-                "Escribe tu mensaje",
-                key="params_chat_input",
-                placeholder="Ej: El precio del disco para mármol subió a $3.000...",
-                label_visibility="collapsed",
-                disabled=not _ia_ok,
-            )
-        with _col_btn:
-            _enviar = st.button("Enviar ➤", key="params_chat_send", type="primary",
-                                use_container_width=True, disabled=not _ia_ok)
+                # Viáticos pueblo y ciudad
+                _via_p = _via_now.get("pueblo", {})
+                _via_c = _via_now.get("ciudad", {})
+                _total_p = sum(_via_p.values()) if isinstance(_via_p, dict) else _via_p
+                _total_c = sum(_via_c.values()) if isinstance(_via_c, dict) else _via_c
+                st.markdown(
+                    f'<div class="val-actual-row"><span class="val-label">Viáticos pueblo</span>'
+                    f'<span class="val-num">${int(_total_p):,}'.replace(",", ".") + '/día</span></div>',
+                    unsafe_allow_html=True
+                )
+                st.markdown(
+                    f'<div class="val-actual-row"><span class="val-label">Viáticos ciudad</span>'
+                    f'<span class="val-num">${int(_total_c):,}'.replace(",", ".") + '/día</span></div>',
+                    unsafe_allow_html=True
+                )
 
-        if _enviar and _nuevo_msg.strip():
-            prompt_inyeccion = (
-                _nuevo_msg.strip() +
-                "\n\n(Regla interna IA: Si el usuario aprueba modificar un valor, "
-                "incluye al final un bloque ```json con la estructura exacta de TARIFAS o VIATICOS actualizada. "
-                "Para TARIFAS usa claves: Mármol/Granito/Sinterizado/Quarztone/Quarzita con subcampos prod_ml/zocalo/disco/maquina/consumibles/riesgo_rotura. "
-                "Para VIATICOS usa claves: pueblo/ciudad con subcampos hospedaje/alimentacion/transporte_local.)"
-            )
-            with st.spinner("Analizando y actualizando variables..."):
-                _resp = _chat_parametros(st.session_state.params_wizard_chat, prompt_inyeccion)
-            # ── Detectar y aplicar JSON automáticamente ──────────────────────
-            if "```json" in _resp:
-                try:
-                    json_str = _resp.split("```json")[1].split("```")[0]
-                    datos_ia = json.loads(json_str)
-                    if "pueblo" in datos_ia or "ciudad" in datos_ia:
-                        st.session_state.viaticos_custom = datos_ia
-                    elif any(k in datos_ia for k in ["Mármol", "Granito", "Sinterizado"]):
-                        st.session_state.tarifas_custom = datos_ia
-                except Exception as _e:
-                    pass  # Si falla el parse, igual se muestra la respuesta
-            st.session_state.params_wizard_chat.append({"role": "user", "content": _nuevo_msg.strip()})
-            st.session_state.params_wizard_chat.append({"role": "assistant", "content": _resp})
-            st.rerun()
-
-        if st.session_state.params_wizard_chat:
-            if st.button("🗑️ Limpiar conversación", key="params_clear"):
-                st.session_state.params_wizard_chat = []
-                st.rerun()
+                # Estado de personalización
+                _tiene_custom = any([
+                    st.session_state.tarifas_custom,
+                    st.session_state.logistica_custom,
+                    st.session_state.viaticos_custom,
+                ])
+                if _tiene_custom:
+                    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+                    st.markdown(
+                        '<div style="font-size:0.75rem;background:#dcfce7;color:#15803d;'
+                        'border-radius:6px;padding:6px 10px;font-weight:600">'
+                        'Tienes valores personalizados activos</div>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+                    st.markdown(
+                        '<div style="font-size:0.75rem;opacity:0.45;font-style:italic">'
+                        'Usando valores por defecto del sistema</div>',
+                        unsafe_allow_html=True
+                    )
 
     with t_tar:
         st.caption("Costos de mano de obra e insumos por material. Modifica cada campo y presiona **Guardar Tarifas**.")
@@ -1761,19 +1982,307 @@ elif pagina == "Parametros":
             st.rerun()
 
 elif pagina == "Asistente IA":
-    st.markdown("<h2 style='font-family:Playfair Display,serif'>Asistente IA</h2>", unsafe_allow_html=True)
-    st.write("Escribe un mensaje en lenguaje natural describiendo tu proyecto. La IA lo interpretará y pre-llenará la calculadora.")
-    desc = st.text_area("Describe tu proyecto:", placeholder="Ej: Mesón en granito san gabriel, 3 metros por 60cm...")
-    if st.button("Procesar"):
-        if ia_disponible():
-            res = interpretar_proyecto(desc)
-            if res:
-                st.session_state.pre = res
-                st.session_state.nav_radio = "Cotizacion Directa"
-                st.session_state._radio_ui = "Cotizacion Directa"
+
+    # ── Estado del chat ───────────────────────────────────────────────────────
+    if "chat" not in st.session_state:
+        st.session_state.chat = []
+    if "chat_input_key" not in st.session_state:
+        st.session_state.chat_input_key = 0
+
+    # ── CSS del chat ──────────────────────────────────────────────────────────
+    st.markdown("""
+    <style>
+    .msg-user {
+        background: #1B5FA8;
+        color: white;
+        border-radius: 16px 16px 3px 16px;
+        padding: 11px 16px;
+        margin: 2px 0 2px 18%;
+        font-size: 0.91rem;
+        line-height: 1.6;
+    }
+    .msg-ai {
+        background: var(--secondary-background-color);
+        border: 1px solid var(--border-color);
+        border-radius: 16px 16px 16px 3px;
+        padding: 11px 16px;
+        margin: 2px 18% 2px 0;
+        font-size: 0.91rem;
+        line-height: 1.65;
+    }
+    .msg-label {
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        opacity: 0.4;
+        margin-bottom: 3px;
+    }
+    .arranque-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 16px;
+    }
+    .arranque-card {
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 14px 16px;
+        cursor: pointer;
+        background: var(--secondary-background-color);
+        font-size: 0.87rem;
+        line-height: 1.45;
+        transition: border-color 0.15s;
+    }
+    .arranque-titulo {
+        font-weight: 700;
+        margin-bottom: 4px;
+        font-size: 0.88rem;
+    }
+    .arranque-desc {
+        opacity: 0.55;
+        font-size: 0.78rem;
+    }
+    .cta-calculadora {
+        display: inline-block;
+        background: #1B5FA8;
+        color: white !important;
+        font-size: 0.82rem;
+        font-weight: 700;
+        padding: 7px 16px;
+        border-radius: 8px;
+        margin-top: 10px;
+        cursor: pointer;
+        letter-spacing: 0.02em;
+    }
+    .sugerencia-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 7px;
+        margin: 10px 0 4px;
+    }
+    .sugerencia-pill {
+        border: 1px solid var(--border-color);
+        border-radius: 20px;
+        padding: 4px 13px;
+        font-size: 0.79rem;
+        background: transparent;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Guard: IA no disponible ───────────────────────────────────────────────
+    if not ia_disponible():
+        st.markdown(
+            "<h2 style='font-family:Playfair Display,serif;margin-bottom:8px'>Asistente</h2>",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            '<div style="border:1px solid var(--border-color);border-radius:12px;'
+            'padding:24px 28px;max-width:520px;margin-top:12px">'
+            '<div style="font-weight:700;font-size:1rem;margin-bottom:8px">API key no configurada</div>'
+            '<div style="font-size:0.88rem;line-height:1.6;opacity:0.75">'
+            'Para activar el asistente ve a <strong>Configuración</strong> '
+            'e ingresa tu API key de Anthropic.'
+            '</div></div>',
+            unsafe_allow_html=True
+        )
+        st.stop()
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    col_h, col_clear = st.columns([5, 1])
+    with col_h:
+        st.markdown(
+            "<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>Asistente</h2>"
+            "<p style='opacity:0.5;font-size:0.82rem;margin:0'>Describe un proyecto o consulta cualquier duda sobre costos y cotización.</p>",
+            unsafe_allow_html=True
+        )
+    with col_clear:
+        if st.session_state.chat:
+            st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+            if st.button("Limpiar", use_container_width=True):
+                st.session_state.chat = []
+                st.session_state.chat_input_key += 1
                 st.rerun()
-        else:
-            st.error("Configura tu API Key en Configuración.")
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # ── Estado vacío: tarjetas de inicio ─────────────────────────────────────
+    if not st.session_state.chat:
+        st.markdown(
+            "<div style='font-size:0.72rem;font-weight:700;opacity:0.4;letter-spacing:0.08em;"
+            "text-transform:uppercase;margin-bottom:14px'>Por dónde empezar</div>",
+            unsafe_allow_html=True
+        )
+        _arranques = [
+            {
+                "titulo": "Cotizar un proyecto",
+                "desc": "Describe el material, medidas y tipo de obra. La IA extrae los datos y los carga en la calculadora.",
+                "msg": "Tengo un mesón de cocina en mármol crema marfil, 3,5 metros de largo por 60 cm de ancho. El proveedor me cobró $220.000/m² por una placa de 5,94 m². ¿Me ayudas a cotizarlo?"
+            },
+            {
+                "titulo": "¿Estoy cobrando bien?",
+                "desc": "Ingresa tu precio y la IA revisa si el margen es saludable para el mercado de Barranquilla.",
+                "msg": "Le voy a cobrar $3.200.000 a un cliente por 4 metros lineales de granito instalado en cocina. ¿Ese precio tiene buen margen o estoy dejando plata sobre la mesa?"
+            },
+            {
+                "titulo": "Comparar materiales",
+                "desc": "Descubre cuál material deja más utilidad para un mismo proyecto.",
+                "msg": "Para un mesón de 5 ml, ¿qué me conviene más cotizar: mármol, granito o sinterizado? ¿Cuál deja mejor margen normalmente?"
+            },
+            {
+                "titulo": "Entender los costos ocultos",
+                "desc": "La IA explica qué cargos debes incluir para no quedar en rojo.",
+                "msg": "Siempre que termino un proyecto siento que gané menos de lo esperado. ¿Qué costos suele olvidar un marmolero al cotizar?"
+            },
+        ]
+        _col_a, _col_b = st.columns(2)
+        for _i, _ar in enumerate(_arranques):
+            _col = _col_a if _i % 2 == 0 else _col_b
+            with _col:
+                st.markdown(
+                    f'<div class="arranque-card">'
+                    f'<div class="arranque-titulo">{_ar["titulo"]}</div>'
+                    f'<div class="arranque-desc">{_ar["desc"]}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                if st.button("Empezar", key=f"arr_{_i}", use_container_width=True):
+                    st.session_state.chat.append({"role": "user", "content": _ar["msg"]})
+                    with st.spinner(""):
+                        _r = chat_con_ia([], _ar["msg"])
+                        # Detectar si hay datos de proyecto
+                        _datos = None
+                        if any(w in _ar["msg"].lower() for w in ["mesón", "cocina", "ml", "metros", "placa"]):
+                            _datos = interpretar_proyecto(_ar["msg"])
+                    _msg_ia = {"role": "assistant", "content": _r}
+                    if _datos and _datos.get("categoria"):
+                        _msg_ia["datos_proyecto"] = _datos
+                    st.session_state.chat.append(_msg_ia)
+                    st.rerun()
+
+    else:
+        # ── Render del historial ──────────────────────────────────────────────
+        for _midx, _msg in enumerate(st.session_state.chat):
+            if _msg["role"] == "user":
+                st.markdown(
+                    f'<div class="msg-label" style="text-align:right">Tú</div>'
+                    f'<div class="msg-user">{_msg["content"]}</div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div class="msg-label">Asistente</div>'
+                    f'<div class="msg-ai">{_msg["content"]}</div>',
+                    unsafe_allow_html=True
+                )
+                # Si el mensaje tiene datos de proyecto extraídos, ofrecer carga
+                if _msg.get("datos_proyecto") and _midx == len(st.session_state.chat) - 1:
+                    _d = _msg["datos_proyecto"]
+                    _resumen_datos = []
+                    if _d.get("categoria"): _resumen_datos.append(_d["categoria"])
+                    if _d.get("referencia"): _resumen_datos.append(_d["referencia"])
+                    if _d.get("m2_proyecto"): _resumen_datos.append(f'{_d["m2_proyecto"]} m²')
+                    _resumen_str = " · ".join(_resumen_datos) if _resumen_datos else "datos detectados"
+                    _cc1, _cc2 = st.columns([2, 3])
+                    with _cc1:
+                        st.markdown(
+                            f'<div style="border:1px solid #1B5FA8;border-radius:10px;'
+                            f'padding:10px 14px;margin:8px 0">'
+                            f'<div style="font-size:0.68rem;font-weight:700;opacity:0.5;margin-bottom:4px">PROYECTO DETECTADO</div>'
+                            f'<div style="font-size:0.82rem;font-weight:600">{_resumen_str}</div>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+                        if st.button("Cargar en la calculadora →", key=f"cargar_{_midx}", type="primary", use_container_width=True):
+                            st.session_state.pre = _d
+                            st.session_state.nav_radio = "Cotizacion Directa"
+                            st.session_state._radio_ui = "Cotizacion Directa"
+                            st.query_params["pagina"] = "Cotizacion Directa"
+                            st.rerun()
+
+        # ── Sugerencias contextuales (generadas desde la respuesta real) ──────
+        _ultimo_ai = next(
+            (_m for _m in reversed(st.session_state.chat) if _m["role"] == "assistant"),
+            None
+        )
+        if _ultimo_ai:
+            _ult = _ultimo_ai["content"].lower()
+            _sugs = []
+            if any(w in _ult for w in ["margen", "utilidad", "precio sugerido"]):
+                _sugs += ["¿Cómo mejorar el margen sin subir el precio?", "¿Cuánto es un margen mínimo aceptable?"]
+            if any(w in _ult for w in ["retal", "desperdicio", "aprovechamiento"]):
+                _sugs += ["¿Cómo reduzco el retal en cortes complejos?"]
+            if any(w in _ult for w in ["material", "mármol", "granito", "sinterizado", "quarztone"]):
+                _sugs += ["¿Cuál material tiene más riesgo de rotura?", "¿El sinterizado vale la pena cobrarlo diferente?"]
+            if any(w in _ult for w in ["logística", "transporte", "flete", "vehículo"]):
+                _sugs += ["¿Cuándo usar la Frontier vs la Cheyenne?"]
+            if any(w in _ult for w in ["aiu", "imprevisto", "administración"]):
+                _sugs += ["¿Cuándo aplica la estructura AIU?", "¿El IVA va sobre todo o solo sobre la utilidad?"]
+            if not _sugs:
+                _sugs = ["¿Qué más debo incluir en el precio?", "¿Cuál es el error más común al cotizar?", "Hazme un ejemplo con números reales"]
+
+            _sugs = _sugs[:3]
+            _sug_cols = st.columns(len(_sugs))
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            for _si, _sug in enumerate(_sugs):
+                with _sug_cols[_si]:
+                    if st.button(_sug, key=f"sug_{_si}_{st.session_state.chat_input_key}", use_container_width=True):
+                        st.session_state.chat.append({"role": "user", "content": _sug})
+                        with st.spinner(""):
+                            _sr = chat_con_ia(
+                                [m for m in st.session_state.chat[:-1] if m["role"] in ("user", "assistant")],
+                                _sug
+                            )
+                        st.session_state.chat.append({"role": "assistant", "content": _sr})
+                        st.session_state.chat_input_key += 1
+                        st.rerun()
+
+    # ── Input de texto ────────────────────────────────────────────────────────
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+    _ic, _sc = st.columns([6, 1])
+    with _ic:
+        _nuevo = st.text_input(
+            "Mensaje",
+            key=f"chat_inp_{st.session_state.chat_input_key}",
+            placeholder="Describe tu proyecto o escribe tu pregunta...",
+            label_visibility="collapsed",
+        )
+    with _sc:
+        _enviar = st.button("Enviar", type="primary", use_container_width=True,
+                            key=f"enviar_{st.session_state.chat_input_key}")
+
+    if _enviar and _nuevo.strip():
+        _texto = _nuevo.strip()
+        st.session_state.chat.append({"role": "user", "content": _texto})
+
+        with st.spinner(""):
+            # Detectar si describe un proyecto concreto (≥2 palabras clave)
+            _kw_proyecto = ["mesón", "meson", "cocina", "baño", "bano", "escalera",
+                            "fachada", "piso", "ml", "metro", "placa", "granito",
+                            "mármol", "sinterizado", "quarztone", "quarzita", "cuarzo"]
+            _es_proyecto = sum(1 for w in _kw_proyecto if w in _texto.lower()) >= 2
+
+            _datos_ext = None
+            if _es_proyecto:
+                _datos_ext = interpretar_proyecto(_texto)
+
+            _resp = chat_con_ia(
+                [m for m in st.session_state.chat[:-1] if m["role"] in ("user", "assistant")],
+                _texto
+            )
+
+        _nuevo_msg_ia = {"role": "assistant", "content": _resp}
+        if _datos_ext and _datos_ext.get("categoria"):
+            _nuevo_msg_ia["datos_proyecto"] = _datos_ext
+
+        st.session_state.chat.append(_nuevo_msg_ia)
+        st.session_state.chat_input_key += 1
+        st.rerun()
+
+
 
 elif pagina == "Configuracion":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Perfil de la Empresa y Preferencias</h2>", unsafe_allow_html=True)
