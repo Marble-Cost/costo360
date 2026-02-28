@@ -192,10 +192,10 @@ MATERIALES_CATALOGO = [
 TOUR_PASOS = [
     {
         "id":       "bienvenida",
-        "etiqueta": "BIENVENIDOS",
-        "icono":    "🏛️",
-        "titulo":   "Bienvenidos al Sistema de Cotización",
-        "cuerpo":   "Esta herramienta es de uso exclusivo de MARMOLES COLLANTE & CASTRO LTDA. y te ayuda a calcular el costo real de cualquier proyecto en piedra natural o sinterizado, y a generar cotizaciones y cuentas de cobro profesionales en segundos.\n\nEl recorrido guiado toma menos de 3 minutos y cubre todo lo que necesitas saber.",
+        "etiqueta": "MARMOLES COLLANTE & CASTRO",
+        "icono":    "⚡",
+        "titulo":   "Sistema de Cotización Profesional",
+        "cuerpo":   "Bienvenidos. Esta herramienta es de uso exclusivo de MARMOLES COLLANTE & CASTRO LTDA. y te ayuda a calcular el costo real de cualquier proyecto en piedra natural o sinterizado, y a generar cotizaciones y cuentas de cobro profesionales en segundos.\n\nEl recorrido guiado toma menos de 3 minutos y cubre todo lo que necesitas saber.",
         "pagina":   None,
     },
     {
