@@ -1343,20 +1343,9 @@ elif pagina == "Parametros":
     with t_tar:
         st.caption("Costos de mano de obra e insumos por material. Modifica cada campo y presiona **Guardar Tarifas**.")
         tar_act = get_tarifas()
-        # Sincronizar session_state de los widgets con los valores guardados
-        # Esto garantiza que los campos muestren siempre el último valor guardado
-        for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-            _ts = tar_act.get(_sm, {})
-            _sync_map = {
-                f"tar_pml_{_sm}": int(_ts.get("prod_ml",       60_000)),
-                f"tar_zoc_{_sm}": int(_ts.get("zocalo",        12_000)),
-                f"tar_dis_{_sm}": int(_ts.get("disco",          2_200)),
-                f"tar_maq_{_sm}": int(_ts.get("maquina",       20_000)),
-                f"tar_con_{_sm}": int(_ts.get("consumibles",   10_000)),
-                f"tar_rie_{_sm}": float(_ts.get("riesgo_rotura", 0.02)),
-            }
-            for _wk, _wv in _sync_map.items():
-                st.session_state[_wk] = _wv
+        # NOTA: No sincronizamos session_state directamente aquí porque eso
+        # sobreescribiría los valores que el usuario acaba de editar antes de guardar.
+        # Streamlit inicializa el widget con value= solo la primera vez que aparece el key.
         tar_edit = {}
 
         _MAT_ICONS = {"Mármol": "🪨", "Granito": "🟫", "Sinterizado": "⬜", "Quarztone": "🔵", "Quarzita": "🟡"}
@@ -1412,6 +1401,10 @@ elif pagina == "Parametros":
                     "riesgo_rotura": float(st.session_state.get(f"tar_rie_{_sm}", 0.02)),
                 }
             st.session_state.tarifas_custom = _saved_tar
+            # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
+            for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                for _sfx in ["pml", "zoc", "dis", "maq", "con", "rie"]:
+                    st.session_state.pop(f"tar_{_sfx}_{_sm}", None)
             st.toast("✅ Tarifas guardadas correctamente", icon="💾")
             st.rerun()
         if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
@@ -1427,17 +1420,8 @@ elif pagina == "Parametros":
     with t_via:
         st.caption("Costos de desplazamiento para proyectos fuera de Barranquilla. Modifica y presiona **Guardar Viáticos**.")
         via_act = get_viaticos()
-        # Sincronizar session_state de widgets con valores guardados
-        def _vd_get(dest, campo, default):
-            v = via_act.get(dest, {})
-            if isinstance(v, dict): return v.get(campo, default)
-            return default
-        st.session_state["via_pueblo_hosp"] = int(_vd_get("pueblo", "hospedaje", 60_000))
-        st.session_state["via_pueblo_alim"] = int(_vd_get("pueblo", "alimentacion", 65_000))
-        st.session_state["via_pueblo_tran"] = int(_vd_get("pueblo", "transporte_local", 20_000))
-        st.session_state["via_ciudad_hosp"] = int(_vd_get("ciudad", "hospedaje", 90_000))
-        st.session_state["via_ciudad_alim"] = int(_vd_get("ciudad", "alimentacion", 68_000))
-        st.session_state["via_ciudad_tran"] = int(_vd_get("ciudad", "transporte_local", 20_000))
+        # NOTA: No sincronizamos session_state directamente aquí.
+        # Streamlit inicializa el widget con value= solo la primera vez que aparece el key.
 
         def _normalizar_via(key):
             v = via_act.get(key, {})
@@ -1489,6 +1473,10 @@ elif pagina == "Parametros":
                     "transporte_local": int(st.session_state.get("via_ciudad_tran", 20_000)),
                 },
             }
+            # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
+            for _vk in ["via_pueblo_hosp", "via_pueblo_alim", "via_pueblo_tran",
+                        "via_ciudad_hosp", "via_ciudad_alim", "via_ciudad_tran"]:
+                st.session_state.pop(_vk, None)
             st.toast("✅ Viáticos guardados correctamente", icon="💾")
             st.rerun()
         if _col_reset_via.button("↺ Restaurar", key="btn_reset_via", use_container_width=True,
@@ -1503,21 +1491,11 @@ elif pagina == "Parametros":
     with t_log:
         st.caption("Costos de transporte, vehículos propios, peajes y fletes. Modifica y presiona **Guardar Logística**.")
         log_act = get_logistica()
-        # Sincronizar session_state de widgets con valores guardados
+        # NOTA: No sincronizamos session_state directamente aquí.
+        # Streamlit inicializa el widget con value= solo la primera vez que aparece el key.
         _lvc  = log_act.get("frontier", {})
         _lvc2 = log_act.get("cheyenne", {})
         _lve  = log_act.get("externo",  {})
-        st.session_state["log_gas"]     = int(log_act.get("gasolina", 16_000))
-        st.session_state["log_pea"]     = int(log_act.get("peaje",    19_500))
-        st.session_state["log_her"]     = int(log_act.get("herram",    4_500))
-        st.session_state["log_age"]     = int(log_act.get("agente",   85_000))
-        st.session_state["log_fr_rend"] = float(_lvc.get("rend",       7.2))
-        st.session_state["log_fr_desg"] = int(_lvc.get("desgaste",    148))
-        st.session_state["log_fr_base"] = int(_lvc.get("base",      65_000))
-        st.session_state["log_ch_rend"] = float(_lvc2.get("rend",      4.1))
-        st.session_state["log_ch_desg"] = int(_lvc2.get("desgaste",   340))
-        st.session_state["log_ch_base"] = int(_lvc2.get("base",     85_000))
-        st.session_state["log_ext_flete"] = int(_lve.get("flete", 165_000)) if isinstance(_lve, dict) else int(_lve)
 
         with st.container(border=True):
             st.markdown("**⛽ Insumos generales**")
@@ -1621,6 +1599,11 @@ elif pagina == "Parametros":
                     "flete": int(st.session_state.get("log_ext_flete", 165_000)),
                 },
             }
+            # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
+            for _lk in ["log_gas", "log_pea", "log_her", "log_age",
+                        "log_fr_rend", "log_fr_desg", "log_fr_base",
+                        "log_ch_rend", "log_ch_desg", "log_ch_base", "log_ext_flete"]:
+                st.session_state.pop(_lk, None)
             st.toast("✅ Logística guardada correctamente", icon="💾")
             st.rerun()
         if _col_reset_log.button("↺ Restaurar", key="btn_reset_log", use_container_width=True,
