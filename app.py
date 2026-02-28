@@ -641,8 +641,8 @@ elif pagina == "Cotizacion Directa":
                   <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{fmt_ml(_ml_total)}</div>
                   <div style="font-size:0.85rem;opacity:0.7;margin-top:2px">{fmt_m2(m2_real)} de material</div>
                 </div>''', unsafe_allow_html=True)
-        extra_corte = st.number_input("m² adicionales cortados no aprovechados (desperdicios manuales)", min_value=0.0, value=0.0, step=0.05)
-        m2_cortados_total += extra_corte
+        # Desperdicio: gestionado en la sección de Gestión de Desperdicio más abajo
+        # (extra_corte se suma a m2_cortados_total en la sección de Gestión de Desperdicio)
 
     else:
         c1, c2 = st.columns(2)
@@ -696,20 +696,181 @@ elif pagina == "Cotizacion Directa":
     if zocalo_activo:
         zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5)
 
-    # ── Gestión de Desperdicio Inteligente ──────────────────────────────────
-    st.markdown("**Gestión de Desperdicio (Retal)**")
-    desperdicio_sugerido = round(m2_real * 0.15, 2)
-    col_d1, col_d2 = st.columns([1, 1])
-    with col_d1:
-        extra_corte = st.number_input(
-            "m² adicionales por cortes/desperdicio",
-            min_value=0.0,
-            value=float(pre.get("extra_corte", desperdicio_sugerido)),
-            step=0.05,
-            help="Históricamente se pierde un 15% a 20% del material en cortes y empates."
+    # ── GESTIÓN DE DESPERDICIO — SECCIÓN INNOVADORA ────────────────────────
+    # Reemplaza el campo críptico "m² adicionales cortados no aprovechados"
+    # por una experiencia educativa, visual e interactiva.
+    #
+    # CONCEPTO: El usuario elige el perfil de su corte (simple/complejo),
+    # la app calcula el desperdicio técnico sugerido Y muestra en tiempo real
+    # cómo impacta en el costo. El botón de ayuda explica TODO con imágenes.
+
+    desperdicio_sugerido_15 = round(m2_real * 0.15, 2)
+    desperdicio_sugerido_20 = round(m2_real * 0.20, 2)
+    desperdicio_sugerido_10 = round(m2_real * 0.10, 2)
+
+    # Título de sección con badge explicativo
+    st.markdown("""
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+      <span style="font-weight:700;font-size:1rem">Desperdicio de material en cortes</span>
+      <span style="background:#1B5FA8;color:white;font-size:0.65rem;font-weight:700;
+                   padding:3px 8px;border-radius:20px;letter-spacing:0.05em">RETAL</span>
+    </div>
+    <p style="font-size:0.82rem;opacity:0.65;margin:0 0 10px">
+      Toda instalación genera retales — piezas que se cortan y no se usan.
+      Este valor afecta directamente el costo del disco y el consumo de insumos.
+    </p>
+    """, unsafe_allow_html=True)
+
+    # ── Widget educativo principal ───────────────────────────────────────────
+    with st.container(border=True):
+
+        # Selector visual de perfil de corte
+        st.markdown("""
+        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
+                    letter-spacing:0.08em;opacity:0.6;margin-bottom:8px">
+          1. ¿Qué tan complejo es el corte de este proyecto?
+        </div>""", unsafe_allow_html=True)
+
+        perfil_opciones = {
+            "🟢 Simple — cortes rectos, sin curvas":        ("simple",   0.10),
+            "🟡 Normal — algunos ángulos o esquinas":        ("normal",   0.15),
+            "🔴 Complejo — curvas, biselados, figuras":      ("complejo", 0.22),
+            "✏️ Personalizado — quiero ingresar el valor":   ("custom",   None),
+        }
+        perfil_key = f"perfil_desperdicio_{st.session_state.get('_piezas_hash', 0)}"
+        perfil_sel = st.radio(
+            "Perfil de corte",
+            list(perfil_opciones.keys()),
+            index=1,  # Normal por defecto
+            horizontal=False,
+            key="perfil_desperdicio_radio",
+            label_visibility="collapsed"
         )
-    with col_d2:
-        st.info(f"💡 Sugerido técnico (15%): **{fmt_m2(desperdicio_sugerido, 2)}**", icon="📊")
+
+        perfil_id, pct_auto = perfil_opciones[perfil_sel]
+        pct_auto = pct_auto or 0.15
+
+        # Mostrar el valor resultante (o input si es custom)
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        col_val, col_imp = st.columns([1.2, 1])
+
+        with col_val:
+            st.markdown("""
+            <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
+                        letter-spacing:0.08em;opacity:0.6;margin-bottom:6px">
+              2. Metros cuadrados de retal estimados
+            </div>""", unsafe_allow_html=True)
+
+            if perfil_id == "custom":
+                extra_corte = st.number_input(
+                    "m² de retal (ingresa tu valor)",
+                    min_value=0.0,
+                    max_value=float(area_placa) if area_placa > 0 else 50.0,
+                    value=float(pre.get("extra_corte", round(m2_real * 0.15, 2))),
+                    step=0.05,
+                    format="%.2f",
+                    label_visibility="collapsed",
+                    help="Ingresa los metros cuadrados exactos que esperas perder en cortes."
+                )
+                pct_real = (extra_corte / m2_real * 100) if m2_real > 0 else 0
+                st.caption(f"Equivale al **{pct_real:.1f}%** del proyecto")
+            else:
+                extra_corte = round(m2_real * pct_auto, 2)
+                pct_real = pct_auto * 100
+                # Mostrar el valor calculado en un badge visual, NO editable
+                color_pct = "#16a34a" if pct_auto <= 0.12 else "#d97706" if pct_auto <= 0.17 else "#dc2626"
+                st.markdown(f"""
+                <div style="background:var(--secondary-background-color);
+                            border:2px solid {color_pct};border-radius:8px;
+                            padding:10px 14px;display:inline-flex;align-items:baseline;gap:8px">
+                  <span style="font-size:1.8rem;font-weight:900;color:{color_pct}">{fmt_m2(extra_corte)}</span>
+                  <span style="font-size:0.8rem;color:{color_pct};font-weight:700">({pct_real:.0f}%)</span>
+                </div>
+                """, unsafe_allow_html=True)
+                st.caption(f"Calculado automáticamente como el {pct_real:.0f}% de {fmt_m2(m2_real)}")
+
+        with col_imp:
+            # Impacto en costos en tiempo real
+            st.markdown("""
+            <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
+                        letter-spacing:0.08em;opacity:0.6;margin-bottom:6px">
+              Impacto en el costo del disco
+            </div>""", unsafe_allow_html=True)
+
+            _tar_actual = get_tarifas().get(cat_sel, TARIFAS.get(cat_sel, TARIFAS["Mármol"]))
+            _costo_disco_retal = extra_corte * _tar_actual.get("disco", 2_200)
+            _costo_disco_base  = m2_real     * _tar_actual.get("disco", 2_200)
+            _total_disco       = _costo_disco_base + _costo_disco_retal
+
+            st.markdown(f"""
+            <div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                        border-radius:8px;padding:10px 14px;font-size:0.82rem">
+              <div style="display:flex;justify-content:space-between;padding:3px 0;
+                          border-bottom:1px solid var(--border-color)">
+                <span style="opacity:0.7">Proyecto ({fmt_m2(m2_real)})</span>
+                <span style="font-weight:600">{numero_completo(_costo_disco_base)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:3px 0;
+                          border-bottom:1px solid var(--border-color)">
+                <span style="opacity:0.7">Retal ({fmt_m2(extra_corte)})</span>
+                <span style="font-weight:600;color:#d97706">+{numero_completo(_costo_disco_retal)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;padding:4px 0 0">
+                <span style="font-weight:700">Total disco</span>
+                <span style="font-weight:800;color:#1B5FA8">{numero_completo(_total_disco)}</span>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ── Ayuda expandible — EL CORAZÓN DE LA INNOVACIÓN ──────────────────
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        with st.expander("❓ ¿Qué es el retal y por qué me afecta económicamente?", expanded=False):
+            st.markdown("""
+<div style="font-size:0.88rem;line-height:1.7">
+
+### 🪨 Qué es el retal
+Cuando cortas una placa de mármol para hacer un mesón, **nunca usas el 100% de la placa**.
+Los recortes que quedan y no se pueden reutilizar se llaman **retal** (o desperdicio de corte).
+
+---
+
+### 📐 Ejemplo visual
+
+Imagina que compraste una placa de **5,94 m²** para un mesón de **3 ml × 0,60 m = 1,80 m²**:
+
+| | m² |
+|---|---|
+| Material comprado | 5,94 m² |
+| Mesón instalado | 1,80 m² |
+| **Retal sobrante** | **4,14 m²** |
+
+Ese retal ya fue pagado, ya fue cortado con el disco, y ya consumió insumos.
+Por eso **el costo del disco se aplica TAMBIÉN sobre el retal**, no solo sobre el proyecto.
+
+---
+
+### 🔴 Por qué es importante
+El campo de "retal estimado" le dice a la app cuántos m² **adicionales** cortaste
+**más allá de las piezas del proyecto** — por ejemplo, al ajustar un borde o corregir un empate.
+
+| Perfil | % típico | Cuándo aplica |
+|---|---|---|
+| 🟢 Simple | ~10% | Mesones rectos, sin curvas ni empates |
+| 🟡 Normal | ~15% | Instalación estándar con 2–3 esquinas |
+| 🔴 Complejo | ~22% | Figuras curvas, biselados, escaleras con curvas |
+
+---
+
+### 💡 Consejo práctico
+Si ya terminaste la instalación y sabes exactamente cuánto retal quedó,
+usa **"✏️ Personalizado"** e ingresa el valor real. Eso da el costo más preciso.
+
+Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proyecto.
+
+</div>
+            """, unsafe_allow_html=True)
+
     m2_cortados_total += extra_corte
 
     st.markdown("---")
