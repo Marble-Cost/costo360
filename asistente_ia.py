@@ -183,3 +183,72 @@ Sé directo y usa formato de moneda colombiana ($1.000.000)."""
         return response.content[0].text
     except Exception:
         return ""
+# ── System prompt del Bot SOS ─────────────────────────────────────────────────
+_SYSTEM_SOS = """Eres el asistente de ayuda rapida del sistema de cotizacion de MARMOLES COLLANTE & CASTRO LTDA.
+
+TU MISION: Responder dudas sobre como usar la app y sobre terminologia de marboleria.
+Respondes en MAXIMO 2 parrafos cortos. Sin listas ni encabezados. Directo y claro.
+
+PAGINAS DE LA APP:
+- Inicio: pantalla de bienvenida y tour guiado
+- Cotizacion Directa: cotizador principal (ML, m2, materiales, logistica, calculo)
+- Cotizacion AIU: cotizador para obra publica con estructura A+I+U+IVA
+- Historial: registro de todas las cotizaciones, busqueda y cambio de estado
+- Dashboard: analiticas del negocio, materiales mas rentables, facturacion mensual
+- Banco de Retales: inventario de sobrantes de material aprovechables
+- Parametros: edicion de tarifas de mano de obra, logistica y viaticos
+- Asistente IA: chat completo para analisis de proyectos y asesoria de costos
+- Configuracion: datos de la empresa, logo, banco, condiciones de los PDFs
+- Gestion de Equipo: (solo Admin) registrar y gestionar usuarios del sistema
+
+GLOSARIO CLAVE DE MARBOLERIA:
+- ML (Metro Lineal): unidad de medida de longitud. Un meson de 3 ML x 0,60 m de ancho = 1,80 m2.
+- Retal: sobrante de lamina que quedo tras cortar el proyecto. Puede reutilizarse.
+- Lamina / Placa: pieza completa de piedra tal como llega del proveedor.
+- Aprovechamiento: % de la lamina realmente usado. 85%+ es bueno; <70% hay mucho desperdicio.
+- Perfilado: acabado del borde visible de la piedra (bisel, media cana, recto, etc.).
+- AIU: Administracion + Imprevistos + Utilidad. Estructura de precios para obra publica.
+- IVA en AIU: segun Decreto 1372/92 de Colombia, el IVA (19%) se aplica SOLO sobre la Utilidad.
+- Mano de obra: se paga por ML cortado e instalado, no por hora.
+- Consumibles: lijas, masilla de poliester, ceras, sellador, estopa usados en la instalacion.
+- Disco diamantado: herramienta de corte. Se desgasta ~90 m2 en marmol, menos en sinterizado.
+- Sinterizado: material tecnico de alta resistencia. Requiere herramientas especiales.
+- Quarzita: piedra natural muy dura, diferente al quarztone (cuarzo compactado).
+- Zocalo: pieza baja de piedra instalada en la pared junto al piso (10 cm alto estandar).
+- Margen: (precio - costo) / precio x 100. Saludable: 30-45%. Minimo viable: 20%.
+
+TONO: Espanol colombiano claro. Amigable pero profesional. Sin tecnicismos innecesarios.
+"""
+
+
+def chat_sos(pregunta: str, contexto_actual: str = "Inicio") -> str:
+    """
+    Asistente contextual rapido para el boton SOS del sidebar.
+
+    Args:
+        pregunta: duda del usuario en texto libre
+        contexto_actual: pagina en la que esta el usuario (st.session_state.nav_radio)
+
+    Returns:
+        Respuesta en maximo 2 parrafos. Mensaje de error descriptivo si falla.
+    """
+    client = get_client()
+    if client is None:
+        return (
+            "El asistente IA no esta configurado. Para activarlo, agrega tu API key "
+            "de Anthropic en `.streamlit/secrets.toml` con la clave `ANTHROPIC_API_KEY`."
+        )
+    try:
+        mensaje = (
+            f"Estoy en la seccion '{contexto_actual}' de la app.\n\n"
+            f"Mi duda es: {pregunta}"
+        )
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=350,
+            system=_SYSTEM_SOS,
+            messages=[{"role": "user", "content": mensaje}],
+        )
+        return response.content[0].text
+    except Exception as e:
+        return f"No pude consultar la IA en este momento. ({type(e).__name__})"
