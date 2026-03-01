@@ -742,8 +742,12 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     story.append(tbl_cd)
     story.append(Spacer(1, 7))
 
-    # ③ ESTRUCTURA AIU
-    story += _seccion_header("Estructura AIU — Desglose del Precio (IVA sobre Utilidad)", E)
+    # ③ ESTRUCTURA AIU — Resumen Financiero Profesionalizado
+    # Arquitectura de 3 bloques Platypus:
+    #   BLOQUE 1: CD destacado (fondo azul claro, borde izquierdo corporativo)
+    #   BLOQUE 2: A / I / U + IVA (fondo gris sutil, borde izquierdo dorado)
+    #   BLOQUE 3: Logística / Viáticos + Anticipo + TOTAL (fondo #1A252C)
+    story += _seccion_header("Estructura AIU — Desglose del Precio del Contrato", E)
 
     pct_a = r.get("pct_a", 2.0); pct_i = r.get("pct_i", 2.0); pct_u = r.get("pct_u", 5.0)
     val_a = r.get("val_a", cd * pct_a / 100); val_i = r.get("val_i", cd * pct_i / 100)
@@ -752,52 +756,141 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     precio_total = r.get("precio_total", cd + val_a + val_i + val_u + val_iva + logistica + viaticos)
     anticipo_val = precio_total * (anticipo_pct / 100)
 
-    ac  = ParagraphStyle("ac",  fontSize=7.5, fontName="Helvetica",      leading=10, textColor=C["text"])
-    acp = ParagraphStyle("acp", fontSize=7.5, fontName="Helvetica",      leading=10, textColor=C["secondary"], alignment=TA_CENTER)
-    acc = ParagraphStyle("acc", fontSize=7.5, fontName="Helvetica",      leading=10, textColor=C["gray"],      alignment=TA_CENTER)
-    acv = ParagraphStyle("acv", fontSize=7.5, fontName="Helvetica-Bold", leading=10, textColor=C["text"],      alignment=TA_RIGHT)
+    # ── Estilos locales ───────────────────────────────────────────────────────
+    _CD_BG      = colors.HexColor("#E8F0FB")   # Fondo bloque CD
+    _AIU_BG     = colors.HexColor("#F4F6F9")   # Fondo bloque A/I/U
+    _TOTAL_BG   = colors.HexColor("#1A252C")   # Fondo fila TOTAL DEL CONTRATO
+    _BORDE_CD   = colors.HexColor("#1B5FA8")   # Borde izquierdo bloque CD
+    _BORDE_AIU  = colors.HexColor("#C9A84C")   # Borde izquierdo bloque AIU
 
-    filas_aiu = [
-        [Paragraph("CONCEPTO", E["th"]), Paragraph("BASE",    E["th_c"]),
-         Paragraph("%%",       E["th_c"]),Paragraph("VALOR (COP)", E["th_r"])],
-        [Paragraph("Costo Directo (CD)",   ac), Paragraph("—",  acc), Paragraph("100%%",acc),  Paragraph(_num(cd), acv)],
-        [Paragraph("A — Administracion",   ac), Paragraph("CD", acc), Paragraph(f"{pct_a:.1f}%%",acp), Paragraph(_num(val_a), acv)],
-        [Paragraph("I — Imprevistos",      ac), Paragraph("CD", acc), Paragraph(f"{pct_i:.1f}%%",acp), Paragraph(_num(val_i), acv)],
-        [Paragraph("U — Utilidad",         ac), Paragraph("CD", acc), Paragraph(f"{pct_u:.1f}%%",acp), Paragraph(_num(val_u), acv)],
-        [Paragraph("IVA 19%% (sobre Utilidad U — Decreto 1372/92)", E["iva_l"]),
-         Paragraph("U",   acc), Paragraph("19%%",acp), Paragraph(_num(val_iva), E["iva_v"])],
-    ]
-    if logistica > 0:
-        filas_aiu.append([Paragraph("Logistica y transporte", ac), Paragraph("—",acc), Paragraph("—",acc), Paragraph(_num(logistica), acv)])
-    if viaticos > 0:
-        filas_aiu.append([Paragraph("Viaticos y gastos foraneos", ac), Paragraph("—",acc), Paragraph("—",acc), Paragraph(_num(viaticos), acv)])
-    filas_aiu.append([
-        Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}%%)", E["anticipo_l"]),
-        Paragraph("Total",acc),
-        Paragraph(f"{anticipo_pct}%%", ParagraphStyle("aibp",fontSize=7.5,fontName="Helvetica-Bold",leading=10,textColor=C["accent"],alignment=TA_CENTER)),
-        Paragraph(_num(anticipo_val), E["anticipo_v"]),
-    ])
-    filas_aiu.append([
-        Paragraph("PRECIO TOTAL DEL CONTRATO", E["total_label"]),
-        Paragraph("",acc), Paragraph("",acc), Paragraph(_num(precio_total), E["total_val"]),
-    ])
-    idx_ant_aiu = len(filas_aiu) - 2
-    idx_tot_aiu = len(filas_aiu) - 1
+    s_cd_lbl  = ParagraphStyle("s_cd_lbl",  fontSize=9.5, fontName="Helvetica-Bold",
+                                leading=12, textColor=colors.HexColor("#0D2137"))
+    s_cd_val  = ParagraphStyle("s_cd_val",  fontSize=9.5, fontName="Helvetica-Bold",
+                                leading=12, textColor=colors.HexColor("#0D2137"), alignment=TA_RIGHT)
+    s_cd_sub  = ParagraphStyle("s_cd_sub",  fontSize=7,   fontName="Helvetica",
+                                leading=9,  textColor=C["gray"])
 
-    tbl_aiu = Table(filas_aiu, colWidths=[9.5*cm, 1.8*cm, 1.7*cm, 4*cm])
-    tbl_aiu.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0), (-1,0), C["header_dark"]),
-        ("ROWBACKGROUNDS",(0,1), (-1,idx_ant_aiu-1), [C["zebra_a"], C["zebra_b"]]),
-        ("BACKGROUND",    (0,idx_ant_aiu), (-1,idx_ant_aiu), C["anticipo_bg"]),
-        ("BACKGROUND",    (0,idx_tot_aiu), (-1,idx_tot_aiu), C["total_bg"]),
-        ("LINEABOVE",     (0,idx_tot_aiu), (-1,idx_tot_aiu), 2.5, C["accent"]),
-        ("TOPPADDING",    (0,0),(-1,-1), 5), ("BOTTOMPADDING",(0,0),(-1,-1),5),
-        ("LEFTPADDING",   (0,0),(-1,-1), 8), ("RIGHTPADDING", (0,0),(-1,-1),8),
+    s_aiu_lbl = ParagraphStyle("s_aiu_lbl", fontSize=8,   fontName="Helvetica",
+                                leading=10, textColor=C["text"])
+    s_aiu_pct = ParagraphStyle("s_aiu_pct", fontSize=8,   fontName="Helvetica-Bold",
+                                leading=10, textColor=C["secondary"], alignment=TA_CENTER)
+    s_aiu_val = ParagraphStyle("s_aiu_val", fontSize=8,   fontName="Helvetica-Bold",
+                                leading=10, textColor=C["text"], alignment=TA_RIGHT)
+    s_iva_lbl = ParagraphStyle("s_iva_lbl", fontSize=7.5, fontName="Helvetica-Oblique",
+                                leading=10, textColor=C["secondary"])
+    s_iva_val = ParagraphStyle("s_iva_val", fontSize=7.5, fontName="Helvetica-Bold",
+                                leading=10, textColor=C["secondary"], alignment=TA_RIGHT)
+    s_tot_lbl = ParagraphStyle("s_tot_lbl", fontSize=11,  fontName="Helvetica-Bold",
+                                leading=14, textColor=C["white"])
+    s_tot_val = ParagraphStyle("s_tot_val", fontSize=12,  fontName="Helvetica-Bold",
+                                leading=15, textColor=C["accent"], alignment=TA_RIGHT)
+    s_ant_lbl = ParagraphStyle("s_ant_lbl", fontSize=8,   fontName="Helvetica-Bold",
+                                leading=10, textColor=C["accent"])
+    s_ant_val = ParagraphStyle("s_ant_val", fontSize=8,   fontName="Helvetica-Bold",
+                                leading=10, textColor=C["accent"], alignment=TA_RIGHT)
+    s_log_lbl = ParagraphStyle("s_log_lbl", fontSize=7.5, fontName="Helvetica",
+                                leading=9,  textColor=C["gray"])
+    s_log_val = ParagraphStyle("s_log_val", fontSize=7.5, fontName="Helvetica",
+                                leading=9,  textColor=C["gray"], alignment=TA_RIGHT)
+
+    COL_W = [10.5*cm, 2*cm, 4.5*cm]  # [Concepto | % | Valor]
+
+    # ── BLOQUE 1: COSTO DIRECTO (CD) ─────────────────────────────────────────
+    tbl_cd_hdr = Table([[
+        Paragraph("COSTO DIRECTO (CD)", s_cd_lbl),
+        Paragraph("100%%", s_aiu_pct),
+        Paragraph(_num(cd), s_cd_val),
+    ]], colWidths=COL_W)
+    tbl_cd_hdr.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),(-1,-1), _CD_BG),
+        ("LINEABOVE",     (0,0),(-1, 0), 1.5, _BORDE_CD),
+        ("LINEBEFORE",    (0,0),(0, -1), 3.0, _BORDE_CD),
+        ("TOPPADDING",    (0,0),(-1,-1), 9),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 9),
+        ("LEFTPADDING",   (0,0),(-1,-1), 10),
+        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
         ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
-        ("LINEBELOW",     (0,0),(-1,-2), 0.3, C["border"]),
         ("BOX",           (0,0),(-1,-1), 0.5, C["border"]),
     ]))
-    story.append(tbl_aiu)
+    story.append(tbl_cd_hdr)
+
+    # ── BLOQUE 2: COMPONENTES A / I / U + IVA ────────────────────────────────
+    filas_aiu_comp = [
+        [Paragraph(f"A — Administración  ({pct_a:.1f}%% sobre CD)", s_aiu_lbl),
+         Paragraph(f"{pct_a:.1f}%%", s_aiu_pct),
+         Paragraph(_num(val_a), s_aiu_val)],
+        [Paragraph(f"I — Imprevistos  ({pct_i:.1f}%% sobre CD)", s_aiu_lbl),
+         Paragraph(f"{pct_i:.1f}%%", s_aiu_pct),
+         Paragraph(_num(val_i), s_aiu_val)],
+        [Paragraph(f"U — Utilidad  ({pct_u:.1f}%% sobre CD)", s_aiu_lbl),
+         Paragraph(f"{pct_u:.1f}%%", s_aiu_pct),
+         Paragraph(_num(val_u), s_aiu_val)],
+        # Fila IVA — visualmente separada dentro del mismo bloque
+        [Paragraph("IVA 19%%  (Sólo sobre Utilidad — Decreto 1372/92)", s_iva_lbl),
+         Paragraph("19%%", s_iva_val),
+         Paragraph(_num(val_iva), s_iva_val)],
+    ]
+    tbl_aiu_comp = Table(filas_aiu_comp, colWidths=COL_W)
+    tbl_aiu_comp.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),(-1,-1), _AIU_BG),
+        ("LINEBEFORE",    (0,0),(0,-1),  3.0, _BORDE_AIU),
+        ("LINEABOVE",     (0,3),(-1,3),  0.8, C["border"]),   # separador antes de IVA
+        ("BACKGROUND",    (0,3),(-1,3),  colors.HexColor("#EEF3FB")),  # IVA con tinte azul
+        ("TOPPADDING",    (0,0),(-1,-1), 6),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 6),
+        ("LEFTPADDING",   (0,0),(-1,-1), 10),
+        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
+        ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
+        ("LINEBELOW",     (0,0),(-1,-1), 0.3, C["border"]),
+        ("BOX",           (0,0),(-1,-1), 0.5, C["border"]),
+    ]))
+    story.append(tbl_aiu_comp)
+
+    # ── BLOQUE 3: Logística / Viáticos (si aplica) + Anticipo + TOTAL ─────────
+    filas_extra = []
+    if logistica > 0:
+        filas_extra.append([
+            Paragraph("Logística y transporte integrada", s_log_lbl),
+            Paragraph("—", s_log_lbl),
+            Paragraph(_num(logistica), s_log_val),
+        ])
+    if viaticos > 0:
+        filas_extra.append([
+            Paragraph("Viáticos y gastos foráneos", s_log_lbl),
+            Paragraph("—", s_log_lbl),
+            Paragraph(_num(viaticos), s_log_val),
+        ])
+    filas_extra.append([
+        Paragraph(f"ANTICIPO A PAGAR  ({anticipo_pct}%% del total)", s_ant_lbl),
+        Paragraph(f"{anticipo_pct}%%", s_ant_val),
+        Paragraph(_num(anticipo_val), s_ant_val),
+    ])
+    # Fila TOTAL — tipografía máxima + fondo corporativo oscuro #1A252C
+    filas_extra.append([
+        Paragraph("TOTAL DEL CONTRATO", s_tot_lbl),
+        Paragraph("", s_tot_lbl),
+        Paragraph(_num(precio_total), s_tot_val),
+    ])
+    idx_ant_extra = len(filas_extra) - 2
+    idx_tot_extra = len(filas_extra) - 1
+
+    tbl_extra = Table(filas_extra, colWidths=COL_W)
+    tbl_extra.setStyle(TableStyle([
+        ("ROWBACKGROUNDS",  (0,0),(-1, idx_ant_extra-1), [C["zebra_a"], C["zebra_b"]]),
+        ("BACKGROUND",      (0,idx_ant_extra),(-1,idx_ant_extra), C["anticipo_bg"]),
+        ("BACKGROUND",      (0,idx_tot_extra),(-1,idx_tot_extra), _TOTAL_BG),
+        ("LINEABOVE",       (0,idx_tot_extra),(-1,idx_tot_extra), 3.0, C["accent"]),
+        ("TOPPADDING",      (0,0),(-1,-2), 6),
+        ("BOTTOMPADDING",   (0,0),(-1,-2), 6),
+        ("TOPPADDING",      (0,idx_tot_extra),(-1,idx_tot_extra), 12),
+        ("BOTTOMPADDING",   (0,idx_tot_extra),(-1,idx_tot_extra), 12),
+        ("LEFTPADDING",     (0,0),(-1,-1), 10),
+        ("RIGHTPADDING",    (0,0),(-1,-1), 10),
+        ("VALIGN",          (0,0),(-1,-1), "MIDDLE"),
+        ("LINEBELOW",       (0,0),(-1,-2), 0.3, C["border"]),
+        ("BOX",             (0,0),(-1,-1), 0.5, C["border"]),
+    ]))
+    story.append(tbl_extra)
 
     valor_letras = _numero_a_letras(int(round(precio_total)))
     story.append(Table([[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["letras"])]],
