@@ -724,6 +724,7 @@ def _cargar_en_calculadora(rid, rnum, rjson):
     # Marcar modo edición con ID y número del registro
     st.session_state.editando_id  = rid
     st.session_state.editando_num = rnum
+    eg["_origen"] = "historial"   # Para mostrar alerta de carga en el formulario
     st.session_state.pre          = eg
 
     if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
@@ -779,12 +780,19 @@ elif pagina == "Cotizacion Directa":
     st.markdown("<p style='opacity:0.7;font-size:0.88rem;margin-bottom:20px'>Para proyectos residenciales y clientes particulares</p>", unsafe_allow_html=True)
 
     pre = st.session_state.pre
-    if pre:
+    # Mostrar alerta SOLO cuando los datos vienen de Historial o IA (no del autosave propio)
+    if pre and pre.get("_origen") in ("historial", "ia"):
         alerta("Datos cargados exitosamente (desde Historial o IA). Revisa y ajusta lo que necesites.", "bueno")
-        if st.button("Limpiar formulario"):
+        # Limpiar el marcador de origen para que no reaparezca en cada render
+        st.session_state.pre.pop("_origen", None)
+    if pre and pre.get("nombre_cliente") or pre.get("piezas") or pre.get("materiales_proyecto"):
+        if st.button("🗑️ Limpiar formulario y empezar de cero"):
             st.session_state.pre = {}
             st.session_state.piezas = []
             st.session_state.materiales_proyecto = []
+            # Limpiar también los keys de widgets para que vuelvan a defaults
+            for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
+                del st.session_state[_wk]
             st.rerun()
 
     TARIFAS_ACT = get_tarifas()
@@ -957,7 +965,7 @@ elif pagina == "Cotizacion Directa":
             st.session_state.modo_avanzado_medidas = True
             st.rerun()
     else:
-        modo_medida = st.radio("Modo de ingreso", ["Por piezas (ML × Ancho) — recomendado", "Ingresar m² directamente"], horizontal=True)
+        modo_medida = st.radio("Modo de ingreso", ["Por piezas (ML × Ancho) — recomendado", "Ingresar m² directamente"], horizontal=True, key="cdir_modo_medida")
         if st.button("Volver al modo simplificado"):
             st.session_state.modo_avanzado_medidas = False
             st.rerun()
@@ -1039,17 +1047,17 @@ elif pagina == "Cotizacion Directa":
     else:
         c1, c2 = st.columns(2)
         with c1:
-            m2_real = st.number_input("m² reales del proyecto", min_value=0.01, value=float(pre.get("m2_proyecto", 4.0)), step=0.05)
+            m2_real = st.number_input("m² reales del proyecto", min_value=0.01, value=float(pre.get("m2_proyecto", 4.0)), step=0.05, key="cdir_m2_real")
         with c2:
-            m2_cortados_input = st.number_input("m² cortados de la placa (mayor por desperdicios)", min_value=0.0, value=float(m2_real), step=0.05)
+            m2_cortados_input = st.number_input("m² cortados de la placa (mayor por desperdicios)", min_value=0.0, value=float(pre.get("m2_cortados_input", m2_real)), step=0.05, key="cdir_m2_cortados")
             m2_cortados_total = m2_cortados_input if m2_cortados_input > 0 else m2_real
 
     st.markdown("---")
     c1, c2, c3 = st.columns(3)
     with c1:
-        m2_usados = st.number_input("m² finalmente instalados", min_value=0.0, value=float(pre.get("m2_usados", m2_real)), step=0.05)
+        m2_usados = st.number_input("m² finalmente instalados", min_value=0.0, value=float(pre.get("m2_usados", m2_real)), step=0.05, key="cdir_m2_usados")
     with c2:
-        margen_pct = st.slider("Margen de utilidad (%)", min_value=5, max_value=80, value=int(pre.get("margen_pct", 40)), step=1)
+        margen_pct = st.slider("Margen de utilidad (%)", min_value=5, max_value=80, value=int(pre.get("margen_pct", 40)), step=1, key="cdir_margen")
     with c3:
         if area_placa > 0 and m2_usados > 0:
             aprv = min(100, m2_usados / area_placa * 100)
@@ -1070,23 +1078,24 @@ elif pagina == "Cotizacion Directa":
             "Tipo(s) de proyecto",
             tipo_opts,
             default=[t for t in pre_tipos if t in tipo_opts] or ["Mesón"],
-            help="Selecciona uno o varios si el proyecto combina espacios (ej: Cocina + Baño)"
+            help="Selecciona uno o varios si el proyecto combina espacios (ej: Cocina + Baño)",
+            key="cdir_tipos_proyecto"
         )
         tipo = " + ".join(tipos_sel) if tipos_sel else "Otro"
     with c2:
-        etapa = ETAPAS_OBRA[st.selectbox("Etapa de la obra", list(ETAPAS_OBRA.keys()))]
+        etapa = ETAPAS_OBRA[st.selectbox("Etapa de la obra", list(ETAPAS_OBRA.keys()), index=list(ETAPAS_OBRA.keys()).index(pre.get("etapa_label", list(ETAPAS_OBRA.keys())[0])) if pre.get("etapa_label") in ETAPAS_OBRA else 0, key="cdir_etapa")]
     with c3:
-        dias = st.number_input("Dias en obra", min_value=1, value=int(pre.get("dias_obra", 2)), step=1)
+        dias = st.number_input("Dias en obra", min_value=1, value=int(pre.get("dias_obra", 2)), step=1, key="cdir_dias")
     with c4:
-        personas = st.number_input("Num. de personas", min_value=1, value=int(pre.get("personas", 2)), step=1)
+        personas = st.number_input("Num. de personas", min_value=1, value=int(pre.get("personas", 2)), step=1, key="cdir_personas")
 
-    nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente", ""), placeholder="Ej: Juan Garcia / Constructora XYZ")
+    nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente", ""), placeholder="Ej: Juan Garcia / Constructora XYZ", key="cdir_nombre_cliente")
 
     st.markdown("**Zocalos**")
-    zocalo_activo = st.checkbox("Este proyecto lleva zocalos", value=pre.get("zocalo_activo", False))
+    zocalo_activo = st.checkbox("Este proyecto lleva zocalos", value=pre.get("zocalo_activo", False), key="cdir_zocalo_activo")
     zocalo_ml = 0.0
     if zocalo_activo:
-        zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5)
+        zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5, key="cdir_zocalo_ml")
 
     # ── GESTIÓN DE DESPERDICIO — SECCIÓN INNOVADORA ────────────────────────
     # Reemplaza el campo críptico "m² adicionales cortados no aprovechados"
@@ -1163,7 +1172,8 @@ elif pagina == "Cotizacion Directa":
                     step=0.05,
                     format="%.2f",
                     label_visibility="collapsed",
-                    help="Ingresa los metros cuadrados exactos que esperas perder en cortes."
+                    help="Ingresa los metros cuadrados exactos que esperas perder en cortes.",
+                    key="cdir_extra_corte"
                 )
                 pct_real = (extra_corte / m2_real * 100) if m2_real > 0 else 0
                 st.caption(f"Equivale al **{pct_real:.1f}%** del proyecto")
@@ -1272,38 +1282,38 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
 
     col_agt, col_veh = st.columns(2)
     with col_agt:
-        agente_ext_taller = st.checkbox("Agente externo trajo el material al taller", value=bool(pre.get("agente_externo_taller", False)))
+        agente_ext_taller = st.checkbox("Agente externo trajo el material al taller", value=bool(pre.get("agente_externo_taller", False)), key="cdir_agente_ext")
     with col_veh:
         _veh_dict = get_vehiculos_dict()
         _veh_keys = list(_veh_dict.keys())
         _v_idx = 0
         if pre.get("vehiculo_entrega") in list(_veh_dict.values()):
             _v_idx = list(_veh_dict.values()).index(pre.get("vehiculo_entrega"))
-        veh_lbl = st.selectbox("Vehiculo de entrega", _veh_keys, index=_v_idx)
+        veh_lbl = st.selectbox("Vehiculo de entrega", _veh_keys, index=_v_idx, key="cdir_vehiculo")
         vehiculo = _veh_dict[veh_lbl]
 
     c1, c2 = st.columns(2)
-    with c1: km = st.number_input("Distancia (km, un trayecto)", min_value=0.0, value=float(pre.get("km", 5.0)), step=0.5)
-    with c2: peajes = st.number_input("Num. de peajes (ida+vuelta)", min_value=0, value=int(pre.get("peajes", 0)), step=1)
+    with c1: km = st.number_input("Distancia (km, un trayecto)", min_value=0.0, value=float(pre.get("km", 5.0)), step=0.5, key="cdir_km")
+    with c2: peajes = st.number_input("Num. de peajes (ida+vuelta)", min_value=0, value=int(pre.get("peajes", 0)), step=1, key="cdir_peajes")
 
     st.markdown("---")
 
     # ── PASO 5: FORÁNEO ──────────────────────────────────────────────────────
     seccion_titulo("Paso 5 — Proyecto fuera de Barranquilla?")
-    foraneo_activo = st.checkbox("Si, proyecto en otra ciudad", value=pre.get("foraneo_activo", False))
+    foraneo_activo = st.checkbox("Si, proyecto en otra ciudad", value=pre.get("foraneo_activo", False), key="cdir_foraneo")
     viaticos_activos = False; tipo_aloj = "pueblo"; noches = 0
     if foraneo_activo:
         c1, c2, c3 = st.columns(3)
-        with c1: viaticos_activos = st.checkbox("Agregar viaticos", value=pre.get("viaticos_activos", False))
-        with c2: tipo_aloj = ALOJAMIENTO[st.selectbox("Destino", list(ALOJAMIENTO.keys()))]
-        with c3: noches = st.number_input("Noches", min_value=0, value=int(pre.get("noches", 1)))
+        with c1: viaticos_activos = st.checkbox("Agregar viaticos", value=pre.get("viaticos_activos", False), key="cdir_viaticos")
+        with c2: tipo_aloj = ALOJAMIENTO[st.selectbox("Destino", list(ALOJAMIENTO.keys()), index=list(ALOJAMIENTO.keys()).index(next((k for k,v in ALOJAMIENTO.items() if v==pre.get("tipo_aloj","pueblo")), list(ALOJAMIENTO.keys())[0])), key="cdir_tipo_aloj")]
+        with c3: noches = st.number_input("Noches", min_value=0, value=int(pre.get("noches", 1)), key="cdir_noches")
 
     st.markdown("---")
 
     # ── PASO 6: ADICIONALES ──────────────────────────────────────────────────
     seccion_titulo("Paso 6 — Costos adicionales")
     _ADICIONALES_ACT = get_adicionales()
-    adicionales_activos = st.checkbox("Agregar costos adicionales (silicona, impermeabilizante)", value=pre.get("adicionales_activos", False))
+    adicionales_activos = st.checkbox("Agregar costos adicionales (silicona, impermeabilizante)", value=pre.get("adicionales_activos", False), key="cdir_adicionales")
     cantidades_add = pre.get("cantidades_add", [0.0] * len(_ADICIONALES_ACT)) if pre.get("adicionales_activos") else [0.0] * len(_ADICIONALES_ACT)
     # Ajustar longitud si la lista cambió
     while len(cantidades_add) < len(_ADICIONALES_ACT):
@@ -1324,6 +1334,7 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
         incluir_iva = st.toggle(
             "Incluir IVA 19% en la cotización",
             value=pre.get("incluir_iva", True),
+            key="cdir_incluir_iva",
             help="Activa si tu empresa es responsable del régimen común (ventas > 3.500 UVT ≈ $166 M/año). Desactiva si eres régimen simplificado.",
         )
     with _col_iva2:
@@ -1342,6 +1353,53 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
             )
 
     st.markdown("---")
+
+    # ── AUTOSAVE: persistir estado del formulario en session_state.pre ─────────
+    # Cada vez que Streamlit re-ejecuta este bloque (al navegar a otra sección
+    # y volver, al cambiar un widget, etc.) guardamos el snapshot actual de todos
+    # los campos en st.session_state.pre. Así, cuando el usuario regresa desde
+    # Parámetros u otra sección, los widgets se inicializan con los valores que
+    # el usuario había ingresado, no con los defaults vacíos.
+    _etapa_labels = {v: k for k, v in ETAPAS_OBRA.items()}  # invertir dict
+    st.session_state.pre = {
+        # Material(es)
+        "materiales_proyecto":  st.session_state.get("materiales_proyecto", []),
+        # Paso 3 — Proyecto
+        "tipos_proyecto":       st.session_state.get("cdir_tipos_proyecto", tipos_sel) if "cdir_tipos_proyecto" in st.session_state else tipos_sel,
+        "tipo_proyecto":        tipo,
+        "etapa_label":          _etapa_labels.get(etapa, list(ETAPAS_OBRA.keys())[0]),
+        "dias_obra":            dias,
+        "personas":             personas,
+        "nombre_cliente":       nombre_cliente,
+        # Zócalos
+        "zocalo_activo":        zocalo_activo,
+        "zocalo_ml":            zocalo_ml,
+        # Desperdicio
+        "perfil_desperdicio":   perfil_sel,
+        "extra_corte":          extra_corte,
+        # m² (modo avanzado)
+        "m2_proyecto":          m2_real,
+        "m2_cortados_input":    m2_cortados_total,
+        "m2_usados":            m2_usados,
+        "margen_pct":           margen_pct,
+        # Logística
+        "agente_externo_taller": agente_ext_taller,
+        "vehiculo_entrega":     vehiculo,
+        "km":                   km,
+        "peajes":               peajes,
+        # Foráneo
+        "foraneo_activo":       foraneo_activo,
+        "viaticos_activos":     viaticos_activos,
+        "tipo_aloj":            tipo_aloj,
+        "noches":               noches,
+        # Adicionales
+        "adicionales_activos":  adicionales_activos,
+        "cantidades_add":       cantidades_add,
+        # IVA
+        "incluir_iva":          incluir_iva,
+        # Piezas (ya en session_state pero duplicar en pre para reload desde historial)
+        "piezas":               st.session_state.get("piezas", []),
+    }
 
     # ── CALCULAR / ACTUALIZAR ─────────────────────────────────────────────────
     _editando_id  = st.session_state.get("editando_id")
@@ -1556,7 +1614,7 @@ elif pagina == "Cotizacion AIU":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Cotizacion AIU</h2>", unsafe_allow_html=True)
     st.markdown("<p style='opacity:0.7;font-size:0.88rem'>Estructura formal colombiana A+I+U+IVA</p>", unsafe_allow_html=True)
 
-    nombre_cliente_aiu = st.text_input("Nombre de la Constructora o Proyecto", placeholder="Ej: Constructora ABC", value=st.session_state.pre.get("nombre_cliente", ""))
+    nombre_cliente_aiu = st.text_input("Nombre de la Constructora o Proyecto", placeholder="Ej: Constructora ABC", value=st.session_state.pre.get("nombre_cliente", ""), key="aiu_nombre_cliente")
 
     seccion_titulo("Items del contrato")
     hdr = st.columns([4, 1, 1, 2, 0.5])
@@ -1589,28 +1647,47 @@ elif pagina == "Cotizacion AIU":
     st.markdown("---")
     seccion_titulo("Porcentajes AIU y Logística")
     c1, c2, c3, c4 = st.columns(4)
-    with c1: pct_a = st.number_input("Admin (%)", value=float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])), step=0.5)
-    with c2: pct_i = st.number_input("Imprevistos (%)", value=float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])), step=0.5)
-    with c3: pct_u = st.number_input("Utilidad (%)", value=float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])), step=0.5)
+    with c1: pct_a = st.number_input("Admin (%)", value=float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])), step=0.5, key="aiu_pct_a")
+    with c2: pct_i = st.number_input("Imprevistos (%)", value=float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])), step=0.5, key="aiu_pct_i")
+    with c3: pct_u = st.number_input("Utilidad (%)", value=float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])), step=0.5, key="aiu_pct_u")
     with c4:
-        veh_aiu_lbl = st.selectbox("Vehículo", list(VEHICULOS.keys()), index=list(VEHICULOS.values()).index(st.session_state.pre.get("vehiculo_entrega", "frontier")) if st.session_state.pre.get("vehiculo_entrega", "frontier") in list(VEHICULOS.values()) else 0)
+        veh_aiu_lbl = st.selectbox("Vehículo", list(VEHICULOS.keys()), index=list(VEHICULOS.values()).index(st.session_state.pre.get("vehiculo_entrega", "frontier")) if st.session_state.pre.get("vehiculo_entrega", "frontier") in list(VEHICULOS.values()) else 0, key="aiu_vehiculo")
     
     vehiculo_aiu = VEHICULOS[veh_aiu_lbl]
     col1, col2, col3 = st.columns(3)
-    km_aiu = col1.number_input("Km (Ida)", value=float(st.session_state.pre.get("km", 10.0)))
-    peajes_aiu = col2.number_input("Peajes (Ida+vuelta)", value=int(st.session_state.pre.get("peajes", 0)))
-    agente_aiu = col3.checkbox("Agente externo trae material", value=bool(st.session_state.pre.get("agente_externo_taller", False)))
+    km_aiu = col1.number_input("Km (Ida)", value=float(st.session_state.pre.get("km", 10.0)), key="aiu_km")
+    peajes_aiu = col2.number_input("Peajes (Ida+vuelta)", value=int(st.session_state.pre.get("peajes", 0)), key="aiu_peajes")
+    agente_aiu = col3.checkbox("Agente externo trae material", value=bool(st.session_state.pre.get("agente_externo_taller", False)), key="aiu_agente")
 
     st.markdown("**Gastos Foráneos**")
-    foraneo_aiu = st.checkbox("Proyecto fuera de la ciudad", value=bool(st.session_state.pre.get("foraneo_activo", False)))
+    foraneo_aiu = st.checkbox("Proyecto fuera de la ciudad", value=bool(st.session_state.pre.get("foraneo_activo", False)), key="aiu_foraneo")
     tipo_aloj_aiu = "pueblo"
     noches_aiu = 0
     pers_aiu = 2
     if foraneo_aiu:
         ca1, ca2, ca3 = st.columns(3)
-        tipo_aloj_aiu = ALOJAMIENTO[ca1.selectbox("Destino", list(ALOJAMIENTO.keys()))]
-        noches_aiu = ca2.number_input("Noches", min_value=0, value=int(st.session_state.pre.get("noches", 1)), step=1)
-        pers_aiu = ca3.number_input("Personas", min_value=1, value=int(st.session_state.pre.get("personas", 2)), step=1)
+        tipo_aloj_aiu = ALOJAMIENTO[ca1.selectbox("Destino", list(ALOJAMIENTO.keys()), index=list(ALOJAMIENTO.keys()).index(next((k for k,v in ALOJAMIENTO.items() if v==st.session_state.pre.get("tipo_aloj","pueblo")), list(ALOJAMIENTO.keys())[0])), key="aiu_tipo_aloj")]
+        noches_aiu = ca2.number_input("Noches", min_value=0, value=int(st.session_state.pre.get("noches", 1)), step=1, key="aiu_noches")
+        pers_aiu = ca3.number_input("Personas", min_value=1, value=int(st.session_state.pre.get("personas", 2)), step=1, key="aiu_personas")
+
+    # ── AUTOSAVE AIU: persistir estado en session_state.pre ────────────────────
+    st.session_state.pre = {
+        **st.session_state.pre,   # conservar lo que ya había (ej: piezas de Directa)
+        "nombre_cliente":          nombre_cliente_aiu,
+        "pct_a":                   pct_a,
+        "pct_i":                   pct_i,
+        "pct_u":                   pct_u,
+        "vehiculo_entrega":        vehiculo_aiu,
+        "km":                      km_aiu,
+        "peajes":                  peajes_aiu,
+        "agente_externo_taller":   agente_aiu,
+        "foraneo_activo":          foraneo_aiu,
+        "tipo_aloj":               tipo_aloj_aiu,
+        "noches":                  noches_aiu,
+        "personas":                pers_aiu,
+        "aiu_items":               st.session_state.get("aiu_items", []),
+        "tipo_proyecto":           "Licitación AIU",
+    }
 
     # ── CALCULAR / ACTUALIZAR AIU ─────────────────────────────────────────────
     _editando_id_aiu  = st.session_state.get("editando_id")
@@ -3560,6 +3637,7 @@ elif pagina == "Asistente IA":
                         )
                         if st.button("Cargar en la calculadora →", key=f"cargar_{_midx}",
                                      type="primary", use_container_width=True):
+                            _d["_origen"] = "ia"
                             st.session_state.pre = _d
                             st.session_state.nav_radio = "Cotizacion Directa"
                             st.session_state.radio_ui = "Cotizacion Directa"
