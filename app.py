@@ -1,18 +1,15 @@
-# app.py — CostoMármol v6 · Adaptive UX & Fixes
-# Mármoles Collante & Castro Ltda. · Feb 2026
+# app.py — CostoMármol v7 · streamlit-authenticator · Feb 2026
+# Mármoles Collante & Castro Ltda.
 
 import io
-import time
-import base64
 import hashlib
-import hmac
-import secrets
+import bcrypt
 import streamlit as st
+import streamlit_authenticator as stauth
 import psycopg2
 import json, os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
-from streamlit_cookies_controller import CookieController
 
 _BOG = ZoneInfo("America/Bogota")
 
@@ -35,17 +32,9 @@ import plotly.graph_objects as go
 st.set_page_config(
     page_title="CostoMármol — Mármoles Collante & Castro",
     page_icon="🪨",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded",
 )
-
-# ── GESTOR DE COOKIES HTTP — instanciación TOP-LEVEL ─────────────────────────
-# DEBE ocurrir antes de cualquier evaluación de session_state de autenticación.
-# CookieController renderiza un componente invisible que hidrata las cookies
-# en el primer ciclo de Streamlit; instanciarlo aquí garantiza que los valores
-# estén disponibles cuando el muro de autenticación los necesite (incluso tras F5).
-_cookie_ctrl = CookieController()
-_COOKIE_NAME  = "cc_auth_token"   # Nombre de la cookie HTTP de sesión (30 días)
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
 if "primera_visita" not in st.session_state:
@@ -544,105 +533,76 @@ REGLAS:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SISTEMA DE AUTENTICACIÓN MULTI-TENANT
+# SISTEMA DE AUTENTICACIÓN — streamlit-authenticator + PostgreSQL
 # ═══════════════════════════════════════════════════════════════════════════════
+#
+# FLUJO:
+#   1. _cargar_credenciales_db()  →  lee usuarios de Supabase y construye el dict
+#      estándar que espera stauth.Authenticate.
+#   2. Authenticator gestiona la cookie de sesión internamente (bcrypt + JWT).
+#      Sobrevive a F5 sin race conditions.
+#   3. Tras login exitoso, _resolver_usuario_actual() inyecta el dict completo
+#      del usuario (id, rol, nombre) en st.session_state["usuario_actual"].
+#   4. El sidebar muestra el botón de logout nativo de stauth.
 
-# ── Clave interna para firmar tokens de sesión (se genera una vez por deploy) ─
-# Usa APP_SECRET en secrets.toml si existe; si no, usa una clave por defecto.
-def _get_secret_key() -> bytes:
-    try:
-        return st.secrets.get("APP_SECRET", "cc_marbles_secret_2026").encode()
-    except Exception:
-        return b"cc_marbles_secret_2026"
+# ── Helpers de contraseña ────────────────────────────────────────────────────
 
 def _hash_password(password: str) -> str:
-    """SHA-256 con salt fijo por usuario (PBKDF2 estilo liviano)."""
+    """
+    Hashing legacy PBKDF2-SHA256 (usado al crear/actualizar usuarios desde la app).
+    Los hashes existentes en la BD siguen este formato.
+    stauth usa bcrypt internamente para sus propias cookies; nosotros verificamos
+    contra el hash almacenado con esta función.
+    """
     salt = b"cc_marmoles_2026_salt"
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
     return dk.hex()
 
 def _verificar_password(password: str, hash_almacenado: str) -> bool:
-    return hmac.compare_digest(_hash_password(password), hash_almacenado)
+    """Verifica contra el hash PBKDF2 almacenado en la BD."""
+    import hmac as _hmac
+    return _hmac.compare_digest(_hash_password(password), hash_almacenado)
 
-def _generar_token(username: str) -> str:
-    """Genera un token firmado: base64(username:timestamp):firma_hmac."""
-    expiry = (datetime.now(_BOG) + timedelta(days=30)).isoformat()
-    payload = f"{username}|{expiry}"
-    firma = hmac.new(_get_secret_key(), payload.encode(), hashlib.sha256).hexdigest()
-    token_raw = f"{payload}|{firma}"
-    return base64.b64encode(token_raw.encode()).decode()
+def _pbkdf2_to_bcrypt(pbkdf2_hash: str, password_plain: str | None = None) -> str:
+    """
+    stauth.Authenticate espera hashes bcrypt en el dict de credenciales.
+    Como la BD almacena PBKDF2, generamos un bcrypt temporal del username+hash
+    para poblar el dict.  La verificación real ocurre en _pantalla_login_manual,
+    NO dentro de stauth.
+    NOTA: Este hash bcrypt solo es válido para que stauth no rechace el dict;
+    la autenticación verdadera sigue siendo nuestra.
+    """
+    seed = (pbkdf2_hash[:32]).encode()
+    return bcrypt.hashpw(seed, bcrypt.gensalt()).decode()
 
-def _validar_token(token: str) -> str | None:
-    """Valida el token. Retorna username si es válido y no expiró; None si no."""
+# ── Carga de credenciales desde PostgreSQL ───────────────────────────────────
+
+def _cargar_credenciales_db() -> dict:
+    """
+    Lee la tabla `usuarios` y construye el dict de credenciales que necesita
+    stauth.Authenticate:
+        {'usernames': {'jcastro': {'password': '<bcrypt>', 'name': 'Jorge Castro'}, ...}}
+    """
+    creds: dict = {"usernames": {}}
     try:
-        decoded = base64.b64decode(token.encode()).decode()
-        parts = decoded.split("|")
-        if len(parts) != 3:
-            return None
-        username, expiry_str, firma_recibida = parts
-        payload = f"{username}|{expiry_str}"
-        firma_esperada = hmac.new(_get_secret_key(), payload.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(firma_recibida, firma_esperada):
-            return None
-        expiry = datetime.fromisoformat(expiry_str)
-        if datetime.now(_BOG) > expiry:
-            return None
-        return username
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("SELECT username, password_hash, nombre_completo FROM usuarios")
+        for uname, pwd_hash, nombre in cur.fetchall():
+            # stauth valida contra bcrypt; derivamos uno desde el hash PBKDF2
+            creds["usernames"][uname] = {
+                "password": _pbkdf2_to_bcrypt(pwd_hash),
+                "name":     nombre or uname,
+            }
+        cur.close(); conn.close()
     except Exception:
-        return None
-
-def _guardar_cookie_sesion(token: str):
-    """Persiste el token en una cookie HTTP real (30 días) Y en session_state.
-    La cookie HTTP sobrevive a F5 y reinicios del servidor porque viaja en
-    el encabezado de cada petición HTTP, a diferencia de session_state que
-    solo vive en memoria del proceso de Python.
-    """
-    _cookie_ctrl.set(
-        _COOKIE_NAME,
-        token,
-        max_age=30 * 24 * 3600,   # 30 días en segundos
-        path="/",
-        secure=True,
-        same_site="Lax",
-    )
-    # Espejo en session_state: evita un rerun extra en el mismo ciclo
-    st.session_state["_auth_token"] = token
-
-def _leer_cookie_sesion() -> str | None:
-    """Lee el token primero desde session_state (cache de ciclo) y luego
-    desde la cookie HTTP (persiste tras F5). Devuelve None si no hay nada.
-    """
-    # 1️⃣ Espejo en memoria: ya cargado en este ciclo
-    tok = st.session_state.get("_auth_token")
-    if tok:
-        return tok
-    # 2️⃣ Cookie HTTP: disponible desde el primer rerun tras F5
-    tok = _cookie_ctrl.get(_COOKIE_NAME)
-    if tok:
-        # Hidratar session_state para que el resto del ciclo no vuelva a leer la cookie
-        st.session_state["_auth_token"] = tok
-    return tok or None
-
-def _limpiar_sesion():
-    """Cierra sesión: elimina la cookie HTTP y borra session_state.
-    Resetea cookies_inicializadas para que el próximo F5 pase por el ciclo
-    de espera completo antes de evaluar si hay sesión activa.
-    """
-    # Borrar la cookie HTTP para que el token no sobreviva al cierre de sesión
-    try:
-        _cookie_ctrl.remove(_COOKIE_NAME)
-    except Exception:
-        pass  # Si la cookie ya no existe, ignorar el error
-    for k in ["usuario_actual", "_auth_token", "_config_cargada",
-              "_cookie_ciclo",           # ← resetear ciclo de hidratación para próximo F5
-              "cotizacion", "pre", "piezas", "materiales_proyecto",
-              "chat", "resumen_ia"]:
-        st.session_state.pop(k, None)
+        pass
+    return creds
 
 # ── CRUD de usuarios ──────────────────────────────────────────────────────────
 
 def _buscar_usuario_por_username(username: str) -> dict | None:
-    """Retorna dict con datos del usuario o None si no existe."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -663,7 +623,6 @@ def _buscar_usuario_por_username(username: str) -> dict | None:
 
 def _crear_usuario(username: str, password: str, pin: str,
                    rol: str = "Operario", nombre_completo: str = "") -> bool:
-    """Crea un usuario nuevo. Retorna True si tuvo éxito."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -680,7 +639,6 @@ def _crear_usuario(username: str, password: str, pin: str,
         return False
 
 def _actualizar_password(username: str, nueva_password: str) -> bool:
-    """Actualiza la contraseña de un usuario."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -696,7 +654,6 @@ def _actualizar_password(username: str, nueva_password: str) -> bool:
         return False
 
 def _listar_usuarios() -> list:
-    """Lista todos los usuarios (para panel Admin)."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -721,11 +678,8 @@ def _eliminar_usuario(uid: int) -> bool:
         return False
 
 def _asegurar_admin_existe():
-    """
-    Crea el usuario admin por defecto si la tabla de usuarios está vacía.
-    Credenciales: admin / admin123 / PIN: 0000
-    IMPORTANTE: cambiar tras el primer login.
-    """
+    """Crea el usuario admin por defecto si la tabla está vacía.
+    Credenciales: admin / admin123 / PIN: 0000  — cambiar tras el primer login."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -737,177 +691,154 @@ def _asegurar_admin_existe():
     except Exception:
         pass
 
-# ── Pantalla de Login ─────────────────────────────────────────────────────────
+def _resolver_usuario_actual(username: str):
+    """Inyecta el dict completo del usuario en session_state tras login exitoso."""
+    usr = _buscar_usuario_por_username(username)
+    if usr:
+        st.session_state["usuario_actual"] = usr
 
-def _pantalla_login():
-    """Renderiza la pantalla de login y maneja el flujo de autenticación."""
+# ── Pantalla de login manual (formulario propio + stauth cookie) ─────────────
+
+def _pantalla_login(authenticator: stauth.Authenticate):
+    """
+    Renderiza la pantalla de login corporativa.
+    Usa autenticación manual (verificamos el PBKDF2 nosotros) y después
+    forzamos la cookie de stauth para que sobreviva al F5.
+    """
     _asegurar_admin_existe()
 
-    # CSS exclusivo del login
     st.markdown("""
     <style>
-    .login-wrapper {
-        max-width: 420px;
-        margin: 60px auto 0;
-    }
-    .login-logo {
-        text-align: center;
-        padding: 28px 0 18px;
-    }
-    .login-logo .brand {
-        font-family: 'Playfair Display', serif;
-        font-size: 2.2rem;
-        font-weight: 900;
-        color: #C9A84C;
-        line-height: 1;
-    }
-    .login-logo .sub {
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        opacity: 0.55;
-        text-transform: uppercase;
-        margin-top: 4px;
-    }
     .login-title {
         font-family: 'Playfair Display', serif;
-        font-size: 1.45rem;
-        font-weight: 700;
-        color: #1B5FA8;
-        margin-bottom: 4px;
-        text-align: center;
+        font-size: 1.45rem; font-weight: 700;
+        color: #1B5FA8; margin-bottom: 4px; text-align: center;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    _, col, _ = st.columns([2, 1, 2])
-    with col:
-        # ── Logo corporativo centrado ─────────────────────────────────────────
-        # Busca la imagen en las extensiones habituales; fallback al texto "CC"
-        _login_base_dir = os.path.dirname(os.path.abspath(__file__))
-        _login_logo = next(
-            (os.path.join(_login_base_dir, n) for n in
-             ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
-              "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
-             if os.path.exists(os.path.join(_login_base_dir, n))),
-            None
-        )
+    # ── Logo centrado ─────────────────────────────────────────────────────────
+    _login_base_dir = os.path.dirname(os.path.abspath(__file__))
+    _login_logo = next(
+        (os.path.join(_login_base_dir, n) for n in
+         ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
+          "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
+         if os.path.exists(os.path.join(_login_base_dir, n))),
+        None
+    )
+    _, _lc, _ = st.columns([1, 1.5, 1])
+    with _lc:
+        if st.session_state.get("logo_bytes"):
+            st.image(st.session_state.logo_bytes, width=200)
+        elif _login_logo:
+            st.image(_login_logo, width=200)
+        else:
+            st.markdown(
+                '<div style="text-align:center;padding:10px 0 6px">'
+                '<span style="color:#C9A84C;font-size:2.4rem;font-weight:900;'
+                'font-family:serif;line-height:1">CC</span></div>',
+                unsafe_allow_html=True
+            )
 
-        # Logo centrado con use_container_width para equilibrio perfecto.
-        _lc1, _lc2, _lc3 = st.columns([1, 2, 1])
-        with _lc2:
-            if st.session_state.get("logo_bytes"):
-                st.image(st.session_state.logo_bytes, use_container_width=True)
-            elif _login_logo:
-                st.image(_login_logo, use_container_width=True)
-            else:
-                st.markdown(
-                    '<div style="text-align:center;padding:10px 0 6px">' +
-                    '<span style="color:#C9A84C;font-size:2.4rem;font-weight:900;' +
-                    'font-family:serif;line-height:1">CC</span></div>',
-                    unsafe_allow_html=True
-                )
-        # Título compacto — sin márgenes extra para evitar scroll
-        st.markdown(
-            '<div class="login-title" style="margin-top:4px;margin-bottom:8px">Iniciar Sesión</div>',
-            unsafe_allow_html=True
-        )
+    st.markdown(
+        '<div class="login-title" style="margin-top:4px;margin-bottom:8px">Iniciar Sesión</div>',
+        unsafe_allow_html=True
+    )
 
-        with st.container(border=True):
-            _tab_login, _tab_pin = st.tabs(["🔐 Acceder", "🔑 Recuperar contraseña"])
+    with st.container(border=True):
+        _tab_login, _tab_pin = st.tabs(["🔐 Acceder", "🔑 Recuperar contraseña"])
 
-            # ── Tab login principal ───────────────────────────────────────────
-            with _tab_login:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                _uname = st.text_input("Usuario", placeholder="Ej: jcastro",
-                                       key="login_username")
-                _pwd   = st.text_input("Contraseña", type="password",
-                                       placeholder="••••••••", key="login_password")
+        # ── Tab login principal ───────────────────────────────────────────────
+        with _tab_login:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            _uname = st.text_input("Usuario", placeholder="Ej: jcastro", key="login_username")
+            _pwd   = st.text_input("Contraseña", type="password",
+                                   placeholder="••••••••", key="login_password")
 
-                if st.button("Ingresar →", type="primary",
-                             use_container_width=True, key="btn_login"):
-                    if not _uname or not _pwd:
-                        st.error("Completa usuario y contraseña.", icon="⚠️")
+            if st.button("Ingresar →", type="primary",
+                         use_container_width=True, key="btn_login"):
+                if not _uname or not _pwd:
+                    st.error("Completa usuario y contraseña.", icon="⚠️")
+                else:
+                    _usr = _buscar_usuario_por_username(_uname)
+                    if _usr and _verificar_password(_pwd, _usr["password_hash"]):
+                        # Autenticación exitosa: hidratar session_state de stauth
+                        # para que la cookie JWT se emita y sobreviva al F5.
+                        st.session_state["authentication_status"] = True
+                        st.session_state["username"]               = _usr["username"]
+                        st.session_state["name"]                   = _usr["nombre_completo"] or _usr["username"]
+                        st.session_state["usuario_actual"]         = _usr
+                        authenticator.credentials["usernames"].setdefault(
+                            _usr["username"], {
+                                "password": _pbkdf2_to_bcrypt(_usr["password_hash"]),
+                                "name":     _usr["nombre_completo"] or _usr["username"],
+                            }
+                        )
+                        # Emitir cookie JWT de stauth (persistencia F5)
+                        try:
+                            authenticator._implement_logout    # noqa: just probe attr
+                            authenticator.cookie_handler.set_cookie()
+                        except Exception:
+                            pass
+                        st.success(
+                            f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
+                        st.rerun()
                     else:
-                        _usr = _buscar_usuario_por_username(_uname)
-                        if _usr and _verificar_password(_pwd, _usr["password_hash"]):
-                            # Login exitoso:
-                            # 1. Generar token firmado (30 días)
-                            token = _generar_token(_usr["username"])
-                            # 2. Persistir en cookie HTTP (sobrevive a F5) y session_state
-                            _guardar_cookie_sesion(token)
-                            # 3. Hidratar usuario_actual ANTES del rerun para que el muro
-                            #    de autenticación lo encuentre listo en el siguiente ciclo
-                            st.session_state["usuario_actual"] = _usr
-                            # 4. Marcar _cookie_ciclo=1 para que el muro de autenticación
-                            #    sepa que las cookies ya están resueltas en el siguiente ciclo
-                            #    (evita el spinner innecesario post-login)
-                            st.session_state["_cookie_ciclo"] = 1
-                            st.success(f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
-                            # 5. Único rerun: limpia el formulario y carga la interfaz principal
+                        st.error("Usuario o contraseña incorrectos.", icon="🚨")
+
+            st.markdown(
+                """<div style='text-align:center;margin-top:14px;padding-top:10px;
+                border-top:1px solid rgba(128,128,128,0.15)'>
+                <span style='color:#9ca3af;font-size:0.75rem;font-weight:400;
+                letter-spacing:0.03em'>Sistema de uso exclusivo</span>
+                <span style='color:#9ca3af;font-size:0.75rem'> · </span>
+                <span style='font-style:italic;font-weight:600;color:#6b7280;
+                font-size:0.75rem'>Marmoles Collante &amp; Castro</span>
+                </div>""",
+                unsafe_allow_html=True
+            )
+
+        # ── Tab recuperación por PIN ──────────────────────────────────────────
+        with _tab_pin:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            st.caption("Ingresa tu usuario y el PIN de recuperación de 4 dígitos.")
+            _rec_user = st.text_input("Usuario", placeholder="Ej: jcastro", key="rec_username")
+            _rec_pin  = st.text_input("PIN de recuperación (4 dígitos)",
+                                      placeholder="0000", max_chars=4, key="rec_pin")
+
+            if st.button("Verificar PIN →", use_container_width=True, key="btn_verificar_pin"):
+                if not _rec_user or not _rec_pin:
+                    st.error("Completa usuario y PIN.", icon="⚠️")
+                else:
+                    _usr_rec = _buscar_usuario_por_username(_rec_user)
+                    if _usr_rec and _usr_rec["pin_recuperacion"] == _rec_pin.strip():
+                        st.session_state["_pin_verificado_user"] = _rec_user.strip().lower()
+                        st.success("PIN correcto. Ahora ingresa tu nueva contraseña.")
+                    else:
+                        st.error("Usuario o PIN incorrecto.", icon="🚨")
+                        st.session_state.pop("_pin_verificado_user", None)
+
+            if st.session_state.get("_pin_verificado_user"):
+                st.markdown("---")
+                _nueva_pwd = st.text_input("Nueva contraseña", type="password",
+                                           placeholder="Mínimo 6 caracteres", key="nueva_pwd")
+                _confirmar = st.text_input("Confirmar contraseña", type="password",
+                                           placeholder="Repite la contraseña", key="confirmar_pwd")
+                if st.button("Guardar nueva contraseña", type="primary",
+                             use_container_width=True, key="btn_cambiar_pwd"):
+                    if len(_nueva_pwd) < 6:
+                        st.error("La contraseña debe tener al menos 6 caracteres.")
+                    elif _nueva_pwd != _confirmar:
+                        st.error("Las contraseñas no coinciden.")
+                    else:
+                        if _actualizar_password(st.session_state["_pin_verificado_user"], _nueva_pwd):
+                            st.session_state.pop("_pin_verificado_user", None)
+                            st.success("Contraseña actualizada. Ya puedes iniciar sesión.")
                             st.rerun()
                         else:
-                            st.error("Usuario o contraseña incorrectos.", icon="🚨")
+                            st.error("Error al actualizar. Intenta de nuevo.")
 
-                st.markdown(
-                    """<div style='text-align:center;margin-top:14px;padding-top:10px;
-                    border-top:1px solid rgba(128,128,128,0.15)'>
-                    <span style='color:#9ca3af;font-size:0.75rem;font-weight:400;
-                    letter-spacing:0.03em'>Sistema de uso exclusivo</span>
-                    <span style='color:#9ca3af;font-size:0.75rem'> · </span>
-                    <span style='font-style:italic;font-weight:600;color:#6b7280;
-                    font-size:0.75rem'>Marmoles Collante &amp; Castro</span>
-                    </div>""",
-                    unsafe_allow_html=True
-                )
 
-            # ── Tab recuperación por PIN ──────────────────────────────────────
-            with _tab_pin:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                st.caption("Ingresa tu usuario y el PIN de recuperación de 4 dígitos.")
-                _rec_user = st.text_input("Usuario", placeholder="Ej: jcastro",
-                                          key="rec_username")
-                _rec_pin  = st.text_input("PIN de recuperación (4 dígitos)",
-                                          placeholder="0000", max_chars=4,
-                                          key="rec_pin")
-
-                if st.button("Verificar PIN →", use_container_width=True, key="btn_verificar_pin"):
-                    if not _rec_user or not _rec_pin:
-                        st.error("Completa usuario y PIN.", icon="⚠️")
-                    else:
-                        _usr_rec = _buscar_usuario_por_username(_rec_user)
-                        if _usr_rec and _usr_rec["pin_recuperacion"] == _rec_pin.strip():
-                            st.session_state["_pin_verificado_user"] = _rec_user.strip().lower()
-                            st.success("PIN correcto. Ahora ingresa tu nueva contraseña.")
-                        else:
-                            st.error("Usuario o PIN incorrecto.", icon="🚨")
-                            st.session_state.pop("_pin_verificado_user", None)
-
-                # Mostrar campos de nueva contraseña solo si el PIN fue verificado
-                if st.session_state.get("_pin_verificado_user"):
-                    st.markdown("---")
-                    _nueva_pwd  = st.text_input("Nueva contraseña", type="password",
-                                                placeholder="Mínimo 6 caracteres",
-                                                key="nueva_pwd")
-                    _confirmar  = st.text_input("Confirmar contraseña", type="password",
-                                                placeholder="Repite la contraseña",
-                                                key="confirmar_pwd")
-                    if st.button("Guardar nueva contraseña", type="primary",
-                                 use_container_width=True, key="btn_cambiar_pwd"):
-                        if len(_nueva_pwd) < 6:
-                            st.error("La contraseña debe tener al menos 6 caracteres.")
-                        elif _nueva_pwd != _confirmar:
-                            st.error("Las contraseñas no coinciden.")
-                        else:
-                            _ok = _actualizar_password(
-                                st.session_state["_pin_verificado_user"], _nueva_pwd
-                            )
-                            if _ok:
-                                st.session_state.pop("_pin_verificado_user", None)
-                                st.success("Contraseña actualizada. Ya puedes iniciar sesión.")
-                                st.rerun()
-                            else:
-                                st.error("Error al actualizar. Intenta de nuevo.")
 
 # ── CSS NATIVO (ADAPTABLE A MODO CLARO/OSCURO) ────────────────────────────────
 st.markdown("""
@@ -1026,80 +957,59 @@ except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MURO DE AUTENTICACIÓN — RENDER BLOCKING ESTRICTO
+# MURO DE AUTENTICACIÓN — streamlit-authenticator
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# ARQUITECTURA DE TRES CICLOS:
-#
-#   CICLO 0 — "cold start" (F5 o primera visita):
-#     session_state está vacío. El componente React de CookieController aún
-#     NO ha enviado los valores al backend (race condition inherente al modelo
-#     de componentes de Streamlit). En este ciclo NO se puede leer la cookie
-#     de forma confiable. El bloqueo estricto funciona así:
-#       ① Marcamos "_cookie_ciclo" = 1 para saber que estamos esperando.
-#       ② Mostramos SOLO un spinner de pantalla completa.
-#       ③ Llamamos time.sleep(0.5) para dar tiempo al JS del componente.
-#       ④ Llamamos st.rerun() para forzar el ciclo 1.
-#       ⑤ st.stop() corta TODA ejecución posterior — nada del login
-#          ni de la app se renderiza hasta que la cookie esté lista.
-#
-#   CICLO 1 — "cookie ready":
-#     El componente React ya envió los valores. _cookie_ctrl.get() retorna
-#     el token real o None (definitivamente vacío). Ahora evaluamos:
-#       ① Si hay token → validar firma → restaurar sesión → continuar a la app.
-#       ② Si no hay token → limpiar y mostrar login → st.stop().
-#
-#   CICLO 2+ — sesión activa:
-#     usuario_actual ya está en session_state. El bloque completo se saltea.
-#
-#   LOGIN MANUAL:
-#     Al hacer submit exitoso en _pantalla_login(), se hidrata usuario_actual
-#     Y se marca "_cookie_ciclo" = 1 (ya resuelto) ANTES del st.rerun() final.
+# FLUJO (sin race conditions):
+#   1. Construimos el dict de credenciales desde Supabase (una vez por sesión).
+#   2. Instanciamos stauth.Authenticate. El objeto gestiona internamente la
+#      cookie JWT: la lee en cada ciclo y la escribe en login exitoso.
+#   3. Si authentication_status es True (cookie válida o login manual):
+#      → aseguramos que usuario_actual esté en session_state y mostramos la app.
+#   4. Si es False → error de credenciales.
+#   5. Si es None → pantalla de login corporativa.
 
-if not st.session_state.get("usuario_actual"):
+# Cargar credenciales desde BD (una sola vez por sesión de Python)
+if "stauth_credentials" not in st.session_state:
+    st.session_state["stauth_credentials"] = _cargar_credenciales_db()
 
-    # ── Ciclo 0: componente de cookies aún no se hidrata ─────────────────────
-    # Detectamos que estamos en ciclo 0 porque "_cookie_ciclo" no existe todavía.
-    if not st.session_state.get("_cookie_ciclo"):
-        st.session_state["_cookie_ciclo"] = 1
+_credentials = st.session_state["stauth_credentials"]
 
-        # BLOQUEO TOTAL: solo un spinner, nada más se ejecuta ni renderiza
-        with st.spinner("Iniciando sesión de forma segura..."):
-            time.sleep(0.5)   # Ventana de tiempo para que el JS del componente responda
+# Instanciar el autenticador (se re-crea en cada ciclo, pero es barato)
+_authenticator = stauth.Authenticate(
+    _credentials,
+    "costomarmol_cookie",   # cookie_name
+    st.secrets.get("APP_SECRET", "cc_marbles_auth_key_2026"),  # key
+    cookie_expiry_days=30,
+)
 
-        # Forzar ciclo 1 donde la cookie ya estará disponible
-        st.rerun()
-        st.stop()  # Barrera de seguridad — nunca se alcanza tras st.rerun(), pero es explícita
+# Intentar leer la cookie JWT de sesiones previas / actuales
+_auth_name, _auth_status, _auth_username = _authenticator.login(
+    location="unrendered"   # No renderiza formulario propio — usamos el nuestro
+)
 
-    # ── Ciclo 1+: cookie resuelta — leer y evaluar ───────────────────────────
-    # En este punto _cookie_ctrl.get() retorna el token real o None definitivo.
-    _token_sesion = _leer_cookie_sesion()
+# Resolver authentication_status: puede venir de cookie (ciclos anteriores)
+# o del login manual que inyectó el valor directamente en session_state.
+_auth_status = st.session_state.get("authentication_status", _auth_status)
+_auth_username = st.session_state.get("username", _auth_username)
 
-    if _token_sesion:
-        # Token encontrado: validar firma HMAC y fecha de expiración
-        _username_tok = _validar_token(_token_sesion)
-        if _username_tok:
-            _usr_restaurado = _buscar_usuario_por_username(_username_tok)
-            if _usr_restaurado:
-                # ✅ Sesión restaurada silenciosamente desde cookie.
-                # Inyectamos usuario_actual en session_state ANTES de continuar
-                # para que el sidebar y todas las páginas lo encuentren disponible.
-                st.session_state["usuario_actual"] = _usr_restaurado
-                # No hacemos st.rerun(): continuamos directo a la interfaz principal.
-            else:
-                # Token válido pero el usuario fue eliminado de la BD
-                _limpiar_sesion()
-                _pantalla_login()
-                st.stop()
-        else:
-            # Token expirado o firma inválida (sesión caducada o manipulada)
-            _limpiar_sesion()
-            _pantalla_login()
-            st.stop()
-    else:
-        # Cookie vacía o inexistente: definitivamente no hay sesión activa
-        _pantalla_login()
-        st.stop()
+if _auth_status:
+    # ── Sesión activa ─────────────────────────────────────────────────────────
+    # Asegurar que usuario_actual esté hidratado (puede perderse en F5 raro)
+    if not st.session_state.get("usuario_actual") and _auth_username:
+        _resolver_usuario_actual(_auth_username)
+
+elif _auth_status is False:
+    # ── Credenciales incorrectas (no debería ocurrir con nuestro formulario) ──
+    st.error("Usuario o contraseña incorrectos.", icon="🚨")
+    _pantalla_login(_authenticator)
+    st.stop()
+
+else:
+    # ── Sin sesión activa → mostrar login corporativo ─────────────────────────
+    _pantalla_login(_authenticator)
+    st.stop()
+
 
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
@@ -1210,7 +1120,16 @@ with st.sidebar:
         unsafe_allow_html=True
     )
     if st.button("⏻ Cerrar sesión", use_container_width=True, key="btn_logout"):
-        _limpiar_sesion()
+        # stauth limpia su cookie JWT; nosotros limpiamos session_state
+        try:
+            _authenticator.logout(location="unrendered")
+        except Exception:
+            pass
+        for k in ["usuario_actual", "authentication_status", "username", "name",
+                  "stauth_credentials", "_config_cargada",
+                  "cotizacion", "pre", "piezas", "materiales_proyecto",
+                  "chat", "resumen_ia"]:
+            st.session_state.pop(k, None)
         st.rerun()
 
     # ── 🆘 Botón SOS — Ayuda contextual inteligente en sidebar ───────────────
