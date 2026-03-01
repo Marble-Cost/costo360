@@ -1,11 +1,17 @@
-# generador_pdf.py — CostoMármol v6
+# generador_pdf.py — CostoMármol v7 · Propuesta Comercial B2B
 # MARMOLES COLLANTE & CASTRO LTDA.
-# Correcciones v6:
-#   - Logo SIEMPRE presente en encabezado (logo corporativo integrado)
-#   - AIU: discrimina A, I, U y calcula IVA SOLO sobre Utilidad (U)
-#   - Anticipo visible en cotizaciones (no en cuentas de cobro)
-#   - Cuentas de cobro: descripción muestra % anticipo acordado
-#   - Todo en UNA sola página (márgenes ajustados, fuentes compactas)
+#
+# ARQUITECTURA v7:
+#   - Diseño Platypus modular con 4 secciones claramente delimitadas por Spacer
+#   - Paleta corporativa oscura: encabezados #1A252C con texto blanco (B2B financiero)
+#   - Zebra-striping en filas de datos (blanco / gris muy sutil #F2F5F9)
+#   - Total y bloque AIU con bordes definidos y fuente de mayor jerarquía visual
+#   - Paragraph() en TODAS las celdas → ajuste automático de texto largo (sin desborde)
+#   - Estructura:
+#       ① Encabezado (Logo + Datos cliente)
+#       ② Despiece Técnico y Elementos
+#       ③ Resumen Financiero y AIU
+#       ④ Términos y Condiciones Comerciales
 
 import io
 import os
@@ -21,24 +27,31 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from calculos import cop
 
-# ── Paleta corporativa por defecto (colores del logo CC) ─────────────────────
+# ── Paleta corporativa B2B ────────────────────────────────────────────────────
 _DEFAULT_PALETTE = {
-    "primary":    "#0D2137",   # Azul marino profundo
-    "secondary":  "#1B5FA8",   # Azul corporativo
-    "accent":     "#C9A84C",   # Dorado corporativo
-    "light":      "#D6E8FA",
-    "ultralight": "#EEF5FD",
-    "gray":       "#6B85A0",
-    "text":       "#0D2137",
-    "white":      "#FFFFFF",
+    "header_dark": "#1A252C",   # Fondo encabezados de tabla (carbón B2B)
+    "primary":     "#0D2137",   # Azul marino profundo (header doc + total row)
+    "secondary":   "#1B5FA8",   # Azul corporativo (acentos y subrayados)
+    "accent":      "#C9A84C",   # Dorado corporativo (anticipo + borde inferior header)
+    "light":       "#D6E8FA",   # Azul muy claro (fondos sutiles)
+    "ultralight":  "#F5F8FC",   # Casi blanco (badge resumen)
+    "zebra_a":     "#FFFFFF",   # Fila zebra A (blanca)
+    "zebra_b":     "#F2F5F9",   # Fila zebra B (gris muy sutil)
+    "total_bg":    "#0D2137",   # Fondo fila Total (azul profundo)
+    "anticipo_bg": "#FFF8E7",   # Fondo fila anticipo (dorado muy tenue)
+    "gray":        "#6B85A0",   # Texto secundario / etiquetas de sección
+    "text":        "#1C2B3A",   # Texto cuerpo principal
+    "white":       "#FFFFFF",
+    "terms_text":  "#4A5568",   # Texto T&C (gris oscuro legible)
+    "border":      "#C8D8E8",   # Borde de tablas
 }
 
-# Ruta al logo corporativo (junto al script)
 _LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_cc.jpeg")
 
 
-def _cargar_logo_corporativo() -> bytes | None:
-    """Carga el logo corporativo desde disco."""
+# ── Utilidades ────────────────────────────────────────────────────────────────
+
+def _cargar_logo_corporativo():
     try:
         with open(_LOGO_PATH, "rb") as f:
             return f.read()
@@ -46,8 +59,8 @@ def _cargar_logo_corporativo() -> bytes | None:
         return None
 
 
-def _extraer_paleta_logo(logo_bytes: bytes | None) -> dict:
-    """Extrae paleta dominante del logo. Usa default si falla."""
+def _extraer_paleta_logo(logo_bytes):
+    """Extrae paleta dominante del logo; usa default si falla."""
     if not logo_bytes:
         return _DEFAULT_PALETTE.copy()
     try:
@@ -63,44 +76,47 @@ def _extraer_paleta_logo(logo_bytes: bytes | None) -> dict:
         ]
         if len(filtered) < 50:
             return _DEFAULT_PALETTE.copy()
-
         def saturation(r, g, b):
             mx, mn = max(r,g,b)/255, min(r,g,b)/255
             return (mx - mn) / mx if mx > 0 else 0
-
         saturated = sorted(filtered, key=lambda p: saturation(*p), reverse=True)
         top = saturated[:max(len(saturated)//4, 1)]
         avg_r = int(sum(p[0] for p in top) / len(top))
         avg_g = int(sum(p[1] for p in top) / len(top))
         avg_b = int(sum(p[2] for p in top) / len(top))
-
-        def darken(r, g, b, f=0.45): return (int(r*f), int(g*f), int(b*f))
+        def darken(r, g, b, f=0.25): return (int(r*f), int(g*f), int(b*f))
         def lighten(r, g, b, f=0.88):
             return (min(255,int(r+(255-r)*f)), min(255,int(g+(255-g)*f)), min(255,int(b+(255-b)*f)))
         def to_hex(r, g, b): return f"#{r:02X}{g:02X}{b:02X}"
-
-        pr  = darken(avg_r, avg_g, avg_b, 0.45)
-        sec = (int(avg_r*0.7), int(avg_g*0.7), int(avg_b*0.7))
-        lt  = lighten(avg_r, avg_g, avg_b, 0.82)
-        ult = lighten(avg_r, avg_g, avg_b, 0.92)
+        pr   = darken(avg_r, avg_g, avg_b, 0.22)
+        sec  = darken(avg_r, avg_g, avg_b, 0.50)
+        lt   = lighten(avg_r, avg_g, avg_b, 0.82)
+        ult  = lighten(avg_r, avg_g, avg_b, 0.94)
         is_cool = avg_b > avg_r and avg_b > avg_g
         accent = "#C9A84C" if is_cool else to_hex(
-            min(255, int(avg_b*0.8+100)), min(255, int(avg_g*0.6+80)), min(255, int(avg_r*0.3))
-        )
-        return {
-            "primary": to_hex(*pr), "secondary": to_hex(*sec),
-            "accent": accent, "light": to_hex(*lt), "ultralight": to_hex(*ult),
-            "gray": "#6B85A0", "text": to_hex(*pr), "white": "#FFFFFF",
-        }
+            min(255, int(avg_b*0.8+100)), min(255, int(avg_g*0.6+80)), min(255, int(avg_r*0.3)))
+        pal = _DEFAULT_PALETTE.copy()
+        pal.update({
+            "header_dark": to_hex(*pr),
+            "primary":     to_hex(*pr),
+            "secondary":   to_hex(*sec),
+            "accent":      accent,
+            "light":       to_hex(*lt),
+            "ultralight":  to_hex(*ult),
+            "total_bg":    to_hex(*pr),
+            "text":        to_hex(*darken(avg_r, avg_g, avg_b, 0.16)),
+        })
+        return pal
     except Exception:
         return _DEFAULT_PALETTE.copy()
 
 
-def _colores(palette: dict):
+def _C(palette):
+    """Convierte todos los hex de la paleta a colores ReportLab."""
     return {k: colors.HexColor(v) for k, v in palette.items()}
 
 
-def _num(valor: float) -> str:
+def _num(valor):
     return f"${int(round(valor)):,}".replace(",", ".")
 
 
@@ -111,32 +127,14 @@ def _fecha_es():
     return f"{f.day} de {meses[f.month-1]} de {f.year}"
 
 
-def _fecha_hasta(dias: int) -> str:
+def _fecha_hasta(dias):
     f = date.today() + timedelta(days=dias)
     meses = ["enero","febrero","marzo","abril","mayo","junio",
              "julio","agosto","septiembre","octubre","noviembre","diciembre"]
     return f"{f.day}/{f.month}/{f.year}"
 
 
-def _estilos(P):
-    b13 = dict(leading=12)
-    b11 = dict(leading=10)
-    return {
-        "titulo":   ParagraphStyle("titulo",   **b13, fontSize=16, fontName="Helvetica-Bold",  textColor=P["white"]),
-        "subtit":   ParagraphStyle("subtit",   **b11, fontSize=7.5,fontName="Helvetica",       textColor=colors.HexColor("#B8D4F0")),
-        "empresa":  ParagraphStyle("empresa",  **b11, fontSize=7.5,fontName="Helvetica",       textColor=P["white"], alignment=TA_RIGHT),
-        "seccion":  ParagraphStyle("seccion",  **b11, fontSize=6.5,fontName="Helvetica-Bold",  textColor=P["gray"], letterSpacing=1.2),
-        "normal":   ParagraphStyle("normal",   **b13, fontSize=8,  fontName="Helvetica",       textColor=P["text"]),
-        "bold":     ParagraphStyle("bold",     **b13, fontSize=8,  fontName="Helvetica-Bold",  textColor=P["text"]),
-        "footer":   ParagraphStyle("footer",   **b11, fontSize=6.5,fontName="Helvetica",       textColor=P["gray"], alignment=TA_CENTER),
-        "aviso":    ParagraphStyle("aviso",     leading=9, fontSize=6.5, fontName="Helvetica", textColor=P["gray"]),
-        "accent_s": ParagraphStyle("accent_s", **b11, fontSize=7,  fontName="Helvetica-Bold",  textColor=P["accent"]),
-        "white_s":  ParagraphStyle("white_s",  **b11, fontSize=7.5,fontName="Helvetica",       textColor=P["white"]),
-        "price":    ParagraphStyle("price",    leading=24, fontSize=20, fontName="Helvetica-Bold", textColor=P["white"]),
-    }
-
-
-def _logo_img(logo_bytes: bytes | None, max_h: float = 1.3*cm) -> Image | None:
+def _logo_img(logo_bytes, max_h=1.4*cm):
     if not logo_bytes:
         return None
     try:
@@ -150,373 +148,495 @@ def _logo_img(logo_bytes: bytes | None, max_h: float = 1.3*cm) -> Image | None:
         return None
 
 
-def _header_bloque(E, P, doc_type, numero, fecha_str, empresa_info, logo_bytes, valido_hasta=None):
+# ── Estilos tipográficos ──────────────────────────────────────────────────────
+
+def _estilos(C):
+    """Devuelve dict de ParagraphStyle listos para usar en celdas de tabla."""
+    return {
+        "doc_empresa": ParagraphStyle("doc_empresa", fontSize=8.5, fontName="Helvetica-Bold",
+                                       leading=11, textColor=C["white"]),
+        "doc_emp_sub": ParagraphStyle("doc_emp_sub", fontSize=7, fontName="Helvetica",
+                                       leading=9, textColor=colors.HexColor("#B8D4F0")),
+        "doc_num":     ParagraphStyle("doc_num", fontSize=13, fontName="Helvetica-Bold",
+                                       leading=16, textColor=C["white"], alignment=TA_RIGHT),
+        "doc_validez": ParagraphStyle("doc_validez", fontSize=7, fontName="Helvetica-Bold",
+                                       leading=9, textColor=C["accent"], alignment=TA_RIGHT),
+        "seccion":     ParagraphStyle("seccion", fontSize=6.5, fontName="Helvetica-Bold",
+                                       leading=8, textColor=C["gray"], letterSpacing=1.4),
+        "cell":        ParagraphStyle("cell", fontSize=8, fontName="Helvetica",
+                                       leading=10, textColor=C["text"]),
+        "cell_b":      ParagraphStyle("cell_b", fontSize=8, fontName="Helvetica-Bold",
+                                       leading=10, textColor=C["text"]),
+        "cell_r":      ParagraphStyle("cell_r", fontSize=8, fontName="Helvetica",
+                                       leading=10, textColor=C["text"], alignment=TA_RIGHT),
+        "cell_br":     ParagraphStyle("cell_br", fontSize=8, fontName="Helvetica-Bold",
+                                       leading=10, textColor=C["text"], alignment=TA_RIGHT),
+        "cell_c":      ParagraphStyle("cell_c", fontSize=8, fontName="Helvetica",
+                                       leading=10, textColor=C["text"], alignment=TA_CENTER),
+        "th":          ParagraphStyle("th", fontSize=7.5, fontName="Helvetica-Bold",
+                                       leading=9, textColor=C["white"]),
+        "th_r":        ParagraphStyle("th_r", fontSize=7.5, fontName="Helvetica-Bold",
+                                       leading=9, textColor=C["white"], alignment=TA_RIGHT),
+        "th_c":        ParagraphStyle("th_c", fontSize=7.5, fontName="Helvetica-Bold",
+                                       leading=9, textColor=C["white"], alignment=TA_CENTER),
+        "total_label": ParagraphStyle("total_label", fontSize=10, fontName="Helvetica-Bold",
+                                       leading=13, textColor=C["white"]),
+        "total_val":   ParagraphStyle("total_val", fontSize=10, fontName="Helvetica-Bold",
+                                       leading=13, textColor=C["white"], alignment=TA_RIGHT),
+        "subtotal_l":  ParagraphStyle("subtotal_l", fontSize=8.5, fontName="Helvetica-Bold",
+                                       leading=11, textColor=C["text"]),
+        "subtotal_v":  ParagraphStyle("subtotal_v", fontSize=8.5, fontName="Helvetica-Bold",
+                                       leading=11, textColor=C["text"], alignment=TA_RIGHT),
+        "anticipo_l":  ParagraphStyle("anticipo_l", fontSize=8.5, fontName="Helvetica-Bold",
+                                       leading=11, textColor=C["accent"]),
+        "anticipo_v":  ParagraphStyle("anticipo_v", fontSize=8.5, fontName="Helvetica-Bold",
+                                       leading=11, textColor=C["accent"], alignment=TA_RIGHT),
+        "iva_l":       ParagraphStyle("iva_l", fontSize=8, fontName="Helvetica-Oblique",
+                                       leading=10, textColor=C["secondary"]),
+        "iva_v":       ParagraphStyle("iva_v", fontSize=8, fontName="Helvetica-Oblique",
+                                       leading=10, textColor=C["secondary"], alignment=TA_RIGHT),
+        "letras":      ParagraphStyle("letras", fontSize=7.5, fontName="Helvetica-Bold",
+                                       leading=10, textColor=C["white"]),
+        "footer":      ParagraphStyle("footer", fontSize=6.5, fontName="Helvetica",
+                                       leading=8, textColor=C["gray"], alignment=TA_CENTER),
+        "aviso":       ParagraphStyle("aviso", fontSize=6.5, fontName="Helvetica",
+                                       leading=9, textColor=C["text"]),
+        "terms_title": ParagraphStyle("terms_title", fontSize=7, fontName="Helvetica-Bold",
+                                       leading=9, textColor=C["terms_text"]),
+        "terms_body":  ParagraphStyle("terms_body", fontSize=6.5, fontName="Helvetica",
+                                       leading=9, textColor=C["terms_text"]),
+        "inc_hdr":     ParagraphStyle("inc_hdr", fontSize=7, fontName="Helvetica-Bold",
+                                       leading=9, textColor=C["white"]),
+        "inc_row":     ParagraphStyle("inc_row", fontSize=6.5, fontName="Helvetica",
+                                       leading=9, textColor=C["text"]),
+        "white_s":     ParagraphStyle("white_s", fontSize=7.5, fontName="Helvetica",
+                                       leading=10, textColor=C["white"]),
+        "accent_s":    ParagraphStyle("accent_s", fontSize=7, fontName="Helvetica-Bold",
+                                       leading=9, textColor=C["accent"]),
+    }
+
+
+# ── Bloques reutilizables ─────────────────────────────────────────────────────
+
+def _seccion_header(titulo, E):
+    """[HRFlowable, Spacer, Paragraph(sección), Spacer] para separar secciones visualmente."""
+    return [
+        HRFlowable(width="100%", thickness=0.4, color=colors.HexColor("#CBD5E0")),
+        Spacer(1, 4),
+        Paragraph(titulo.upper(), E["seccion"]),
+        Spacer(1, 3),
+    ]
+
+
+def _encabezado_doc(E, C, doc_type, numero, fecha_str, empresa_info, logo_bytes, valido_hasta=None):
     """
-    Encabezado corporativo con logo SIEMPRE visible.
-    Intenta cargar el logo proporcionado; si no, usa el corporativo del disco.
+    Bloque encabezado corporativo B2B:
+    [Logo + Datos empresa | Tipo doc + Número + Fecha + Validez]
+    Fondo primary oscuro, texto blanco, borde inferior dorado.
     """
     emp = empresa_info or {}
-    nombre_emp = emp.get("nombre", "MARMOLES COLLANTE & CASTRO LTDA.")
-
-    # Garantizar logo: primero el pasado, luego el corporativo
     _lb = logo_bytes or _cargar_logo_corporativo()
-    logo_img = _logo_img(_lb, max_h=1.3*cm)
+    logo_img = _logo_img(_lb, max_h=1.4*cm)
 
-    # Columna izquierda: logo + datos empresa
-    col_izq = []
+    izq = []
     if logo_img:
-        col_izq.append(logo_img)
-        col_izq.append(Spacer(1, 3))
-    col_izq.append(Paragraph(nombre_emp,
-        ParagraphStyle("ne", leading=11, fontSize=8.5, fontName="Helvetica-Bold", textColor=P["white"])))
+        izq.append(logo_img)
+        izq.append(Spacer(1, 4))
+    izq.append(Paragraph(emp.get("nombre", "MARMOLES COLLANTE & CASTRO LTDA."), E["doc_empresa"]))
     if emp.get("nit"):
-        col_izq.append(Paragraph(emp["nit"], E["white_s"]))
+        izq.append(Paragraph(emp["nit"], E["doc_emp_sub"]))
     if emp.get("tel") and emp.get("email"):
-        col_izq.append(Paragraph(f"{emp['tel']} · {emp['email']}", E["white_s"]))
+        izq.append(Paragraph(f"{emp['tel']}  ·  {emp['email']}", E["doc_emp_sub"]))
     elif emp.get("tel"):
-        col_izq.append(Paragraph(emp["tel"], E["white_s"]))
+        izq.append(Paragraph(emp["tel"], E["doc_emp_sub"]))
     if emp.get("ciudad"):
-        col_izq.append(Paragraph(emp["ciudad"], E["white_s"]))
+        izq.append(Paragraph(emp["ciudad"], E["doc_emp_sub"]))
 
-    # Columna derecha: tipo doc + número + fecha
-    col_der = [
-        Paragraph(doc_type, E["accent_s"]),
-        Spacer(1, 3),
-        Paragraph(f"<b>{numero}</b>",
-            ParagraphStyle("num", leading=16, fontSize=12, fontName="Helvetica-Bold",
-                           textColor=P["white"], alignment=TA_RIGHT)),
+    der = [
+        Paragraph(doc_type,
+            ParagraphStyle("dt", fontSize=7.5, fontName="Helvetica-Bold",
+                           leading=9, textColor=C["accent"], alignment=TA_RIGHT)),
+        Spacer(1, 4),
+        Paragraph(f"<b>{numero}</b>", E["doc_num"]),
         Spacer(1, 3),
         Paragraph(fecha_str,
-            ParagraphStyle("fch", leading=10, fontSize=7.5, fontName="Helvetica",
-                           textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)),
+            ParagraphStyle("fch", fontSize=7.5, fontName="Helvetica",
+                           leading=9, textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)),
     ]
     if emp.get("email"):
-        col_der.append(Paragraph(emp["email"],
-            ParagraphStyle("eml", leading=9, fontSize=6.5, fontName="Helvetica",
-                           textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)))
+        der.append(Paragraph(emp["email"],
+            ParagraphStyle("em2", fontSize=6.5, fontName="Helvetica",
+                           leading=9, textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)))
     if valido_hasta:
-        col_der.append(Paragraph(f"Válida hasta: {valido_hasta}",
-            ParagraphStyle("val", leading=9, fontSize=6.5, fontName="Helvetica-Bold",
-                           textColor=P["accent"], alignment=TA_RIGHT)))
+        der.append(Spacer(1, 3))
+        der.append(Paragraph(f"Válida hasta: {valido_hasta}", E["doc_validez"]))
 
-    tbl = Table([[col_izq, col_der]], colWidths=[10*cm, 7*cm])
+    tbl = Table([[izq, der]], colWidths=[10*cm, 7*cm])
     tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0), (-1,-1), P["primary"]),
+        ("BACKGROUND",    (0,0), (-1,-1), C["primary"]),
         ("VALIGN",        (0,0), (-1,-1), "TOP"),
         ("TOPPADDING",    (0,0), (-1,-1), 12),
         ("BOTTOMPADDING", (0,0), (-1,-1), 12),
         ("LEFTPADDING",   (0,0), (0,-1),  14),
         ("RIGHTPADDING",  (-1,0),(-1,-1), 14),
+        ("LEFTPADDING",   (-1,0),(-1,-1), 8),
+        ("LINEBELOW",     (0,0), (-1,-1), 2.5, C["accent"]),
     ]))
     return tbl
 
 
-def _tabla_2col(E, P, filas_datos):
-    filas = []
+def _tabla_datos_cliente(E, C, filas_datos):
+    """Tabla 2 col (etiqueta|valor) con zebra striping y borde exterior."""
+    rows = []
     for label, valor in filas_datos:
-        filas.append([Paragraph(label, E["normal"]), Paragraph(f"<b>{valor}</b>", E["bold"])])
-    tbl = Table(filas, colWidths=[5.5*cm, 11.5*cm])
+        rows.append([Paragraph(label, E["cell"]), Paragraph(f"<b>{valor}</b>", E["cell_b"])])
+    tbl = Table(rows, colWidths=[5*cm, 12*cm])
     tbl.setStyle(TableStyle([
-        ("ROWBACKGROUNDS", (0,0), (-1,-1), [P["white"], P["ultralight"]]),
-        ("TOPPADDING",     (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING",  (0,0), (-1,-1), 4),
+        ("ROWBACKGROUNDS", (0,0), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
+        ("TOPPADDING",     (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING",  (0,0), (-1,-1), 5),
         ("LEFTPADDING",    (0,0), (-1,-1), 8),
-        ("LINEBELOW",      (0,0), (-1,-1), 0.3, P["light"]),
+        ("RIGHTPADDING",   (0,0), (-1,-1), 8),
+        ("LINEBELOW",      (0,0), (-1,-1), 0.3, C["border"]),
+        ("BOX",            (0,0), (-1,-1), 0.5, C["border"]),
     ]))
     return tbl
 
 
-def _footer(E, P, emp_nombre, fecha_str, numero=""):
+def _tabla_2col(E, C, filas_datos):
+    return _tabla_datos_cliente(E, C, filas_datos)
+
+
+def _footer_doc(E, C, emp_nombre, fecha_str, numero=""):
     linea = f"{emp_nombre}   ·   {fecha_str}   ·   Barranquilla, Colombia"
     if numero:
         linea = f"{numero}   ·   " + linea
     return [
-        HRFlowable(width="100%", thickness=0.5, color=P["light"]),
+        Spacer(1, 6),
+        HRFlowable(width="100%", thickness=0.5, color=C["border"]),
         Spacer(1, 3),
         Paragraph(linea, E["footer"]),
     ]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# COTIZACION DIRECTA — 1 PÁGINA
-# ═══════════════════════════════════════════════════════════════════════════════
-def generar_pdf_cotizacion(resultado: dict, numero: str = None,
-                            empresa_info: dict = None, logo_bytes: bytes = None,
-                            incluir_iva: bool = True) -> bytes:
+# ── Módulo: Despiece Técnico ──────────────────────────────────────────────────
+
+def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total):
+    """
+    SECCIÓN 2 — Tabla de ítems.
+    Encabezado oscuro #1A252C · Zebra striping · Paragraph en columna Descripción.
+    """
+    story = []
+    story += _seccion_header("Despiece Técnico y Elementos del Proyecto", E)
+
+    piezas = r.get("_estado_guardado", {}).get("piezas", [])
+
+    hdr = [
+        Paragraph("DESCRIPCIÓN / ÍTEM", E["th"]),
+        Paragraph("UNID.", E["th_c"]),
+        Paragraph("CANT.", E["th_c"]),
+        Paragraph("P. UNIT.",  E["th_r"]),
+        Paragraph("SUBTOTAL", E["th_r"]),
+    ]
+    filas = [hdr]
+
+    if piezas:
+        total_m2 = sum(p.get("ml",1) * p.get("ancho_custom", 0.60) for p in piezas)
+        for p in piezas:
+            m2_p   = p.get("ml",1) * p.get("ancho_custom", 0.60)
+            prop   = (m2_p / total_m2) if total_m2 > 0 else (1/len(piezas))
+            precio_p = precio_sugerido_total * prop
+            ml_p   = p.get("ml", 1)
+            pu     = precio_p / ml_p if ml_p > 0 else 0
+            filas.append([
+                Paragraph(p.get("nombre", "—"), E["cell"]),
+                Paragraph("ml",            E["cell_c"]),
+                Paragraph(f"{ml_p:.2f}",   E["cell_c"]),
+                Paragraph(_num(round(pu/1000)*1000),       E["cell_r"]),
+                Paragraph(_num(round(precio_p/1000)*1000), E["cell_br"]),
+            ])
+    else:
+        ref_txt = r.get("referencia", r.get("categoria",""))
+        filas.append([
+            Paragraph(f"{r.get('tipo_proyecto','Proyecto')} — {ref_txt}", E["cell"]),
+            Paragraph("glb", E["cell_c"]),
+            Paragraph("1",   E["cell_c"]),
+            Paragraph(_num(precio_sugerido_total), E["cell_r"]),
+            Paragraph(_num(precio_sugerido_total), E["cell_br"]),
+        ])
+
+    tbl = Table(filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
+        ("ROWBACKGROUNDS",(0,1),  (-1,-1), [C["zebra_a"], C["zebra_b"]]),
+        ("TOPPADDING",    (0,0),  (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0),  (-1,-1), 5),
+        ("LEFTPADDING",   (0,0),  (-1,-1), 7),
+        ("RIGHTPADDING",  (0,0),  (-1,-1), 7),
+        ("VALIGN",        (0,0),  (-1,-1), "TOP"),
+        ("LINEBELOW",     (0,0),  (-1,-1), 0.3, C["border"]),
+        ("BOX",           (0,0),  (-1,-1), 0.5, C["border"]),
+    ]))
+    story.append(tbl)
+    return story
+
+
+# ── Módulo: Resumen Financiero ────────────────────────────────────────────────
+
+def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, incluir_iva):
+    """
+    SECCIÓN 3 — Resumen Financiero.
+    Total con fondo oscuro (máxima jerarquía), anticipo con fondo dorado tenue.
+    Borde superior dorado en la fila Total.
+    Devuelve (story_list, precio_final_doc, anticipo_val).
+    """
+    story = []
+    story += _seccion_header("Resumen Financiero", E)
+
+    filas_fin = []
+
+    if incluir_iva:
+        iva_val          = precio_sugerido_total * 0.19
+        precio_final_doc = precio_sugerido_total + iva_val
+        anticipo_val     = precio_final_doc * (anticipo_pct / 100)
+        saldo_val        = precio_final_doc - anticipo_val
+        filas_fin = [
+            [Paragraph("Subtotal (sin IVA)",                        E["cell_b"]),
+             Paragraph(_num(precio_sugerido_total),                  E["cell_br"])],
+            [Paragraph("IVA 19% (Art. 468 E.T.)",                   E["iva_l"]),
+             Paragraph(_num(iva_val),                                E["iva_v"])],
+            [Paragraph("Subtotal con IVA incluido",                  E["subtotal_l"]),
+             Paragraph(_num(precio_final_doc),                       E["subtotal_v"])],
+            [Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]),
+             Paragraph(_num(anticipo_val),                           E["anticipo_v"])],
+            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
+                ParagraphStyle("sld",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"])),
+             Paragraph(_num(saldo_val),
+                ParagraphStyle("sldv",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT))],
+            [Paragraph("TOTAL PROPUESTA (IVA INCLUIDO)", E["total_label"]),
+             Paragraph(_num(precio_final_doc),            E["total_val"])],
+        ]
+        idx_ant = 3
+        idx_tot = 5
+    else:
+        precio_final_doc = precio_sugerido_total
+        anticipo_val     = precio_final_doc * (anticipo_pct / 100)
+        saldo_val        = precio_final_doc - anticipo_val
+        filas_fin = [
+            [Paragraph("Subtotal",                                   E["subtotal_l"]),
+             Paragraph(_num(precio_final_doc),                       E["subtotal_v"])],
+            [Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]),
+             Paragraph(_num(anticipo_val),                           E["anticipo_v"])],
+            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
+                ParagraphStyle("sld2",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"])),
+             Paragraph(_num(saldo_val),
+                ParagraphStyle("sldv2",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT))],
+            [Paragraph("TOTAL PROPUESTA (SIN IVA)", E["total_label"]),
+             Paragraph(_num(precio_final_doc),       E["total_val"])],
+        ]
+        idx_ant = 1
+        idx_tot = 3
+
+    n = len(filas_fin)
+    tbl_fin = Table(filas_fin, colWidths=[12.5*cm, 4.5*cm])
+    tbl_fin.setStyle(TableStyle([
+        ("ROWBACKGROUNDS", (0,0), (-1, idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
+        ("BACKGROUND",     (0,idx_ant), (-1,idx_ant), C["anticipo_bg"]),
+        ("BACKGROUND",     (0,idx_tot), (-1,idx_tot), C["total_bg"]),
+        ("LINEABOVE",      (0,idx_tot), (-1,idx_tot), 2.5, C["accent"]),
+        ("TOPPADDING",     (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING",  (0,0), (-1,-1), 6),
+        ("LEFTPADDING",    (0,0), (-1,-1), 10),
+        ("RIGHTPADDING",   (0,0), (-1,-1), 10),
+        ("VALIGN",         (0,0), (-1,-1), "MIDDLE"),
+        ("BOX",            (0,0), (-1,-1), 1.0, C["border"]),
+        ("LINEBELOW",      (0,0), (-1,-2), 0.3, C["border"]),
+    ]))
+    story.append(tbl_fin)
+    return story, precio_final_doc, anticipo_val
+
+
+# ── Módulo: Alcance ───────────────────────────────────────────────────────────
+
+def _seccion_alcance(E, C):
+    story = []
+    story += _seccion_header("Alcance de la Propuesta", E)
+    incluye = [
+        "Toma de rectificación de medidas finales en obra previa a producción",
+        "Transporte especializado y acarreo cuidadoso del material hasta el punto de instalación",
+        "Garantía de 12 meses sobre mano de obra de instalación",
+        "Limpieza técnica final del área de trabajo y retiro de desperdicios de material",
+        "Diseño y modelado 3D fotorrealista para previsualización de acabados pétreos",
+        "Aplicación de tratamiento protector inicial (sellador hidrófugo/oleófugo) post-instalación",
+    ]
+    no_incluye = [
+        "Conexiones finales (grifería, electrodomésticos, instalaciones hidráulicas o eléctricas)",
+        "Trabajos previos de obra civil (demoliciones, adecuación de muros, resanes o pintura)",
+        "Suministro de materiales de obra gris ajenos a la instalación del proyecto",
+        "Suministro o reparación de muebles, ebanistería o estructuras de soporte",
+    ]
+    col_inc  = [[Paragraph("INCLUYE",    E["inc_hdr"])]] + [[Paragraph(f"\u2714  {t}", E["inc_row"])] for t in incluye]
+    col_ninc = [[Paragraph("NO INCLUYE", E["inc_hdr"])]] + [[Paragraph(f"\u2716  {t}", E["inc_row"])] for t in no_incluye]
+    max_r = max(len(col_inc), len(col_ninc))
+    while len(col_inc)  < max_r: col_inc.append([""])
+    while len(col_ninc) < max_r: col_ninc.append([""])
+    rows = [[col_inc[i][0], col_ninc[i][0]] for i in range(max_r)]
+    tbl_al = Table(rows, colWidths=[8.5*cm, 8.5*cm])
+    tbl_al.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0), (-1,0),  C["header_dark"]),
+        ("ROWBACKGROUNDS",(0,1), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
+        ("TOPPADDING",    (0,0), (-1,-1), 4),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+        ("LEFTPADDING",   (0,0), (-1,-1), 8),
+        ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+        ("LINEBELOW",     (0,0), (-1,-1), 0.3, C["border"]),
+        ("VALIGN",        (0,0), (-1,-1), "TOP"),
+        ("BOX",           (0,0), (-1,-1), 0.5, C["border"]),
+    ]))
+    story.append(tbl_al)
+    return story
+
+
+# ── Módulo: Términos y Condiciones ────────────────────────────────────────────
+
+def _seccion_terminos(E, C, nota_iva, anticipo_pct):
+    """
+    SECCIÓN 4 — Términos y Condiciones Comerciales.
+    Texto en gris oscuro legible, fuente 6.5 pt, al final del documento.
+    """
+    story = []
+    story += _seccion_header("Terminos y Condiciones Comerciales", E)
+    condiciones = (
+        nota_iva +
+        "Esta propuesta abarca exclusivamente los materiales, servicios y alcances detallados "
+        "en la seccion de Inclusiones. Cualquier requerimiento adicional, modificacion de diseno "
+        "posterior a la rectificacion de medidas, o trabajo no especificado en este documento, "
+        "sera considerado un servicio extra y requerira una recotizacion y aprobacion previa. "
+        f"El inicio de la obra esta condicionado al pago del anticipo del {anticipo_pct}% del valor total. "
+        "Los precios cotizados son validos durante el periodo indicado en el encabezado. "
+        "El prestador se reserva el derecho de ajustar precios por variacion superior al 5%% "
+        "en los materiales durante el periodo de validez. Barranquilla, Colombia."
+    )
+    tbl_tc = Table(
+        [[Paragraph("CONDICIONES", E["terms_title"]),
+          Paragraph(condiciones, E["terms_body"])]],
+        colWidths=[2.8*cm, 14.2*cm]
+    )
+    tbl_tc.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#F7F9FC")),
+        ("TOPPADDING",    (0,0),(-1,-1), 7), ("BOTTOMPADDING",(0,0),(-1,-1),7),
+        ("LEFTPADDING",   (0,0),(-1,-1), 8), ("RIGHTPADDING", (0,0),(-1,-1),8),
+        ("VALIGN",        (0,0),(-1,-1), "TOP"),
+        ("LINEABOVE",     (0,0),(-1, 0), 1.0, C["secondary"]),
+        ("BOX",           (0,0),(-1,-1), 0.4, C["border"]),
+    ]))
+    story.append(tbl_tc)
+    return story
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COTIZACIÓN DIRECTA
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
+                            logo_bytes=None, incluir_iva=True):
     if numero is None:
         numero = f"COT-{date.today().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
     emp = empresa_info or {}
 
-    # Condiciones de pago
     anticipo_pct  = resultado.get("anticipo_pct", emp.get("anticipo_pct", 60))
     dias_entrega  = resultado.get("dias_entrega", emp.get("dias_entrega", 10))
     dias_validez  = resultado.get("dias_validez", emp.get("dias_validez", 30))
     valido_hasta  = _fecha_hasta(dias_validez)
 
-    # Garantizar logo
     _lb = logo_bytes or _cargar_logo_corporativo()
     palette = _extraer_paleta_logo(_lb)
-    P = _colores(palette)
-    E = _estilos(P)
+    C = _C(palette)
+    E = _estilos(C)
 
     buf = io.BytesIO()
-    # Márgenes compactos para una sola página
     doc = SimpleDocTemplate(buf, pagesize=letter,
         leftMargin=1.4*cm, rightMargin=1.4*cm,
-        topMargin=1.0*cm, bottomMargin=1.2*cm,
-        title=f"Cotizacion {numero}")
+        topMargin=1.0*cm,  bottomMargin=1.2*cm,
+        title=f"Propuesta Comercial {numero}")
 
     r = resultado
     story = []
 
-    story.append(_header_bloque(E, P, "COTIZACIÓN DE PROYECTO", numero, fecha_str, emp, _lb, valido_hasta))
-    story.append(Spacer(1, 6))
+    # ① ENCABEZADO
+    story.append(_encabezado_doc(E, C, "PROPUESTA COMERCIAL", numero, fecha_str,
+                                  emp, _lb, valido_hasta))
+    story.append(Spacer(1, 7))
+    story.append(Table([[Paragraph(
+        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Valida hasta: {valido_hasta}  ·  "
+        f"Material: {r.get('categoria','')}  ·  m² instalados: {r.get('m2_real',0):.2f}",
+        ParagraphStyle("badge",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
+    )]], colWidths=[17*cm], style=TableStyle([
+        ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
+        ("TOPPADDING",  (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("LEFTPADDING", (0,0),(-1,-1), 10),
+        ("LINEABOVE",   (0,0),(-1, 0), 0.5, C["secondary"]),
+    ])))
+    story.append(Spacer(1, 7))
 
-    # ── Tipo de cotización ───────────────────────────────────────────────────
-    _tipo_badge = "DIRECTA"
-    story.append(Table([[
-        Paragraph(f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  Tipo: {_tipo_badge}",
-            ParagraphStyle("badge", leading=9, fontSize=6.5, fontName="Helvetica", textColor=P["gray"]))
-    ]], colWidths=[17*cm],
-        style=TableStyle([
-            ("BACKGROUND", (0,0),(-1,-1), P["ultralight"]),
-            ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),
-            ("LEFTPADDING",(0,0),(-1,-1),10),
-        ])
-    ))
-    story.append(Spacer(1, 5))
-
-    # ── Datos del cliente ────────────────────────────────────────────────────
+    # Datos cliente
+    story += _seccion_header("Datos del Cliente y Condiciones", E)
     datos_filas = []
     if r.get("nombre_cliente"):
         datos_filas.append(("Para", r["nombre_cliente"]))
-    datos_filas.append(("Ciudad", emp.get("ciudad", "Barranquilla")))
-    datos_filas.append(("Proyecto", r.get("tipo_proyecto", "—")))
-    datos_filas.append(("Forma de pago",
-        f"{anticipo_pct}% anticipo — {100 - anticipo_pct}% contra entrega"))
-    datos_filas.append(("Validez / Entrega",
-        f"{dias_validez} días  ·  Entrega: {dias_entrega} días  ·  Anticipo: {anticipo_pct}%"))
+    datos_filas += [
+        ("Ciudad",        emp.get("ciudad", "Barranquilla")),
+        ("Proyecto",      r.get("tipo_proyecto","—")),
+        ("Material",      f"{r.get('categoria','')} — {r.get('referencia','')}"),
+        ("Forma de pago", f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra entrega"),
+        ("Condiciones",   f"Validez: {dias_validez} dias  ·  Entrega estimada: {dias_entrega} dias"),
+    ]
+    story.append(_tabla_datos_cliente(E, C, datos_filas))
+    story.append(Spacer(1, 7))
 
-    story.append(Paragraph("DATOS DEL CLIENTE", E["seccion"]))
-    story.append(Spacer(1, 3))
-    story.append(_tabla_2col(E, P, datos_filas))
-    story.append(Spacer(1, 6))
-
-    # ── Tabla de ítems ────────────────────────────────────────────────────────
-    piezas = r.get("_estado_guardado", {}).get("piezas", [])
+    # ② DESPIECE TÉCNICO
     precio_sugerido_total = r.get("precio_sugerido", 0)
+    story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
+    story.append(Spacer(1, 7))
 
-    story.append(Paragraph("DETALLE DE ÍTEMS Y PRECIOS", E["seccion"]))
-    story.append(Spacer(1, 3))
+    # ③ RESUMEN FINANCIERO
+    fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
+        E, C, precio_sugerido_total, anticipo_pct, incluir_iva)
+    story += fin_story
+    valor_letras = _numero_a_letras(int(round(precio_final_doc)))
+    story.append(Table([[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["letras"])]],
+        colWidths=[17*cm], style=TableStyle([
+            ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
+            ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("LEFTPADDING",  (0,0),(-1,-1), 10),
+        ])))
+    story.append(Spacer(1, 7))
 
-    hdr_s = ParagraphStyle("th", leading=9, fontSize=7, fontName="Helvetica-Bold", textColor=P["white"])
-    cel_s = ParagraphStyle("tc", leading=10, fontSize=7.5, fontName="Helvetica", textColor=P["text"])
-    cel_b = ParagraphStyle("tcb",leading=10, fontSize=7.5, fontName="Helvetica-Bold", textColor=P["text"])
-    cel_r = ParagraphStyle("tcr",leading=10, fontSize=7.5, fontName="Helvetica", textColor=P["text"], alignment=TA_RIGHT)
-    cel_br= ParagraphStyle("tcbr",leading=10,fontSize=7.5, fontName="Helvetica-Bold", textColor=P["text"], alignment=TA_RIGHT)
+    # Alcance
+    story += _seccion_alcance(E, C)
+    story.append(Spacer(1, 7))
 
-    tabla_items_filas = [[
-        Paragraph("DESCRIPCIÓN",  hdr_s),
-        Paragraph("UNID.", ParagraphStyle("thc", leading=9, fontSize=7, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_CENTER)),
-        Paragraph("CANT.", ParagraphStyle("thc2",leading=9, fontSize=7, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_CENTER)),
-        Paragraph("P. UNITARIO", ParagraphStyle("thr", leading=9, fontSize=7, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
-        Paragraph("SUBTOTAL",    ParagraphStyle("thr2",leading=9, fontSize=7, fontName="Helvetica-Bold", textColor=P["white"], alignment=TA_RIGHT)),
-    ]]
-
-    if piezas:
-        total_m2_piezas = sum(p.get("ml",1)*p.get("ancho_custom",0.60) for p in piezas)
-        for p in piezas:
-            m2_p = p.get("ml",1)*p.get("ancho_custom",0.60)
-            prop  = (m2_p/total_m2_piezas) if total_m2_piezas > 0 else (1/len(piezas))
-            precio_p = precio_sugerido_total * prop
-            ml_p  = p.get("ml",1)
-            pu    = precio_p/ml_p if ml_p > 0 else 0
-            tabla_items_filas.append([
-                Paragraph(p.get("nombre","—"), cel_s),
-                Paragraph("ml", ParagraphStyle("tcc",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["text"],alignment=TA_CENTER)),
-                Paragraph(f"{ml_p:.2f}", ParagraphStyle("tcc2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["text"],alignment=TA_CENTER)),
-                Paragraph(_num(round(pu/1000)*1000), cel_r),
-                Paragraph(_num(round(precio_p/1000)*1000), cel_br),
-            ])
-    else:
-        ref_txt = r.get("referencia", r.get("categoria",""))
-        tabla_items_filas.append([
-            Paragraph(f"{r.get('tipo_proyecto','Proyecto')} — {ref_txt}", cel_s),
-            Paragraph("glb", ParagraphStyle("tcc",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["text"],alignment=TA_CENTER)),
-            Paragraph("1",   ParagraphStyle("tcc2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["text"],alignment=TA_CENTER)),
-            Paragraph(_num(precio_sugerido_total), cel_r),
-            Paragraph(_num(precio_sugerido_total), cel_br),
-        ])
-
-    n_items = len(piezas) if piezas else 1
-
-    # Filas de totales
-    tabla_items_filas.append([Paragraph("Subtotal", cel_b), "", "", "", Paragraph(_num(precio_sugerido_total), cel_br)])
-
-    if incluir_iva:
-        iva_total = precio_sugerido_total * 0.19
-        precio_final_doc = precio_sugerido_total + iva_total
-        tabla_items_filas.append([Paragraph("Base gravable (subtotal)", cel_s), "", "", "", Paragraph(_num(precio_sugerido_total), cel_r)])
-        tabla_items_filas.append([Paragraph("IVA 19% (Art. 468 E.T.)",
-            ParagraphStyle("iva",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["secondary"])),
-            "", "", "", Paragraph(_num(iva_total),
-            ParagraphStyle("ivav",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["secondary"],alignment=TA_RIGHT))])
-        tabla_items_filas.append([Paragraph("Subtotal con IVA", cel_s), "", "", "", Paragraph(_num(precio_final_doc), cel_br)])
-        # Fila anticipo
-        anticipo_val = precio_final_doc * (anticipo_pct / 100)
-        tabla_items_filas.append([
-            Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}%)",
-                ParagraphStyle("ant",leading=10,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"])),
-            "", "", "",
-            Paragraph(_num(anticipo_val),
-                ParagraphStyle("antv",leading=10,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"],alignment=TA_RIGHT))
-        ])
-        # Total final
-        tabla_items_filas.append([
-            Paragraph("TOTAL (IVA INCLUIDO)",
-                ParagraphStyle("tot",leading=12,fontSize=9.5,fontName="Helvetica-Bold",textColor=P["white"])),
-            "", "", "",
-            Paragraph(_num(precio_final_doc),
-                ParagraphStyle("totv",leading=12,fontSize=9.5,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_RIGHT))
-        ])
-    else:
-        precio_final_doc = precio_sugerido_total
-        anticipo_val = precio_final_doc * (anticipo_pct / 100)
-        tabla_items_filas.append([
-            Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}%)",
-                ParagraphStyle("ant",leading=10,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"])),
-            "", "", "",
-            Paragraph(_num(anticipo_val),
-                ParagraphStyle("antv",leading=10,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"],alignment=TA_RIGHT))
-        ])
-        tabla_items_filas.append([
-            Paragraph("TOTAL (SIN IVA)",
-                ParagraphStyle("tot",leading=12,fontSize=9.5,fontName="Helvetica-Bold",textColor=P["white"])),
-            "", "", "",
-            Paragraph(_num(precio_final_doc),
-                ParagraphStyle("totv",leading=12,fontSize=9.5,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_RIGHT))
-        ])
-
-    tbl_items = Table(tabla_items_filas, colWidths=[7.8*cm, 1.2*cm, 1.5*cm, 3*cm, 3.5*cm])
-    n_sub = n_items + 1  # subtotal row index
-    ts_items = [
-        ("BACKGROUND",    (0,0),  (-1,0),   P["secondary"]),
-        ("TOPPADDING",    (0,0),  (-1,-1),  4),
-        ("BOTTOMPADDING", (0,0),  (-1,-1),  4),
-        ("LEFTPADDING",   (0,0),  (-1,-1),  7),
-        ("RIGHTPADDING",  (0,0),  (-1,-1),  7),
-        ("ROWBACKGROUNDS",(0,1),  (-1,n_items), [P["white"], P["ultralight"]]),
-        ("BACKGROUND",    (0,n_sub),(-1,n_sub), P["light"]),
-        ("BACKGROUND",    (0,-2), (-1,-2),  colors.HexColor("#FFF3D4")),  # anticipo
-        ("BACKGROUND",    (0,-1), (-1,-1),  P["primary"]),
-        ("LINEABOVE",     (0,-1), (-1,-1),  1.2, P["primary"]),
-        ("LINEBELOW",     (0,0),  (-1,-2),  0.3, P["light"]),
-        ("SPAN", (0,n_sub),(3,n_sub)),
-        ("SPAN", (0,-2),(3,-2)),
-        ("SPAN", (0,-1),(3,-1)),
-    ]
-    if incluir_iva:
-        ts_items += [
-            ("SPAN", (0, n_sub+1),(3, n_sub+1)),
-            ("SPAN", (0, n_sub+2),(3, n_sub+2)),
-            ("SPAN", (0, n_sub+3),(3, n_sub+3)),
-            ("BACKGROUND", (0,n_sub+2),(-1,n_sub+2), P["ultralight"]),
-        ]
-
-    tbl_items.setStyle(TableStyle(ts_items))
-    story.append(tbl_items)
-    story.append(Spacer(1, 6))
-
-    # ── Alcance (incluye / no incluye) — compacto ─────────────────────────────
-    inc_s  = ParagraphStyle("inc", leading=10, fontSize=6.5, fontName="Helvetica", textColor=P["text"])
-    hinc_s = ParagraphStyle("hi",  leading=9,  fontSize=7,   fontName="Helvetica-Bold", textColor=P["white"])
-
-    incluye = [
-        "Toma de rectificación de medidas finales en obra previa a producción",
-        "Transporte especializado y acarreo cuidadoso del material hasta el punto de instalación",
-        "Garantía de 12 meses sobre la mano de obra de instalación",
-        "Limpieza técnica final del área de trabajo y retiro de desperdicios de material",
-        "Diseño y modelado 3D fotorrealista del proyecto para previsualización de acabados pétreos",
-        "Aplicación de tratamiento protector inicial (sellador hidrófugo/oleófugo) post-instalación",
-    ]
-    no_incluye = [
-        "Conexiones finales (grifería, electrodomésticos y conexiones hidráulicas, eléctricas o de gas)",
-        "Trabajos previos de obra civil (demoliciones, adecuación de muros, resanes o pintura)",
-        "Suministro de materiales de obra gris ajenos a la instalación del proyecto",
-        "Suministro o reparación de muebles de madera, ebanistería o estructuras de soporte inferiores",
-    ]
-
-    col_inc  = [[Paragraph("✔ INCLUYE",    hinc_s)]] + [[Paragraph(f"✔ {t}", inc_s)] for t in incluye]
-    col_ninc = [[Paragraph("✖ NO INCLUYE", hinc_s)]] + [[Paragraph(f"✖ {t}", inc_s)] for t in no_incluye]
-
-    max_rows = max(len(col_inc), len(col_ninc))
-    while len(col_inc)  < max_rows: col_inc.append([""])
-    while len(col_ninc) < max_rows: col_ninc.append([""])
-
-    alcance_rows = [[col_inc[i][0], col_ninc[i][0]] for i in range(max_rows)]
-    tbl_alcance = Table(alcance_rows, colWidths=[8.5*cm, 8.5*cm])
-    tbl_alcance.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0), (-1,0),  P["secondary"]),
-        ("ROWBACKGROUNDS",(0,1), (-1,-1), [P["white"], P["ultralight"]]),
-        ("TOPPADDING",    (0,0), (-1,-1), 3),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 3),
-        ("LEFTPADDING",   (0,0), (-1,-1), 7),
-        ("RIGHTPADDING",  (0,0), (-1,-1), 7),
-        ("LINEBELOW",     (0,0), (-1,-1), 0.3, P["light"]),
-        ("VALIGN",        (0,0), (-1,-1), "TOP"),
-    ]))
-    story.append(Paragraph("ALCANCE DEL PROYECTO", E["seccion"]))
-    story.append(Spacer(1, 3))
-    story.append(tbl_alcance)
-    story.append(Spacer(1, 5))
-
-    # ── Condiciones generales ─────────────────────────────────────────────────
+    # ④ TÉRMINOS Y CONDICIONES
     nota_iva = (
-        "El precio incluye IVA del 19% (Art. 468 E.T.) — Responsable de IVA — Régimen Común. "
+        "Propuesta con IVA del 19%% (Art. 468 E.T.) — Responsable de IVA — Regimen Comun. "
         if incluir_iva else
-        "Cotización expedida sin IVA — Régimen Simplificado (Art. 499 E.T.). "
+        "Propuesta sin IVA — Regimen Simplificado (Art. 499 E.T.). "
     )
-    condiciones_texto = (
-        nota_iva +
-        "Esta cotización abarca exclusivamente los materiales, servicios y alcances detallados "
-        "expresamente en la sección de Inclusiones. Cualquier requerimiento adicional, modificación "
-        "de diseño posterior a la rectificación de medidas, o trabajo no especificado en este "
-        "documento, será considerado un servicio extra y requerirá una recotización y/o aprobación "
-        f"previa para su ejecución. Anticipo requerido: {anticipo_pct}% del total al inicio de la obra."
-    )
-    tbl_cond = Table(
-        [[Paragraph("■ CONDICIONES GENERALES",
-            ParagraphStyle("cg",leading=10,fontSize=7,fontName="Helvetica-Bold",textColor=P["text"])),
-          Paragraph(condiciones_texto, E["aviso"])]],
-        colWidths=[3.5*cm, 13.5*cm]
-    )
-    tbl_cond.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), P["ultralight"]),
-        ("TOPPADDING",   (0,0),(-1,-1), 6),
-        ("BOTTOMPADDING",(0,0),(-1,-1), 6),
-        ("LEFTPADDING",  (0,0),(-1,-1), 8),
-        ("RIGHTPADDING", (0,0),(-1,-1), 8),
-        ("VALIGN",       (0,0),(-1,-1), "TOP"),
-        ("LINEABOVE",    (0,0),(-1,0),  0.8, P["secondary"]),
-    ]))
-    story.append(tbl_cond)
-    story.append(Spacer(1, 6))
-    story.extend(_footer(E, P, emp.get("nombre",""), fecha_str, numero))
+    story += _seccion_terminos(E, C, nota_iva, anticipo_pct)
+    story.append(Spacer(1, 5))
+    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero)
 
     doc.build(story)
     return buf.getvalue()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# COTIZACIÓN AIU — 1 PÁGINA con desglose correcto A, I, U + IVA sobre U
-# ═══════════════════════════════════════════════════════════════════════════════
-def generar_pdf_cotizacion_aiu(resultado: dict, numero: str = None,
-                                empresa_info: dict = None, logo_bytes: bytes = None) -> bytes:
-    """
-    PDF específico para cotizaciones AIU.
-    Discrimina A (Admin), I (Imprevistos), U (Utilidad) y calcula IVA SOLO sobre U.
-    """
+# ══════════════════════════════════════════════════════════════════════════════
+# COTIZACIÓN AIU
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None):
+    """PDF AIU. IVA (19%%) SOLO sobre Utilidad (U) — Decreto 1372/92."""
     if numero is None:
         numero = f"COT-AIU-{date.today().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
@@ -529,248 +649,204 @@ def generar_pdf_cotizacion_aiu(resultado: dict, numero: str = None,
 
     _lb = logo_bytes or _cargar_logo_corporativo()
     palette = _extraer_paleta_logo(_lb)
-    P = _colores(palette)
-    E = _estilos(P)
+    C = _C(palette)
+    E = _estilos(C)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
         leftMargin=1.4*cm, rightMargin=1.4*cm,
-        topMargin=1.0*cm, bottomMargin=1.2*cm,
-        title=f"Cotizacion AIU {numero}")
+        topMargin=1.0*cm,  bottomMargin=1.2*cm,
+        title=f"Propuesta AIU {numero}")
 
     r = resultado
     story = []
 
-    story.append(_header_bloque(E, P, "COTIZACIÓN AIU", numero, fecha_str, emp, _lb, valido_hasta))
-    story.append(Spacer(1, 5))
+    # ① ENCABEZADO
+    story.append(_encabezado_doc(E, C, "PROPUESTA AIU — OBRA PUBLICA", numero, fecha_str,
+                                  emp, _lb, valido_hasta))
+    story.append(Spacer(1, 7))
+    story.append(Table([[Paragraph(
+        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Valida hasta: {valido_hasta}  ·  "
+        "Tipo: AIU — Administracion, Imprevistos y Utilidad",
+        ParagraphStyle("badge2",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
+    )]], colWidths=[17*cm], style=TableStyle([
+        ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
+        ("TOPPADDING",  (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("LEFTPADDING", (0,0),(-1,-1), 10),
+        ("LINEABOVE",   (0,0),(-1, 0), 0.5, C["secondary"]),
+    ])))
+    story.append(Spacer(1, 7))
 
-    # Badge tipo
-    story.append(Table([[
-        Paragraph(f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  Tipo: AIU — Administración, Imprevistos y Utilidad",
-            ParagraphStyle("badge", leading=9, fontSize=6.5, fontName="Helvetica", textColor=P["gray"]))
-    ]], colWidths=[17*cm],
-        style=TableStyle([("BACKGROUND",(0,0),(-1,-1),P["ultralight"]),
-            ("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3),("LEFTPADDING",(0,0),(-1,-1),10)])
-    ))
-    story.append(Spacer(1, 5))
-
-    # Cliente
+    # Datos contratante
+    story += _seccion_header("Datos del Contratante", E)
     cliente_nombre = r.get("_estado_guardado", {}).get("nombre_cliente", r.get("nombre_cliente",""))
     datos_filas = []
     if cliente_nombre:
         datos_filas.append(("Para", cliente_nombre))
     datos_filas += [
-        ("Ciudad", emp.get("ciudad","Barranquilla")),
-        ("Tipo de contrato", "Licitación / Proyecto Constructora — Estructura AIU"),
-        ("Forma de pago", f"{anticipo_pct}% anticipo — {100 - anticipo_pct}% contra acta de entrega"),
-        ("Validez / Entrega", f"{dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
+        ("Ciudad",           emp.get("ciudad","Barranquilla")),
+        ("Tipo de contrato", "Licitacion / Proyecto Constructora — Estructura AIU"),
+        ("Forma de pago",    f"{anticipo_pct}%% anticipo  ·  {100-anticipo_pct}%% contra acta de entrega"),
+        ("Condiciones",      f"Validez: {dias_validez} dias  ·  Entrega estimada: {dias_entrega} dias"),
     ]
-    story.append(Paragraph("DATOS DEL CONTRATANTE", E["seccion"]))
-    story.append(Spacer(1, 3))
-    story.append(_tabla_2col(E, P, datos_filas))
-    story.append(Spacer(1, 6))
+    story.append(_tabla_datos_cliente(E, C, datos_filas))
+    story.append(Spacer(1, 7))
 
-    # ── Ítems del Costo Directo ────────────────────────────────────────────────
+    # ② COSTO DIRECTO (CD)
+    story += _seccion_header("Costo Directo (CD) — Items del Contrato", E)
     aiu_items = r.get("_estado_guardado", {}).get("aiu_items", [])
     cd = r.get("cd", r.get("costo_total", 0))
 
-    story.append(Paragraph("COSTO DIRECTO (CD) — ÍTEMS DEL CONTRATO", E["seccion"]))
-    story.append(Spacer(1, 3))
-
-    hdr_s = ParagraphStyle("th", leading=9, fontSize=7, fontName="Helvetica-Bold", textColor=P["white"])
-    cel_s = ParagraphStyle("tc", leading=10, fontSize=7.5, fontName="Helvetica", textColor=P["text"])
-    cel_r = ParagraphStyle("tcr",leading=10, fontSize=7.5, fontName="Helvetica", textColor=P["text"], alignment=TA_RIGHT)
-    cel_br= ParagraphStyle("tcbr",leading=10,fontSize=7.5, fontName="Helvetica-Bold",textColor=P["text"], alignment=TA_RIGHT)
-    cel_b = ParagraphStyle("tcb",leading=10, fontSize=7.5, fontName="Helvetica-Bold",textColor=P["text"])
-
     cd_filas = [[
-        Paragraph("DESCRIPCIÓN", hdr_s),
-        Paragraph("UNID.", ParagraphStyle("thc",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_CENTER)),
-        Paragraph("CANT.", ParagraphStyle("thc2",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_CENTER)),
-        Paragraph("P. UNIT.", ParagraphStyle("thr",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_RIGHT)),
-        Paragraph("SUBTOTAL", ParagraphStyle("thr2",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_RIGHT)),
+        Paragraph("DESCRIPCION / ITEM", E["th"]),
+        Paragraph("UNID.", E["th_c"]),
+        Paragraph("CANT.", E["th_c"]),
+        Paragraph("P. UNIT.", E["th_r"]),
+        Paragraph("SUBTOTAL", E["th_r"]),
     ]]
-
     if aiu_items:
         for it in aiu_items:
             sub_it = it.get("cant",0) * it.get("punit",0)
             cd_filas.append([
-                Paragraph(it.get("desc",""), cel_s),
-                Paragraph(it.get("und",""), ParagraphStyle("tcc",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["text"],alignment=TA_CENTER)),
-                Paragraph(f"{it.get('cant',0):.1f}", ParagraphStyle("tcc2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["text"],alignment=TA_CENTER)),
-                Paragraph(_num(it.get("punit",0)), cel_r),
-                Paragraph(_num(sub_it), cel_br),
+                Paragraph(it.get("desc","—"), E["cell"]),
+                Paragraph(it.get("und",""),   E["cell_c"]),
+                Paragraph(f"{it.get('cant',0):.1f}", E["cell_c"]),
+                Paragraph(_num(it.get("punit",0)), E["cell_r"]),
+                Paragraph(_num(sub_it),            E["cell_br"]),
             ])
     else:
-        cd_filas.append([Paragraph("Costo Directo Total", cel_s), "", "", "", Paragraph(_num(cd), cel_br)])
-
-    n_cd_items = len(aiu_items) if aiu_items else 1
-    cd_filas.append([Paragraph("COSTO DIRECTO (CD)", cel_b), "", "", "", Paragraph(_num(cd), cel_br)])
-
-    tbl_cd = Table(cd_filas, colWidths=[7.8*cm, 1.2*cm, 1.5*cm, 3*cm, 3.5*cm])
+        cd_filas.append([
+            Paragraph("Costo Directo Total", E["cell"]),
+            Paragraph("glb", E["cell_c"]),
+            Paragraph("1",   E["cell_c"]),
+            Paragraph(_num(cd), E["cell_r"]),
+            Paragraph(_num(cd), E["cell_br"]),
+        ])
+    cd_filas.append([
+        Paragraph("COSTO DIRECTO (CD)", E["subtotal_l"]),
+        Paragraph("", E["cell_c"]), Paragraph("", E["cell_c"]), Paragraph("", E["cell_c"]),
+        Paragraph(_num(cd), E["subtotal_v"]),
+    ])
+    tbl_cd = Table(cd_filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm])
     tbl_cd.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),(-1,0),   P["secondary"]),
-        ("TOPPADDING",    (0,0),(-1,-1),  4),
-        ("BOTTOMPADDING", (0,0),(-1,-1),  4),
-        ("LEFTPADDING",   (0,0),(-1,-1),  7),
-        ("RIGHTPADDING",  (0,0),(-1,-1),  7),
-        ("ROWBACKGROUNDS",(0,1),(-1,-2),  [P["white"], P["ultralight"]]),
-        ("BACKGROUND",    (0,-1),(-1,-1), P["light"]),
-        ("LINEBELOW",     (0,0),(-1,-1),  0.3, P["light"]),
-        ("SPAN",          (0,-1),(3,-1)),
+        ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
+        ("ROWBACKGROUNDS",(0,1),  (-1,-2), [C["zebra_a"], C["zebra_b"]]),
+        ("BACKGROUND",    (0,-1), (-1,-1), C["light"]),
+        ("SPAN",          (0,-1), (3,-1)),
+        ("TOPPADDING",    (0,0),  (-1,-1), 5), ("BOTTOMPADDING",(0,0),(-1,-1),5),
+        ("LEFTPADDING",   (0,0),  (-1,-1), 7), ("RIGHTPADDING", (0,0),(-1,-1),7),
+        ("VALIGN",        (0,0),  (-1,-1), "TOP"),
+        ("LINEBELOW",     (0,0),  (-1,-1), 0.3, C["border"]),
+        ("BOX",           (0,0),  (-1,-1), 0.5, C["border"]),
     ]))
     story.append(tbl_cd)
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 7))
 
-    # ── Desglose AIU ─────────────────────────────────────────────────────────
-    pct_a = r.get("pct_a", 2.0)
-    pct_i = r.get("pct_i", 2.0)
-    pct_u = r.get("pct_u", 5.0)
-    val_a = r.get("val_a", cd * pct_a / 100)
-    val_i = r.get("val_i", cd * pct_i / 100)
-    val_u = r.get("val_u", cd * pct_u / 100)
-    # IVA SOLO sobre Utilidad (U) — norma colombiana
-    val_iva = r.get("val_iva", val_u * 0.19)
-    logistica = r.get("logistica", 0)
-    viaticos  = r.get("viaticos", 0)
+    # ③ ESTRUCTURA AIU
+    story += _seccion_header("Estructura AIU — Desglose del Precio (IVA sobre Utilidad)", E)
+
+    pct_a = r.get("pct_a", 2.0); pct_i = r.get("pct_i", 2.0); pct_u = r.get("pct_u", 5.0)
+    val_a = r.get("val_a", cd * pct_a / 100); val_i = r.get("val_i", cd * pct_i / 100)
+    val_u = r.get("val_u", cd * pct_u / 100); val_iva = r.get("val_iva", val_u * 0.19)
+    logistica = r.get("logistica", 0); viaticos = r.get("viaticos", 0)
     precio_total = r.get("precio_total", cd + val_a + val_i + val_u + val_iva + logistica + viaticos)
     anticipo_val = precio_total * (anticipo_pct / 100)
 
-    story.append(Paragraph("ESTRUCTURA AIU — DESGLOSE DEL PRECIO", E["seccion"]))
-    story.append(Spacer(1, 3))
-
-    hdr_aiu = ParagraphStyle("ha", leading=9, fontSize=7, fontName="Helvetica-Bold", textColor=P["white"])
-    cel_aiu = ParagraphStyle("ca", leading=10, fontSize=7.5, fontName="Helvetica", textColor=P["text"])
-    cel_aiu_r = ParagraphStyle("car",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["text"],alignment=TA_RIGHT)
+    ac  = ParagraphStyle("ac",  fontSize=7.5, fontName="Helvetica",      leading=10, textColor=C["text"])
+    acp = ParagraphStyle("acp", fontSize=7.5, fontName="Helvetica",      leading=10, textColor=C["secondary"], alignment=TA_CENTER)
+    acc = ParagraphStyle("acc", fontSize=7.5, fontName="Helvetica",      leading=10, textColor=C["gray"],      alignment=TA_CENTER)
+    acv = ParagraphStyle("acv", fontSize=7.5, fontName="Helvetica-Bold", leading=10, textColor=C["text"],      alignment=TA_RIGHT)
 
     filas_aiu = [
-        [Paragraph("CONCEPTO", hdr_aiu), Paragraph("BASE", ParagraphStyle("hab",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_CENTER)),
-         Paragraph("%", ParagraphStyle("hap",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_CENTER)),
-         Paragraph("VALOR (COP)", ParagraphStyle("hav",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_RIGHT))],
-        # CD
-        [Paragraph("Costo Directo (CD)", cel_aiu),
-         Paragraph("—", ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-         Paragraph("100%", ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-         Paragraph(_num(cd), ParagraphStyle("cav",leading=10,fontSize=7.5,fontName="Helvetica-Bold",textColor=P["text"],alignment=TA_RIGHT))],
-        # A
-        [Paragraph(f"A — Administración", cel_aiu),
-         Paragraph("CD", ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-         Paragraph(f"{pct_a:.1f}%", ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["secondary"],alignment=TA_CENTER)),
-         Paragraph(_num(val_a), cel_aiu_r)],
-        # I
-        [Paragraph(f"I — Imprevistos", cel_aiu),
-         Paragraph("CD", ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-         Paragraph(f"{pct_i:.1f}%", ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["secondary"],alignment=TA_CENTER)),
-         Paragraph(_num(val_i), cel_aiu_r)],
-        # U
-        [Paragraph(f"U — Utilidad", cel_aiu),
-         Paragraph("CD", ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-         Paragraph(f"{pct_u:.1f}%", ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["secondary"],alignment=TA_CENTER)),
-         Paragraph(_num(val_u), cel_aiu_r)],
-        # IVA sobre U
-        [Paragraph("IVA 19% (exclusivo sobre Utilidad U)",
-            ParagraphStyle("iva",leading=10,fontSize=7.5,fontName="Helvetica-Oblique",textColor=P["secondary"])),
-         Paragraph("U", ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-         Paragraph("19%", ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["secondary"],alignment=TA_CENTER)),
-         Paragraph(_num(val_iva), ParagraphStyle("cav2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["secondary"],alignment=TA_RIGHT))],
+        [Paragraph("CONCEPTO", E["th"]), Paragraph("BASE",    E["th_c"]),
+         Paragraph("%%",       E["th_c"]),Paragraph("VALOR (COP)", E["th_r"])],
+        [Paragraph("Costo Directo (CD)",   ac), Paragraph("—",  acc), Paragraph("100%%",acc),  Paragraph(_num(cd), acv)],
+        [Paragraph("A — Administracion",   ac), Paragraph("CD", acc), Paragraph(f"{pct_a:.1f}%%",acp), Paragraph(_num(val_a), acv)],
+        [Paragraph("I — Imprevistos",      ac), Paragraph("CD", acc), Paragraph(f"{pct_i:.1f}%%",acp), Paragraph(_num(val_i), acv)],
+        [Paragraph("U — Utilidad",         ac), Paragraph("CD", acc), Paragraph(f"{pct_u:.1f}%%",acp), Paragraph(_num(val_u), acv)],
+        [Paragraph("IVA 19%% (sobre Utilidad U — Decreto 1372/92)", E["iva_l"]),
+         Paragraph("U",   acc), Paragraph("19%%",acp), Paragraph(_num(val_iva), E["iva_v"])],
     ]
-    # Logística y Viáticos (si aplica)
     if logistica > 0:
-        filas_aiu.append([Paragraph("Logística y transporte", cel_aiu),
-            Paragraph("—",ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-            Paragraph("—",ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-            Paragraph(_num(logistica), cel_aiu_r)])
+        filas_aiu.append([Paragraph("Logistica y transporte", ac), Paragraph("—",acc), Paragraph("—",acc), Paragraph(_num(logistica), acv)])
     if viaticos > 0:
-        filas_aiu.append([Paragraph("Viáticos y gastos foráneos", cel_aiu),
-            Paragraph("—",ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-            Paragraph("—",ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-            Paragraph(_num(viaticos), cel_aiu_r)])
-
-    # Anticipo
+        filas_aiu.append([Paragraph("Viaticos y gastos foraneos", ac), Paragraph("—",acc), Paragraph("—",acc), Paragraph(_num(viaticos), acv)])
     filas_aiu.append([
-        Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}%)",
-            ParagraphStyle("ant",leading=10,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"])),
-        Paragraph("Total", ParagraphStyle("ca2",leading=10,fontSize=7.5,fontName="Helvetica",textColor=P["gray"],alignment=TA_CENTER)),
-        Paragraph(f"{anticipo_pct}%", ParagraphStyle("ca3",leading=10,fontSize=7.5,fontName="Helvetica-Bold",textColor=P["accent"],alignment=TA_CENTER)),
-        Paragraph(_num(anticipo_val), ParagraphStyle("antv",leading=10,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"],alignment=TA_RIGHT))
+        Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}%%)", E["anticipo_l"]),
+        Paragraph("Total",acc),
+        Paragraph(f"{anticipo_pct}%%", ParagraphStyle("aibp",fontSize=7.5,fontName="Helvetica-Bold",leading=10,textColor=C["accent"],alignment=TA_CENTER)),
+        Paragraph(_num(anticipo_val), E["anticipo_v"]),
     ])
-    # Total
     filas_aiu.append([
-        Paragraph("PRECIO TOTAL DEL CONTRATO",
-            ParagraphStyle("tot",leading=12,fontSize=9,fontName="Helvetica-Bold",textColor=P["white"])),
-        "", "",
-        Paragraph(_num(precio_total),
-            ParagraphStyle("totv",leading=12,fontSize=9,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_RIGHT))
+        Paragraph("PRECIO TOTAL DEL CONTRATO", E["total_label"]),
+        Paragraph("",acc), Paragraph("",acc), Paragraph(_num(precio_total), E["total_val"]),
     ])
+    idx_ant_aiu = len(filas_aiu) - 2
+    idx_tot_aiu = len(filas_aiu) - 1
 
-    tbl_aiu = Table(filas_aiu, colWidths=[8.5*cm, 2*cm, 2*cm, 4.5*cm])
-    n_aiu = len(filas_aiu)
+    tbl_aiu = Table(filas_aiu, colWidths=[9.5*cm, 1.8*cm, 1.7*cm, 4*cm])
     tbl_aiu.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),  (-1,0),   P["secondary"]),
-        ("TOPPADDING",    (0,0),  (-1,-1),  4),
-        ("BOTTOMPADDING", (0,0),  (-1,-1),  4),
-        ("LEFTPADDING",   (0,0),  (-1,-1),  7),
-        ("RIGHTPADDING",  (0,0),  (-1,-1),  7),
-        ("ROWBACKGROUNDS",(0,1),  (-1,-3),  [P["white"], P["ultralight"]]),
-        ("BACKGROUND",    (0,-2), (-1,-2),  colors.HexColor("#FFF3D4")),
-        ("BACKGROUND",    (0,-1), (-1,-1),  P["primary"]),
-        ("LINEABOVE",     (0,-1), (-1,-1),  1.2, P["primary"]),
-        ("LINEBELOW",     (0,0),  (-1,-2),  0.3, P["light"]),
-        ("SPAN",          (0,-1), (2,-1)),
+        ("BACKGROUND",    (0,0), (-1,0), C["header_dark"]),
+        ("ROWBACKGROUNDS",(0,1), (-1,idx_ant_aiu-1), [C["zebra_a"], C["zebra_b"]]),
+        ("BACKGROUND",    (0,idx_ant_aiu), (-1,idx_ant_aiu), C["anticipo_bg"]),
+        ("BACKGROUND",    (0,idx_tot_aiu), (-1,idx_tot_aiu), C["total_bg"]),
+        ("LINEABOVE",     (0,idx_tot_aiu), (-1,idx_tot_aiu), 2.5, C["accent"]),
+        ("TOPPADDING",    (0,0),(-1,-1), 5), ("BOTTOMPADDING",(0,0),(-1,-1),5),
+        ("LEFTPADDING",   (0,0),(-1,-1), 8), ("RIGHTPADDING", (0,0),(-1,-1),8),
+        ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
+        ("LINEBELOW",     (0,0),(-1,-2), 0.3, C["border"]),
+        ("BOX",           (0,0),(-1,-1), 0.5, C["border"]),
     ]))
     story.append(tbl_aiu)
-    story.append(Spacer(1, 5))
 
-    # Nota IVA AIU
-    tbl_nota = Table([[
-        Paragraph("■ NOTA TRIBUTARIA AIU",
-            ParagraphStyle("nt",leading=9,fontSize=7,fontName="Helvetica-Bold",textColor=P["text"])),
-        Paragraph(
-            "En contratos bajo estructura AIU, el IVA (19%) aplica exclusivamente sobre la componente "
-            "de Utilidad (U), conforme al Art. 3° del Decreto 1372/1992 y conceptos DIAN. "
-            "El IVA NO se aplica sobre el Costo Directo (CD) ni sobre Administración (A) o Imprevistos (I). "
-            f"Anticipo requerido: {anticipo_pct}% del total al inicio de la obra.",
-            E["aviso"])
-    ]], colWidths=[3.5*cm, 13.5*cm])
-    tbl_nota.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), P["ultralight"]),
-        ("TOPPADDING",   (0,0),(-1,-1), 6),("BOTTOMPADDING",(0,0),(-1,-1),6),
-        ("LEFTPADDING",  (0,0),(-1,-1), 8),("RIGHTPADDING", (0,0),(-1,-1),8),
-        ("VALIGN",       (0,0),(-1,-1), "TOP"),
-        ("LINEABOVE",    (0,0),(-1,0),  0.8, P["secondary"]),
-    ]))
-    story.append(tbl_nota)
+    valor_letras = _numero_a_letras(int(round(precio_total)))
+    story.append(Table([[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["letras"])]],
+        colWidths=[17*cm], style=TableStyle([
+            ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
+            ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("LEFTPADDING",  (0,0),(-1,-1), 10),
+        ])))
+    story.append(Spacer(1, 7))
+
+    # ④ NOTA TRIBUTARIA + T&C
+    nota_aiu = (
+        "En contratos bajo estructura AIU, el IVA (19%%) aplica exclusivamente sobre la "
+        "Utilidad (U), conforme al Art. 3 del Decreto 1372/1992 y conceptos DIAN. "
+        "El IVA NO se aplica sobre Costo Directo (CD), Administracion (A) ni Imprevistos (I). "
+        f"Anticipo requerido: {anticipo_pct}%% del total al inicio de la obra. "
+        "Barranquilla, Colombia."
+    )
+    story += _seccion_terminos(E, C, nota_aiu, anticipo_pct)
     story.append(Spacer(1, 5))
-    story.extend(_footer(E, P, emp.get("nombre",""), fecha_str, numero))
+    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero)
 
     doc.build(story)
     return buf.getvalue()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# CUENTA DE COBRO — 1 PÁGINA, MISMO DISEÑO
-# Muestra % de anticipo en la descripción del servicio
-# ═══════════════════════════════════════════════════════════════════════════════
-def generar_cuenta_cobro(resultado: dict, datos_prestador: dict, datos_pagador: dict,
-                          numero: str = None, descripcion_servicio: str = None,
-                          logo_bytes: bytes = None, incluir_iva: bool = True) -> bytes:
+# ══════════════════════════════════════════════════════════════════════════════
+# CUENTA DE COBRO
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
+                          numero=None, descripcion_servicio=None,
+                          logo_bytes=None, incluir_iva=True):
     if numero is None:
         numero = f"CC-{date.today().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
 
-    es_aiu = resultado.get("tipo_proyecto") == "Licitación AIU"
-    precio_base = resultado.get("precio_sugerido", resultado.get("precio_total", 0))
+    es_aiu = resultado.get("tipo_proyecto") == "Licitacion AIU"
+    precio_base  = resultado.get("precio_sugerido", resultado.get("precio_total", 0))
     anticipo_pct = resultado.get("anticipo_pct", datos_prestador.get("anticipo_pct", 60))
 
     if es_aiu:
-        # Para AIU la cuenta de cobro es siempre con IVA calculado sobre U
-        precio_base = resultado.get("precio_total", precio_base)
-        valor_total = precio_base  # ya incluye IVA sobre U
-        iva = resultado.get("val_iva", 0)
-        incluir_iva = False  # ya integrado
+        precio_base  = resultado.get("precio_total", precio_base)
+        valor_total  = precio_base
+        iva          = resultado.get("val_iva", 0)
+        incluir_iva  = False
     else:
-        iva = precio_base * 0.19 if incluir_iva else 0.0
-        valor_total = precio_base + iva
+        iva          = precio_base * 0.19 if incluir_iva else 0.0
+        valor_total  = precio_base + iva
 
     valor_anticipo = valor_total * (anticipo_pct / 100)
     valor_saldo    = valor_total - valor_anticipo
@@ -785,203 +861,159 @@ def generar_cuenta_cobro(resultado: dict, datos_prestador: dict, datos_pagador: 
 
     _lb = logo_bytes or _cargar_logo_corporativo()
     palette = _extraer_paleta_logo(_lb)
-    P = _colores(palette)
-    E = _estilos(P)
+    C = _C(palette)
+    E = _estilos(C)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
         leftMargin=1.4*cm, rightMargin=1.4*cm,
-        topMargin=1.0*cm, bottomMargin=1.2*cm,
+        topMargin=1.0*cm,  bottomMargin=1.2*cm,
         title=f"Cuenta de Cobro {numero}")
 
     story = []
-    story.append(_header_bloque(E, P, "CUENTA DE COBRO", numero, fecha_str, emp, _lb))
-    story.append(Spacer(1, 8))
+    story.append(_encabezado_doc(E, C, "CUENTA DE COBRO", numero, fecha_str, emp, _lb))
+    story.append(Spacer(1, 7))
 
-    # ── Quién cobra ───────────────────────────────────────────────────────────
-    story.append(Paragraph("QUIEN COBRA", E["seccion"]))
-    story.append(Spacer(1, 3))
-    story.append(_tabla_2col(E, P, [
-        ("Nombre / Razón Social", datos_prestador.get("nombre","—")),
+    story += _seccion_header("Quien Cobra", E)
+    story.append(_tabla_datos_cliente(E, C, [
+        ("Nombre / Razon Social", datos_prestador.get("nombre","—")),
         ("NIT / CC",              datos_prestador.get("nit_cc", datos_prestador.get("nit","—"))),
-        ("Dirección",             datos_prestador.get("direccion", datos_prestador.get("ciudad","—"))),
-        ("Teléfono",              datos_prestador.get("telefono", datos_prestador.get("tel","—"))),
+        ("Direccion",             datos_prestador.get("direccion", datos_prestador.get("ciudad","—"))),
+        ("Telefono",              datos_prestador.get("telefono", datos_prestador.get("tel","—"))),
     ]))
     story.append(Spacer(1, 7))
 
-    # ── Quién paga ────────────────────────────────────────────────────────────
-    story.append(Paragraph("QUIEN PAGA", E["seccion"]))
-    story.append(Spacer(1, 3))
-    story.append(_tabla_2col(E, P, [
-        ("Nombre / Razón Social", datos_pagador.get("nombre","—")),
+    story += _seccion_header("Quien Paga", E)
+    story.append(_tabla_datos_cliente(E, C, [
+        ("Nombre / Razon Social", datos_pagador.get("nombre","—")),
         ("NIT / CC",              datos_pagador.get("nit","—")),
-        ("Dirección",             datos_pagador.get("direccion","—")),
+        ("Direccion",             datos_pagador.get("direccion","—")),
     ]))
     story.append(Spacer(1, 7))
 
-    # ── Descripción del servicio — INCLUYE el % de anticipo ──────────────────
     if descripcion_servicio is None:
         if es_aiu:
-            cliente_nombre = resultado.get("_estado_guardado", {}).get("nombre_cliente", "")
-            ref_txt = f" para {cliente_nombre}" if cliente_nombre else ""
+            cn = resultado.get("_estado_guardado", {}).get("nombre_cliente", "")
+            rt = f" para {cn}" if cn else ""
             descripcion_servicio = (
-                f"Cobro correspondiente al {anticipo_pct}% de anticipo acordado en la cotización AIU{ref_txt}. "
-                f"Suministro, fabricación e instalación de materiales pétreos según especificaciones del contrato. "
-                f"El saldo restante del {100-anticipo_pct}% será exigible contra acta de entrega y recibo a satisfacción."
+                f"Cobro del {anticipo_pct}%% de anticipo en cotizacion AIU{rt}. "
+                f"Suministro, fabricacion e instalacion de materiales petreos segun especificaciones. "
+                f"Saldo {100-anticipo_pct}%% contra acta de entrega."
             )
         else:
-            m2    = resultado.get("m2_real", 0)
-            tipo  = resultado.get("tipo_proyecto", "proyecto")
-            cat   = resultado.get("categoria", "material pétreo")
-            ref   = resultado.get("referencia","")
-            ref_txt = f" referencia {ref}" if ref else ""
+            m2   = resultado.get("m2_real", 0)
+            tipo = resultado.get("tipo_proyecto", "proyecto")
+            cat  = resultado.get("categoria", "material petreo")
+            ref  = resultado.get("referencia","")
+            rt   = f" referencia {ref}" if ref else ""
             descripcion_servicio = (
-                f"Cobro del {anticipo_pct}% de anticipo acordado en cotización para: "
-                f"suministro, fabricación e instalación de {tipo} en {cat}{ref_txt}. "
-                f"Área instalada: {m2:.2f} m². "
-                f"El saldo del {100-anticipo_pct}% restante será cobrado contra entrega a satisfacción."
+                f"Cobro del {anticipo_pct}%% de anticipo para: suministro, fabricacion e instalacion "
+                f"de {tipo} en {cat}{rt}. Area instalada: {m2:.2f} m2. "
+                f"Saldo {100-anticipo_pct}%% contra entrega a satisfaccion."
             )
 
-    story.append(Paragraph("DESCRIPCIÓN DEL SERVICIO / CONCEPTO", E["seccion"]))
-    story.append(Spacer(1, 3))
-    t_serv = Table([[Paragraph(descripcion_servicio, E["normal"])]], colWidths=[17*cm])
-    t_serv.setStyle(TableStyle([
-        ("BACKGROUND",   (0,0),(-1,-1), P["ultralight"]),
-        ("TOPPADDING",   (0,0),(-1,-1), 8), ("BOTTOMPADDING",(0,0),(-1,-1),8),
-        ("LEFTPADDING",  (0,0),(-1,-1), 10),("RIGHTPADDING", (0,0),(-1,-1),10),
-        ("LINEBELOW",    (0,0),(-1,-1), 0.5, P["secondary"]),
+    story += _seccion_header("Descripcion del Servicio / Concepto", E)
+    tbl_serv = Table([[Paragraph(descripcion_servicio, E["cell"])]], colWidths=[17*cm])
+    tbl_serv.setStyle(TableStyle([
+        ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
+        ("TOPPADDING",  (0,0),(-1,-1), 8), ("BOTTOMPADDING",(0,0),(-1,-1),8),
+        ("LEFTPADDING", (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
+        ("BOX",         (0,0),(-1,-1), 0.5, C["border"]),
+        ("LINEABOVE",   (0,0),(-1, 0), 1.0, C["secondary"]),
     ]))
-    story.append(t_serv)
+    story.append(tbl_serv)
     story.append(Spacer(1, 7))
 
-    # ── Valor del cobro ───────────────────────────────────────────────────────
-    valor_letras = _numero_a_letras(int(round(valor_anticipo)))
-    cel_s = ParagraphStyle("cc1",leading=11,fontSize=8,fontName="Helvetica",textColor=P["text"])
-    cel_r = ParagraphStyle("cc1r",leading=11,fontSize=8,fontName="Helvetica",textColor=P["text"],alignment=TA_RIGHT)
-    cel_br= ParagraphStyle("cc1br",leading=11,fontSize=8,fontName="Helvetica-Bold",textColor=P["text"],alignment=TA_RIGHT)
-    cel_w = ParagraphStyle("ccw",leading=12,fontSize=9,fontName="Helvetica-Bold",textColor=P["white"])
-    cel_wr= ParagraphStyle("ccwr",leading=12,fontSize=9,fontName="Helvetica-Bold",textColor=P["white"],alignment=TA_RIGHT)
-    cel_acc= ParagraphStyle("cca",leading=11,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"])
-    cel_accr=ParagraphStyle("ccar",leading=11,fontSize=8,fontName="Helvetica-Bold",textColor=P["accent"],alignment=TA_RIGHT)
-
+    story += _seccion_header("Valor del Cobro", E)
     if incluir_iva and not es_aiu:
         filas_val = [
-            [Paragraph("Valor total del servicio (sin IVA)", cel_s), Paragraph(_num(precio_base), cel_r)],
-            [Paragraph("IVA 19% (Art. 468 E.T.)",
-                ParagraphStyle("cciva",leading=11,fontSize=8,fontName="Helvetica",textColor=P["secondary"])),
-             Paragraph(_num(iva), ParagraphStyle("ccivar",leading=11,fontSize=8,fontName="Helvetica",textColor=P["secondary"],alignment=TA_RIGHT))],
-            [Paragraph("Total de la cotización (IVA incluido)", ParagraphStyle("cct",leading=11,fontSize=8,fontName="Helvetica-Bold",textColor=P["text"])),
-             Paragraph(_num(valor_total), cel_br)],
-            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}% del total)", cel_acc),
-             Paragraph(_num(valor_anticipo), cel_accr)],
-            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
-                ParagraphStyle("ccs",leading=11,fontSize=8,fontName="Helvetica",textColor=P["gray"])),
-             Paragraph(_num(valor_saldo), ParagraphStyle("ccsr",leading=11,fontSize=8,fontName="Helvetica",textColor=P["gray"],alignment=TA_RIGHT))],
-            [Paragraph("VALOR TOTAL COBRADO EN ESTE DOCUMENTO", cel_w), Paragraph(_num(valor_anticipo), cel_wr)],
+            [Paragraph("Valor total del servicio (sin IVA)",       E["cell_b"]),   Paragraph(_num(precio_base),      E["cell_br"])],
+            [Paragraph("IVA 19%% (Art. 468 E.T.)",                  E["iva_l"]),    Paragraph(_num(iva),              E["iva_v"])],
+            [Paragraph("Total (IVA incluido)",                      E["subtotal_l"]),Paragraph(_num(valor_total),     E["subtotal_v"])],
+            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%%)",      E["anticipo_l"]),Paragraph(_num(valor_anticipo), E["anticipo_v"])],
+            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%%)",
+                ParagraphStyle("sl1",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"])),
+             Paragraph(_num(valor_saldo),
+                ParagraphStyle("slv1",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT))],
+            [Paragraph("VALOR COBRADO EN ESTE DOCUMENTO", E["total_label"]), Paragraph(_num(valor_anticipo), E["total_val"])],
         ]
-        ts_val = [
-            ("BACKGROUND",(0,0),(-1,0),P["ultralight"]),
-            ("BACKGROUND",(0,1),(-1,1),P["ultralight"]),
-            ("BACKGROUND",(0,2),(-1,2),P["light"]),
-            ("BACKGROUND",(0,3),(-1,3),colors.HexColor("#FFF3D4")),
-            ("BACKGROUND",(0,4),(-1,4),P["ultralight"]),
-            ("BACKGROUND",(0,5),(-1,5),P["primary"]),
-            ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
-            ("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),
-            ("LINEABOVE",(0,-1),(-1,-1),1.2,P["primary"]),
-        ]
+        idx_ant, idx_tot = 3, 5
     else:
         filas_val = [
-            [Paragraph("Valor total de la cotización", ParagraphStyle("cct",leading=11,fontSize=8,fontName="Helvetica-Bold",textColor=P["text"])),
-             Paragraph(_num(valor_total), cel_br)],
-            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}% del total)", cel_acc),
-             Paragraph(_num(valor_anticipo), cel_accr)],
-            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
-                ParagraphStyle("ccs",leading=11,fontSize=8,fontName="Helvetica",textColor=P["gray"])),
-             Paragraph(_num(valor_saldo), ParagraphStyle("ccsr",leading=11,fontSize=8,fontName="Helvetica",textColor=P["gray"],alignment=TA_RIGHT))],
-            [Paragraph("VALOR TOTAL COBRADO EN ESTE DOCUMENTO", cel_w), Paragraph(_num(valor_anticipo), cel_wr)],
+            [Paragraph("Valor total de la cotizacion",              E["subtotal_l"]),Paragraph(_num(valor_total),   E["subtotal_v"])],
+            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%%)",      E["anticipo_l"]),Paragraph(_num(valor_anticipo),E["anticipo_v"])],
+            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%%)",
+                ParagraphStyle("sl2",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"])),
+             Paragraph(_num(valor_saldo),
+                ParagraphStyle("slv2",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT))],
+            [Paragraph("VALOR COBRADO EN ESTE DOCUMENTO", E["total_label"]), Paragraph(_num(valor_anticipo), E["total_val"])],
         ]
-        ts_val = [
-            ("BACKGROUND",(0,0),(-1,0),P["light"]),
-            ("BACKGROUND",(0,1),(-1,1),colors.HexColor("#FFF3D4")),
-            ("BACKGROUND",(0,2),(-1,2),P["ultralight"]),
-            ("BACKGROUND",(0,3),(-1,3),P["primary"]),
-            ("TOPPADDING",(0,0),(-1,-1),5),("BOTTOMPADDING",(0,0),(-1,-1),5),
-            ("LEFTPADDING",(0,0),(-1,-1),10),("RIGHTPADDING",(0,0),(-1,-1),10),
-            ("LINEABOVE",(0,-1),(-1,-1),1.2,P["primary"]),
-        ]
+        idx_ant, idx_tot = 1, 3
 
     tbl_val = Table(filas_val, colWidths=[12.5*cm, 4.5*cm])
-    tbl_val.setStyle(TableStyle(ts_val))
-    story.append(Paragraph("VALOR DEL COBRO", E["seccion"]))
-    story.append(Spacer(1, 3))
+    tbl_val.setStyle(TableStyle([
+        ("ROWBACKGROUNDS", (0,0), (-1,idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
+        ("BACKGROUND",     (0,idx_ant), (-1,idx_ant), C["anticipo_bg"]),
+        ("BACKGROUND",     (0,idx_tot), (-1,idx_tot), C["total_bg"]),
+        ("LINEABOVE",      (0,idx_tot), (-1,idx_tot), 2.5, C["accent"]),
+        ("TOPPADDING",     (0,0),(-1,-1), 6), ("BOTTOMPADDING",(0,0),(-1,-1),6),
+        ("LEFTPADDING",    (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
+        ("LINEBELOW",      (0,0),(-1,-2), 0.3, C["border"]),
+        ("BOX",            (0,0),(-1,-1), 0.5, C["border"]),
+    ]))
     story.append(tbl_val)
 
-    # Valor en letras (del anticipo)
-    story.append(Table(
-        [[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["white_s"])]],
-        colWidths=[17*cm],
-        style=TableStyle([
-            ("BACKGROUND",(0,0),(-1,-1),P["primary"]),
-            ("TOPPADDING",(0,0),(-1,-1),2),("BOTTOMPADDING",(0,0),(-1,-1),7),
-            ("LEFTPADDING",(0,0),(-1,-1),14),
-        ])
-    ))
+    valor_letras = _numero_a_letras(int(round(valor_anticipo)))
+    story.append(Table([[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["letras"])]],
+        colWidths=[17*cm], style=TableStyle([
+            ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
+            ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("LEFTPADDING",  (0,0),(-1,-1), 10),
+        ])))
     story.append(Spacer(1, 7))
 
-    # Datos bancarios
     banco_filas = []
-    if datos_prestador.get("banco"):
-        banco_filas.append(("Banco", datos_prestador["banco"]))
-    if datos_prestador.get("cuenta_tipo"):
-        banco_filas.append(("Tipo de cuenta", datos_prestador["cuenta_tipo"]))
-    if datos_prestador.get("cuenta_numero"):
-        banco_filas.append(("N° de cuenta", datos_prestador["cuenta_numero"]))
-    if datos_prestador.get("nombre"):
-        banco_filas.append(("A nombre de", datos_prestador["nombre"]))
+    if datos_prestador.get("banco"):        banco_filas.append(("Banco", datos_prestador["banco"]))
+    if datos_prestador.get("cuenta_tipo"):  banco_filas.append(("Tipo de cuenta", datos_prestador["cuenta_tipo"]))
+    if datos_prestador.get("cuenta_numero"):banco_filas.append(("N de cuenta", datos_prestador["cuenta_numero"]))
+    if datos_prestador.get("nombre"):       banco_filas.append(("A nombre de", datos_prestador["nombre"]))
     if banco_filas:
-        story.append(Paragraph("DATOS PARA PAGO", E["seccion"]))
-        story.append(Spacer(1, 3))
-        story.append(_tabla_2col(E, P, banco_filas))
+        story += _seccion_header("Datos para Pago", E)
+        story.append(_tabla_datos_cliente(E, C, banco_filas))
         story.append(Spacer(1, 7))
 
-    # Firmas
     firma = Table([[
-        Table([
-            [Paragraph("_" * 38, E["normal"])],
-            [Paragraph(datos_prestador.get("nombre",""), E["aviso"])],
-            [Paragraph("Firma del Prestador", E["aviso"])],
-        ]),
+        Table([[Paragraph("_" * 40, E["cell"])],[Paragraph(datos_prestador.get("nombre",""), E["aviso"])],[Paragraph("Firma del Prestador", E["aviso"])]]),
         "",
-        Table([
-            [Paragraph("_" * 33, E["normal"])],
-            [Paragraph("", E["aviso"])],
-            [Paragraph("Sello / Firma del Pagador", E["aviso"])],
-        ]),
+        Table([[Paragraph("_" * 35, E["cell"])],[Paragraph("", E["aviso"])],[Paragraph("Sello / Firma del Pagador", E["aviso"])]]),
     ]], colWidths=[8*cm, 1.5*cm, 7.5*cm])
     firma.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),10),("VALIGN",(0,0),(-1,-1),"BOTTOM")]))
     story.append(firma)
-    story.append(Spacer(1, 8))
-    story.extend(_footer(E, P, datos_prestador.get("nombre",""), fecha_str, numero))
+    story.append(Spacer(1, 7))
+    story += _footer_doc(E, C, datos_prestador.get("nombre",""), fecha_str, numero)
 
     doc.build(story)
     return buf.getvalue()
 
 
-# ── Conversion de número a letras ─────────────────────────────────────────────
-def _numero_a_letras(n: int) -> str:
+# ── Conversion numero a letras (espanol colombiano) ───────────────────────────
+
+def _numero_a_letras(n):
     if n == 0: return "cero"
     unidades = ["","uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve",
-                "diez","once","doce","trece","catorce","quince","dieciséis","diecisiete","dieciocho","diecinueve"]
-    decenas  = ["","diez","veinte","treinta","cuarenta","cincuenta","sesenta","setenta","ochenta","noventa"]
-    centenas = ["","ciento","doscientos","trescientos","cuatrocientos","quinientos","seiscientos","setecientos","ochocientos","novecientos"]
+                "diez","once","doce","trece","catorce","quince","dieciseis","diecisiete",
+                "dieciocho","diecinueve"]
+    decenas  = ["","diez","veinte","treinta","cuarenta","cincuenta","sesenta","setenta",
+                "ochenta","noventa"]
+    centenas = ["","ciento","doscientos","trescientos","cuatrocientos","quinientos",
+                "seiscientos","setecientos","ochocientos","novecientos"]
     def _menor_mil(x):
-        if x == 0: return ""
+        if x == 0:   return ""
         if x == 100: return "cien"
         c, resto = divmod(x, 100)
-        d, u = divmod(resto, 10)
-        partes = []
-        if c: partes.append(centenas[c])
+        d, u     = divmod(resto, 10)
+        partes   = []
+        if c:          partes.append(centenas[c])
         if resto == 0: pass
         elif resto < 20: partes.append(unidades[resto])
         else:
@@ -989,14 +1021,14 @@ def _numero_a_letras(n: int) -> str:
             if u: p += " y " + unidades[u]
             partes.append(p)
         return " ".join(partes)
-    if n < 0: return "menos " + _numero_a_letras(-n)
-    if n < 1000: return _menor_mil(n)
+    if n < 0:           return "menos " + _numero_a_letras(-n)
+    if n < 1_000:       return _menor_mil(n)
     if n < 1_000_000:
-        m, r = divmod(n, 1000)
-        pre = "mil" if m == 1 else _menor_mil(m) + " mil"
+        m, r = divmod(n, 1_000)
+        pre  = "mil" if m == 1 else _menor_mil(m) + " mil"
         return (pre + " " + _menor_mil(r)).strip()
     if n < 1_000_000_000:
         m, r = divmod(n, 1_000_000)
-        pre = "un millón" if m == 1 else _menor_mil(m) + " millones"
+        pre  = "un millon" if m == 1 else _menor_mil(m) + " millones"
         return (pre + " " + _numero_a_letras(r)).strip()
     return str(n)
