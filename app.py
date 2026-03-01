@@ -3,10 +3,13 @@
 
 import io
 import base64
+import hashlib
+import hmac
+import secrets
 import streamlit as st
 import psycopg2
 import json, os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 _BOG = ZoneInfo("America/Bogota")
@@ -65,6 +68,19 @@ def _get_db_connection():
 def _init_db():
     conn = _get_db_connection()
     cur = conn.cursor()
+
+    # ── Tabla de usuarios (Multi-Tenant) ────────────────────────────────────────────
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id               SERIAL PRIMARY KEY,
+            username         TEXT UNIQUE NOT NULL,
+            password_hash    TEXT NOT NULL,
+            pin_recuperacion TEXT NOT NULL,
+            rol              TEXT NOT NULL DEFAULT 'Operario',
+            nombre_completo  TEXT DEFAULT ''
+        )
+    """)
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS cotizaciones (
             id SERIAL PRIMARY KEY,
@@ -74,8 +90,6 @@ def _init_db():
         )
     """)
     # ── Configuración persistente (parámetros, empresa_info, etc.) ────────────
-    # Tabla key-value: cada clave almacena un JSON serializado.
-    # Sobrevive a F5 / reinicios del servidor porque vive en Supabase.
     cur.execute("""
         CREATE TABLE IF NOT EXISTS app_config (
             clave TEXT PRIMARY KEY,
@@ -83,7 +97,7 @@ def _init_db():
             actualizado TEXT DEFAULT ''
         )
     """)
-    # ── Banco de Retales Digital ──────────────────────────────────────────────
+    # ── Banco de Retales Digital ────────────────────────────────────────────────────────────────────────────
     cur.execute("""
         CREATE TABLE IF NOT EXISTS inventario_retales (
             id SERIAL PRIMARY KEY,
@@ -101,17 +115,21 @@ def _init_db():
             precio_mercado_m2   REAL DEFAULT 0
         )
     """)
-    # Migración segura: añade columnas nuevas si la tabla ya existe sin ellas
-    for _col, _def in [
-        ("precio_recuperacion", "REAL DEFAULT 0"),
-        ("precio_mercado_m2",   "REAL DEFAULT 0"),
-    ]:
+    # ── Migraciones seguras: añade columnas nuevas sin romper datos existentes ──
+    _migraciones = [
+        ("inventario_retales", "precio_recuperacion", "REAL DEFAULT 0"),
+        ("inventario_retales", "precio_mercado_m2",   "REAL DEFAULT 0"),
+        ("cotizaciones",       "usuario_id",          "INTEGER"),
+        ("inventario_retales", "usuario_id",          "INTEGER"),
+    ]
+    for _tbl, _col, _def in _migraciones:
         try:
             cur.execute(
-                f"ALTER TABLE inventario_retales ADD COLUMN IF NOT EXISTS {_col} {_def}"
+                f"ALTER TABLE {_tbl} ADD COLUMN IF NOT EXISTS {_col} {_def}"
             )
         except Exception:
-            pass
+            conn.rollback()
+
     conn.commit()
     cur.close()
     conn.close()
@@ -241,18 +259,29 @@ def _marcar_retal_usado(retal_id: int, m2_consumidos: float):
     cur.close()
     conn.close()
 
-def _listar_retales() -> list:
-    """Lista completa del banco de retales para la vista de inventario."""
+def _listar_retales(usuario_id=None, rol="Admin") -> list:
+    """Lista el banco de retales. Operario ve solo los suyos; Admin ve todos."""
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
-                  origen_numero, origen_cliente, fecha_ingreso, estado, notas,
-                  COALESCE(precio_recuperacion, 0)
-           FROM inventario_retales
-           ORDER BY estado ASC, fecha_ingreso DESC"""
-    )
+    if rol == "Operario" and usuario_id is not None:
+        cur.execute(
+            """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
+                      origen_numero, origen_cliente, fecha_ingreso, estado, notas,
+                      COALESCE(precio_recuperacion, 0)
+               FROM inventario_retales
+               WHERE usuario_id = %s
+               ORDER BY estado ASC, fecha_ingreso DESC""",
+            (usuario_id,)
+        )
+    else:
+        cur.execute(
+            """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
+                      origen_numero, origen_cliente, fecha_ingreso, estado, notas,
+                      COALESCE(precio_recuperacion, 0)
+               FROM inventario_retales
+               ORDER BY estado ASC, fecha_ingreso DESC"""
+        )
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -280,14 +309,15 @@ def _guardar_cotizacion(numero, cliente, resultado):
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
+    _uid = st.session_state.get("usuario_actual", {}).get("id")
     cur.execute(
-        "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json,usuario_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (numero, _hoy().isoformat(), cliente or "Sin nombre",
          resultado.get("categoria",""), resultado.get("tipo_proyecto",""),
          resultado.get("m2_real",0), resultado.get("ml_proyecto",0),
          resultado.get("costo_total",0), resultado.get("precio_sugerido",0),
          resultado.get("margen_pct",0), "Pendiente",
-         json.dumps(resultado, ensure_ascii=False, default=str))
+         json.dumps(resultado, ensure_ascii=False, default=str), _uid)
     )
     conn.commit()
     cur.close()
@@ -324,12 +354,36 @@ def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: di
     st.cache_data.clear()
 
 @st.cache_data(ttl=60)
-def _listar_cotizaciones(busqueda=""):
+def _listar_cotizaciones(busqueda="", usuario_id=None, rol="Admin"):
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
-    q = "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json FROM cotizaciones WHERE cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s ORDER BY id DESC LIMIT 200" if busqueda else "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json FROM cotizaciones ORDER BY id DESC LIMIT 200"
-    cur.execute(q, (f"%{busqueda}%",)*3 if busqueda else ())
+    # Multi-tenant: Operario solo ve sus cotizaciones; Admin ve todas
+    if rol == "Operario" and usuario_id is not None:
+        if busqueda:
+            q = ("SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                 "FROM cotizaciones "
+                 "WHERE usuario_id = %s AND (cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s) "
+                 "ORDER BY id DESC LIMIT 200")
+            cur.execute(q, (usuario_id, f"%{busqueda}%", f"%{busqueda}%", f"%{busqueda}%"))
+        else:
+            cur.execute(
+                "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                "FROM cotizaciones WHERE usuario_id = %s ORDER BY id DESC LIMIT 200",
+                (usuario_id,)
+            )
+    else:
+        if busqueda:
+            q = ("SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                 "FROM cotizaciones "
+                 "WHERE cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s "
+                 "ORDER BY id DESC LIMIT 200")
+            cur.execute(q, (f"%{busqueda}%",)*3)
+        else:
+            cur.execute(
+                "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                "FROM cotizaciones ORDER BY id DESC LIMIT 200"
+            )
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -478,6 +532,304 @@ REGLAS:
     except Exception as e:
         return f"Error: {str(e)}"
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SISTEMA DE AUTENTICACIÓN MULTI-TENANT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Clave interna para firmar tokens de sesión (se genera una vez por deploy) ─
+# Usa APP_SECRET en secrets.toml si existe; si no, usa una clave por defecto.
+def _get_secret_key() -> bytes:
+    try:
+        return st.secrets.get("APP_SECRET", "cc_marbles_secret_2026").encode()
+    except Exception:
+        return b"cc_marbles_secret_2026"
+
+def _hash_password(password: str) -> str:
+    """SHA-256 con salt fijo por usuario (PBKDF2 estilo liviano)."""
+    salt = b"cc_marmoles_2026_salt"
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return dk.hex()
+
+def _verificar_password(password: str, hash_almacenado: str) -> bool:
+    return hmac.compare_digest(_hash_password(password), hash_almacenado)
+
+def _generar_token(username: str) -> str:
+    """Genera un token firmado: base64(username:timestamp):firma_hmac."""
+    expiry = (datetime.now(_BOG) + timedelta(days=30)).isoformat()
+    payload = f"{username}|{expiry}"
+    firma = hmac.new(_get_secret_key(), payload.encode(), hashlib.sha256).hexdigest()
+    token_raw = f"{payload}|{firma}"
+    return base64.b64encode(token_raw.encode()).decode()
+
+def _validar_token(token: str) -> str | None:
+    """Valida el token. Retorna username si es válido y no expiró; None si no."""
+    try:
+        decoded = base64.b64decode(token.encode()).decode()
+        parts = decoded.split("|")
+        if len(parts) != 3:
+            return None
+        username, expiry_str, firma_recibida = parts
+        payload = f"{username}|{expiry_str}"
+        firma_esperada = hmac.new(_get_secret_key(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(firma_recibida, firma_esperada):
+            return None
+        expiry = datetime.fromisoformat(expiry_str)
+        if datetime.now(_BOG) > expiry:
+            return None
+        return username
+    except Exception:
+        return None
+
+def _guardar_cookie_sesion(token: str):
+    """Guarda el token en la URL de la sesión y en session_state para persistencia."""
+    st.session_state["_auth_token"] = token
+
+def _leer_cookie_sesion() -> str | None:
+    return st.session_state.get("_auth_token")
+
+def _limpiar_sesion():
+    """Cierra sesión limpiando todos los datos del usuario."""
+    for k in ["usuario_actual", "_auth_token", "_config_cargada",
+              "cotizacion", "pre", "piezas", "materiales_proyecto",
+              "chat", "resumen_ia"]:
+        st.session_state.pop(k, None)
+
+# ── CRUD de usuarios ──────────────────────────────────────────────────────────
+
+def _buscar_usuario_por_username(username: str) -> dict | None:
+    """Retorna dict con datos del usuario o None si no existe."""
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT id, username, password_hash, pin_recuperacion, rol, nombre_completo "
+            "FROM usuarios WHERE username = %s",
+            (username.strip().lower(),)
+        )
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row:
+            return {"id": row[0], "username": row[1], "password_hash": row[2],
+                    "pin_recuperacion": row[3], "rol": row[4], "nombre_completo": row[5]}
+        return None
+    except Exception:
+        return None
+
+def _crear_usuario(username: str, password: str, pin: str,
+                   rol: str = "Operario", nombre_completo: str = "") -> bool:
+    """Crea un usuario nuevo. Retorna True si tuvo éxito."""
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            "INSERT INTO usuarios (username, password_hash, pin_recuperacion, rol, nombre_completo) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (username.strip().lower(), _hash_password(password), pin.strip(), rol, nombre_completo)
+        )
+        conn.commit()
+        cur.close(); conn.close()
+        return True
+    except Exception:
+        return False
+
+def _actualizar_password(username: str, nueva_password: str) -> bool:
+    """Actualiza la contraseña de un usuario."""
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            "UPDATE usuarios SET password_hash = %s WHERE username = %s",
+            (_hash_password(nueva_password), username.strip().lower())
+        )
+        conn.commit()
+        cur.close(); conn.close()
+        return True
+    except Exception:
+        return False
+
+def _listar_usuarios() -> list:
+    """Lista todos los usuarios (para panel Admin)."""
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("SELECT id, username, rol, nombre_completo FROM usuarios ORDER BY id")
+        rows = cur.fetchall()
+        cur.close(); conn.close()
+        return rows
+    except Exception:
+        return []
+
+def _eliminar_usuario(uid: int) -> bool:
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("DELETE FROM usuarios WHERE id = %s", (uid,))
+        conn.commit()
+        cur.close(); conn.close()
+        return True
+    except Exception:
+        return False
+
+def _asegurar_admin_existe():
+    """
+    Crea el usuario admin por defecto si la tabla de usuarios está vacía.
+    Credenciales: admin / admin123 / PIN: 0000
+    IMPORTANTE: cambiar tras el primer login.
+    """
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM usuarios")
+        if cur.fetchone()[0] == 0:
+            cur.close(); conn.close()
+            _crear_usuario("admin", "admin123", "0000", "Admin", "Administrador")
+    except Exception:
+        pass
+
+# ── Pantalla de Login ─────────────────────────────────────────────────────────
+
+def _pantalla_login():
+    """Renderiza la pantalla de login y maneja el flujo de autenticación."""
+    _asegurar_admin_existe()
+
+    # CSS exclusivo del login
+    st.markdown("""
+    <style>
+    .login-wrapper {
+        max-width: 420px;
+        margin: 60px auto 0;
+    }
+    .login-logo {
+        text-align: center;
+        padding: 28px 0 18px;
+    }
+    .login-logo .brand {
+        font-family: 'Playfair Display', serif;
+        font-size: 2.2rem;
+        font-weight: 900;
+        color: #C9A84C;
+        line-height: 1;
+    }
+    .login-logo .sub {
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        opacity: 0.55;
+        text-transform: uppercase;
+        margin-top: 4px;
+    }
+    .login-title {
+        font-family: 'Playfair Display', serif;
+        font-size: 1.45rem;
+        font-weight: 700;
+        color: #1B5FA8;
+        margin-bottom: 4px;
+        text-align: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        # Logo / identidad
+        st.markdown("""
+        <div class="login-logo">
+            <div class="brand">CC</div>
+            <div class="sub">Mármoles Collante &amp; Castro</div>
+        </div>
+        <div class="login-title">Iniciar Sesión</div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+        with st.container(border=True):
+            _tab_login, _tab_pin = st.tabs(["🔐 Acceder", "🔑 Recuperar contraseña"])
+
+            # ── Tab login principal ───────────────────────────────────────────
+            with _tab_login:
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                _uname = st.text_input("Usuario", placeholder="Ej: jcastro",
+                                       key="login_username")
+                _pwd   = st.text_input("Contraseña", type="password",
+                                       placeholder="••••••••", key="login_password")
+
+                if st.button("Ingresar →", type="primary",
+                             use_container_width=True, key="btn_login"):
+                    if not _uname or not _pwd:
+                        st.error("Completa usuario y contraseña.", icon="⚠️")
+                    else:
+                        _usr = _buscar_usuario_por_username(_uname)
+                        if _usr and _verificar_password(_pwd, _usr["password_hash"]):
+                            # Login exitoso: guardar sesión
+                            token = _generar_token(_usr["username"])
+                            _guardar_cookie_sesion(token)
+                            st.session_state["usuario_actual"] = _usr
+                            st.success(f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
+                            st.rerun()
+                        else:
+                            st.error("Usuario o contraseña incorrectos.", icon="🚨")
+
+                st.markdown(
+                    "<div style='font-size:0.72rem;opacity:0.45;text-align:center;"
+                    "margin-top:10px'>Sistema de uso exclusivo · Mármoles Collante &amp; Castro</div>",
+                    unsafe_allow_html=True
+                )
+
+            # ── Tab recuperación por PIN ──────────────────────────────────────
+            with _tab_pin:
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                st.caption("Ingresa tu usuario y el PIN de recuperación de 4 dígitos.")
+                _rec_user = st.text_input("Usuario", placeholder="Ej: jcastro",
+                                          key="rec_username")
+                _rec_pin  = st.text_input("PIN de recuperación (4 dígitos)",
+                                          placeholder="0000", max_chars=4,
+                                          key="rec_pin")
+
+                if st.button("Verificar PIN →", use_container_width=True, key="btn_verificar_pin"):
+                    if not _rec_user or not _rec_pin:
+                        st.error("Completa usuario y PIN.", icon="⚠️")
+                    else:
+                        _usr_rec = _buscar_usuario_por_username(_rec_user)
+                        if _usr_rec and _usr_rec["pin_recuperacion"] == _rec_pin.strip():
+                            st.session_state["_pin_verificado_user"] = _rec_user.strip().lower()
+                            st.success("PIN correcto. Ahora ingresa tu nueva contraseña.")
+                        else:
+                            st.error("Usuario o PIN incorrecto.", icon="🚨")
+                            st.session_state.pop("_pin_verificado_user", None)
+
+                # Mostrar campos de nueva contraseña solo si el PIN fue verificado
+                if st.session_state.get("_pin_verificado_user"):
+                    st.markdown("---")
+                    _nueva_pwd  = st.text_input("Nueva contraseña", type="password",
+                                                placeholder="Mínimo 6 caracteres",
+                                                key="nueva_pwd")
+                    _confirmar  = st.text_input("Confirmar contraseña", type="password",
+                                                placeholder="Repite la contraseña",
+                                                key="confirmar_pwd")
+                    if st.button("Guardar nueva contraseña", type="primary",
+                                 use_container_width=True, key="btn_cambiar_pwd"):
+                        if len(_nueva_pwd) < 6:
+                            st.error("La contraseña debe tener al menos 6 caracteres.")
+                        elif _nueva_pwd != _confirmar:
+                            st.error("Las contraseñas no coinciden.")
+                        else:
+                            _ok = _actualizar_password(
+                                st.session_state["_pin_verificado_user"], _nueva_pwd
+                            )
+                            if _ok:
+                                st.session_state.pop("_pin_verificado_user", None)
+                                st.success("Contraseña actualizada. Ya puedes iniciar sesión.")
+                                st.rerun()
+                            else:
+                                st.error("Error al actualizar. Intenta de nuevo.")
+
 # ── CSS NATIVO (ADAPTABLE A MODO CLARO/OSCURO) ────────────────────────────────
 st.markdown("""
 <style>
@@ -594,6 +946,31 @@ try:
 except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
 
+# ── MURO DE AUTENTICACIÓN ─────────────────────────────────────────────────────
+# Verifica sesión activa antes de renderizar cualquier contenido de la app.
+# Flujo:
+#   1. Si hay token válido en session_state → restaurar usuario_actual desde BD
+#   2. Si no hay token o expiró → mostrar pantalla de login y detener ejecución
+_token_sesion = _leer_cookie_sesion()
+if not st.session_state.get("usuario_actual"):
+    if _token_sesion:
+        _username_tok = _validar_token(_token_sesion)
+        if _username_tok:
+            _usr_restaurado = _buscar_usuario_por_username(_username_tok)
+            if _usr_restaurado:
+                st.session_state["usuario_actual"] = _usr_restaurado
+            else:
+                _limpiar_sesion()
+                _pantalla_login()
+                st.stop()
+        else:
+            _limpiar_sesion()
+            _pantalla_login()
+            st.stop()
+    else:
+        _pantalla_login()
+        st.stop()
+
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
 def get_viaticos(): return st.session_state.viaticos_custom or VIATICOS
@@ -674,6 +1051,27 @@ with st.sidebar:
         st.markdown('<div style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.3);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#16a34a">🟢 IA Activa</div>', unsafe_allow_html=True)
     else:
         st.markdown('<div style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#d97706">🟠 IA sin configurar</div>', unsafe_allow_html=True)
+
+    # ── Info de usuario en sesión + botón de logout ───────────────────────────
+    st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
+    _usr_ses = st.session_state.get("usuario_actual", {})
+    _rol_ses = _usr_ses.get("rol", "")
+    _nom_ses = _usr_ses.get("nombre_completo") or _usr_ses.get("username", "")
+    _badge_rol = ("#1B5FA8", "Admin") if _rol_ses == "Admin" else ("#6b7280", "Operario")
+    st.markdown(
+        f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+        border-radius:8px;padding:8px 12px;margin-bottom:8px">
+        <div style="font-size:0.72rem;opacity:0.5;font-weight:600;text-transform:uppercase;margin-bottom:2px">Sesión activa</div>
+        <div style="font-size:0.85rem;font-weight:700">{_nom_ses}</div>
+        <div style="display:inline-block;background:{_badge_rol[0]};color:white;
+             font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:4px;
+             margin-top:3px;text-transform:uppercase">{_badge_rol[1]}</div>
+        </div>''',
+        unsafe_allow_html=True
+    )
+    if st.button("⏻ Cerrar sesión", use_container_width=True, key="btn_logout"):
+        _limpiar_sesion()
+        st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TOUR GUIADO (ONBOARDING) — DISEÑO CORPORATIVO
@@ -2143,7 +2541,7 @@ elif pagina == "Historial":
         )
 
     # ── Cargar y filtrar filas ────────────────────────────────────────────────
-    _rows = _listar_cotizaciones(_bus)
+    _rows = _listar_cotizaciones(_bus, usuario_id=st.session_state.get("usuario_actual",{}).get("id"), rol=st.session_state.get("usuario_actual",{}).get("rol","Admin"))
     if _filtro != "Todos los estados":
         _rows = [r for r in _rows if r[8] == _filtro]
 
@@ -2831,7 +3229,7 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
 
     # ── Métricas del banco ────────────────────────────────────────────────────
     try:
-        _todos_retales = _listar_retales()
+        _todos_retales = _listar_retales(usuario_id=st.session_state.get("usuario_actual",{}).get("id"), rol=st.session_state.get("usuario_actual",{}).get("rol","Admin"))
     except Exception:
         _todos_retales = []
 
@@ -4207,7 +4605,12 @@ elif pagina == "Asistente IA":
 elif pagina == "Configuracion":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Perfil de la Empresa y Preferencias</h2>", unsafe_allow_html=True)
 
+    _rol_actual = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
+if _rol_actual == "Admin":
+    tab_emp, tab_finanzas, tab_logo, tab_usuarios = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual", "👥 Gestión de Usuarios"])
+else:
     tab_emp, tab_finanzas, tab_logo = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual"])
+    tab_usuarios = None
 
     with tab_emp:
         c1, c2 = st.columns(2)
@@ -4320,3 +4723,60 @@ elif pagina == "Configuracion":
             st.session_state.logo_bytes = logo.read()
             st.success("✅ Logo cargado. Ya aparece en el sidebar y en los PDFs.")
             st.rerun()
+
+    # ── Tab de gestión de usuarios (solo Admin) ───────────────────────────────
+    if tab_usuarios is not None:
+        with tab_usuarios:
+            st.markdown("#### 👥 Gestión de Usuarios del Sistema")
+            st.caption("Solo los Administradores pueden crear, ver y eliminar usuarios.")
+
+            with st.expander("➕ Crear nuevo usuario", expanded=False):
+                _nu_nombre  = st.text_input("Nombre completo", key="nu_nombre")
+                _nu_user    = st.text_input("Usuario (sin espacios, minúsculas)", key="nu_user",
+                                            placeholder="Ej: jcastro")
+                _nu_pwd     = st.text_input("Contraseña inicial", type="password", key="nu_pwd")
+                _nu_pin     = st.text_input("PIN de recuperación (4 dígitos)", key="nu_pin",
+                                            max_chars=4, placeholder="1234")
+                _nu_rol     = st.selectbox("Rol", ["Operario", "Admin"], key="nu_rol")
+                if st.button("✅ Crear usuario", type="primary", key="btn_crear_usr"):
+                    if not _nu_user or not _nu_pwd or not _nu_pin:
+                        st.error("Completa todos los campos obligatorios.")
+                    elif len(_nu_pin) != 4 or not _nu_pin.isdigit():
+                        st.error("El PIN debe tener exactamente 4 dígitos numéricos.")
+                    elif len(_nu_pwd) < 6:
+                        st.error("La contraseña debe tener al menos 6 caracteres.")
+                    else:
+                        _ok_usr = _crear_usuario(
+                            _nu_user.strip().lower(), _nu_pwd, _nu_pin,
+                            _nu_rol, _nu_nombre
+                        )
+                        if _ok_usr:
+                            st.success(f"✅ Usuario **{_nu_user}** creado correctamente.")
+                            st.rerun()
+                        else:
+                            st.error("Error al crear el usuario. ¿El nombre de usuario ya existe?")
+
+            st.markdown("---")
+            st.markdown("**Usuarios registrados:**")
+            _todos_usr = _listar_usuarios()
+            _uid_propio = st.session_state.get("usuario_actual", {}).get("id")
+            for _u in _todos_usr:
+                _u_id, _u_name, _u_rol, _u_nom = _u
+                _col_a, _col_b, _col_c = st.columns([3, 1.5, 1])
+                _col_a.markdown(
+                    f"**{_u_nom or _u_name}** · `{_u_name}`"
+                    f"<span style='background:{'#1B5FA8' if _u_rol=='Admin' else '#6b7280'};"
+                    f"color:white;font-size:0.62rem;font-weight:700;padding:2px 7px;"
+                    f"border-radius:4px;margin-left:8px;text-transform:uppercase'>{_u_rol}</span>",
+                    unsafe_allow_html=True
+                )
+                with _col_c:
+                    if _u_id != _uid_propio:
+                        if st.button("🗑", key=f"del_usr_{_u_id}",
+                                     help="Eliminar este usuario"):
+                            _eliminar_usuario(_u_id)
+                            st.toast(f"Usuario {_u_name} eliminado.")
+                            st.rerun()
+                    else:
+                        st.markdown("<span style='font-size:0.72rem;opacity:0.4'>(tú)</span>",
+                                    unsafe_allow_html=True)
