@@ -1666,8 +1666,11 @@ elif pagina == "Historial":
 </div>""", unsafe_allow_html=True)
 
                     # ── Controles debajo de la tarjeta ────────────────────────
-                    _ca, _cb, _cc = st.columns([2.2, 1, 0.7])
+                    _ck = f"del_ok_{_rid}"
+                    if _ck not in st.session_state:
+                        st.session_state[_ck] = False
 
+                    _ca, _cb, _cc = st.columns([2.2, 1, 0.7])
                     with _ca:
                         _new_est = st.selectbox(
                             "Estado", _ESTADOS,
@@ -1677,41 +1680,44 @@ elif pagina == "Historial":
                         if _new_est != _rest:
                             _actualizar_estado(_rid, _new_est)
                             st.rerun()
-
                     with _cb:
                         if st.button("✏️ Editar", key=f"ed_{_rid}",
                                      use_container_width=True, help="Recargar en la calculadora"):
                             _cargar_en_calculadora(_rid, _rnum, _rjson)
-
                     with _cc:
-                        _ck = f"del_ok_{_rid}"
-                        if _ck not in st.session_state:
-                            st.session_state[_ck] = False
-
                         if not st.session_state[_ck]:
                             if st.button("🗑️", key=f"del_{_rid}",
                                          use_container_width=True, help="Eliminar"):
                                 st.session_state[_ck] = True
                                 st.rerun()
                         else:
-                            st.markdown(
-                                f'<div style="background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.3);'
-                                f'border-radius:8px;padding:10px 12px;margin-bottom:6px">'
-                                f'<div style="font-size:0.8rem;font-weight:700;color:#dc2626;margin-bottom:2px">¿Eliminar esta cotizacion?</div>'
-                                f'<div style="font-size:0.73rem;opacity:0.7">Se borrara {_rnum} y sus sobrantes asociados.</div>'
-                                f'</div>',
-                                unsafe_allow_html=True
-                            )
-                            _dx, _dy = st.columns(2)
-                            if _dx.button("Eliminar", key=f"dsi_{_rid}",
-                                          type="primary", use_container_width=True):
-                                _eliminar_cotizacion(_rid)
-                                st.session_state.pop(_ck, None)
-                                st.rerun()
-                            if _dy.button("Cancelar", key=f"dno_{_rid}",
-                                          use_container_width=True):
-                                st.session_state[_ck] = False
-                                st.rerun()
+                            # Placeholder para mantener el layout cuando el diálogo está abajo
+                            st.markdown("<div style='height:38px'></div>", unsafe_allow_html=True)
+
+                    # Diálogo de confirmación — ancho completo, fuera de columnas estrechas
+                    if st.session_state.get(_ck):
+                        st.markdown(
+                            f'<div style="background:rgba(220,38,38,0.07);'
+                            f'border:1px solid rgba(220,38,38,0.35);border-radius:10px;'
+                            f'padding:12px 16px;margin:6px 0 4px">'
+                            f'<div style="font-size:0.85rem;font-weight:700;color:#dc2626;margin-bottom:3px">'
+                            f'¿Eliminar esta cotizacion?</div>'
+                            f'<div style="font-size:0.78rem;opacity:0.65;line-height:1.4">'
+                            f'Se borrara <strong>{_rnum}</strong> y sus sobrantes asociados. '
+                            f'Esta accion no se puede deshacer.</div>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+                        _dx, _dy, _ = st.columns([1, 1, 1.8])
+                        if _dx.button("🗑️ Eliminar", key=f"dsi_{_rid}",
+                                      type="primary", use_container_width=True):
+                            _eliminar_cotizacion(_rid)
+                            st.session_state.pop(_ck, None)
+                            st.rerun()
+                        if _dy.button("Cancelar", key=f"dno_{_rid}",
+                                      use_container_width=True):
+                            st.session_state[_ck] = False
+                            st.rerun()
 
                     st.markdown("<div style='margin-bottom:14px'></div>",
                                 unsafe_allow_html=True)
