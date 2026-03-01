@@ -11,6 +11,7 @@ import psycopg2
 import json, os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from streamlit_cookies_controller import CookieController
 
 _BOG = ZoneInfo("America/Bogota")
 
@@ -36,6 +37,14 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── GESTOR DE COOKIES HTTP — instanciación TOP-LEVEL ─────────────────────────
+# DEBE ocurrir antes de cualquier evaluación de session_state de autenticación.
+# CookieController renderiza un componente invisible que hidrata las cookies
+# en el primer ciclo de Streamlit; instanciarlo aquí garantiza que los valores
+# estén disponibles cuando el muro de autenticación los necesite (incluso tras F5).
+_cookie_ctrl = CookieController()
+_COOKIE_NAME  = "cc_auth_token"   # Nombre de la cookie HTTP de sesión (30 días)
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
 if "primera_visita" not in st.session_state:
@@ -582,15 +591,49 @@ def _validar_token(token: str) -> str | None:
         return None
 
 def _guardar_cookie_sesion(token: str):
-    """Guarda el token en la URL de la sesión y en session_state para persistencia."""
+    """Persiste el token en una cookie HTTP real (30 días) Y en session_state.
+    La cookie HTTP sobrevive a F5 y reinicios del servidor porque viaja en
+    el encabezado de cada petición HTTP, a diferencia de session_state que
+    solo vive en memoria del proceso de Python.
+    """
+    _cookie_ctrl.set(
+        _COOKIE_NAME,
+        token,
+        max_age=30 * 24 * 3600,   # 30 días en segundos
+        path="/",
+        secure=True,
+        same_site="Lax",
+    )
+    # Espejo en session_state: evita un rerun extra en el mismo ciclo
     st.session_state["_auth_token"] = token
 
 def _leer_cookie_sesion() -> str | None:
-    return st.session_state.get("_auth_token")
+    """Lee el token primero desde session_state (cache de ciclo) y luego
+    desde la cookie HTTP (persiste tras F5). Devuelve None si no hay nada.
+    """
+    # 1️⃣ Espejo en memoria: ya cargado en este ciclo
+    tok = st.session_state.get("_auth_token")
+    if tok:
+        return tok
+    # 2️⃣ Cookie HTTP: disponible desde el primer rerun tras F5
+    tok = _cookie_ctrl.get(_COOKIE_NAME)
+    if tok:
+        # Hidratar session_state para que el resto del ciclo no vuelva a leer la cookie
+        st.session_state["_auth_token"] = tok
+    return tok or None
 
 def _limpiar_sesion():
-    """Cierra sesión limpiando todos los datos del usuario."""
+    """Cierra sesión: elimina la cookie HTTP y borra session_state.
+    También resetea _cookie_checked para que el próximo acceso pase
+    por el ciclo de hidratación completo antes de mostrar el login.
+    """
+    # Borrar la cookie HTTP para que el token no sobreviva al cierre de sesión
+    try:
+        _cookie_ctrl.remove(_COOKIE_NAME)
+    except Exception:
+        pass  # Si la cookie ya no existe, ignorar el error
     for k in ["usuario_actual", "_auth_token", "_config_cargada",
+              "_cookie_checked",
               "cotizacion", "pre", "piezas", "materiales_proyecto",
               "chat", "resumen_ia"]:
         st.session_state.pop(k, None)
@@ -767,11 +810,14 @@ def _pantalla_login():
                     else:
                         _usr = _buscar_usuario_por_username(_uname)
                         if _usr and _verificar_password(_pwd, _usr["password_hash"]):
-                            # Login exitoso: guardar sesión
+                            # Login exitoso: persistir token en cookie HTTP + session_state
                             token = _generar_token(_usr["username"])
                             _guardar_cookie_sesion(token)
                             st.session_state["usuario_actual"] = _usr
+                            # Limpiar el flag de ciclo para que próximos F5 funcionen bien
+                            st.session_state.pop("_cookie_checked", None)
                             st.success(f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
+                            # Un único rerun limpia el formulario y carga la interfaz principal
                             st.rerun()
                         else:
                             st.error("Usuario o contraseña incorrectos.", icon="🚨")
@@ -946,30 +992,76 @@ try:
 except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
 
-# ── MURO DE AUTENTICACIÓN ─────────────────────────────────────────────────────
-# Verifica sesión activa antes de renderizar cualquier contenido de la app.
-# Flujo:
-#   1. Si hay token válido en session_state → restaurar usuario_actual desde BD
-#   2. Si no hay token o expiró → mostrar pantalla de login y detener ejecución
+# ── MURO DE AUTENTICACIÓN CON HIDRATACIÓN TEMPRANA ───────────────────────────
+#
+# PROBLEMA QUE RESUELVE:
+#   Cada F5 reinicia session_state (memoria del proceso Python), pero la cookie
+#   HTTP sigue viajando en el request del navegador. Sin este bloque, el servidor
+#   vería session_state vacío y mostraría el login aunque el usuario ya tuviera
+#   una sesión válida.
+#
+# FLUJO (se ejecuta en CADA rerun, incluido el primer ciclo tras F5):
+#
+#   ① _leer_cookie_sesion() lee primero session_state y, si está vacío,
+#     lee la cookie HTTP real (_cookie_ctrl.get). Con esto obtenemos el token
+#     incluso cuando session_state acaba de ser reiniciado por un F5.
+#
+#   ② Si el token existe y es válido → inyectar usuario_actual en session_state
+#     y continuar la app SIN mostrar login (redirección silenciosa, cero parpadeo).
+#
+#   ③ Si el token no existe o está expirado → limpiar todo y mostrar login.
+#
+#   ④ Cuando el usuario hace login manualmente (_pantalla_login), al final del
+#     handler se llama _guardar_cookie_sesion(token) que escribe la cookie HTTP
+#     Y espeja en session_state, seguido de st.rerun() para limpiar el formulario.
+#
+# NOTA SOBRE EL PRIMER CICLO DE streamlit-cookies-controller:
+#   En el primer rerun después de un F5, el componente de cookies aún puede estar
+#   hidratándose (el JS del componente aún no ha enviado los valores al backend).
+#   Por eso _leer_cookie_sesion devuelve None en ese primer ciclo y el código
+#   muestra un spinner de espera en lugar del formulario completo de login.
+#   En el segundo ciclo (disparado automáticamente por st.rerun()) la cookie ya
+#   está disponible y la sesión se restaura sin mostrar el login.
+
 _token_sesion = _leer_cookie_sesion()
+
 if not st.session_state.get("usuario_actual"):
     if _token_sesion:
+        # ── Token presente: validar y restaurar sesión ────────────────────────
         _username_tok = _validar_token(_token_sesion)
         if _username_tok:
             _usr_restaurado = _buscar_usuario_por_username(_username_tok)
             if _usr_restaurado:
+                # ✅ Sesión recuperada desde cookie — sin parpadeo de login
                 st.session_state["usuario_actual"] = _usr_restaurado
+                # No hacemos st.rerun() aquí: dejamos que el script continúe
+                # directamente hacia la interfaz principal (redirección silenciosa).
             else:
+                # Usuario del token ya no existe en BD (fue eliminado)
                 _limpiar_sesion()
                 _pantalla_login()
                 st.stop()
         else:
+            # Token expirado o manipulado — limpiar y pedir login
             _limpiar_sesion()
             _pantalla_login()
             st.stop()
     else:
-        _pantalla_login()
-        st.stop()
+        # ── Sin token en session_state ni en cookie ───────────────────────────
+        # Puede ser porque: (a) nunca inició sesión, o (b) primer ciclo tras F5
+        # y el componente de cookies aún no se hidratò (race condition del JS).
+        # Detectamos el caso (b) mirando si ya pasamos por el primer ciclo.
+        if not st.session_state.get("_cookie_checked"):
+            # Primer ciclo: marcar como revisado y esperar el segundo ciclo
+            # donde el componente ya tendrá los valores listos.
+            st.session_state["_cookie_checked"] = True
+            # Mostrar pantalla de espera mínima (evita flash del login completo)
+            with st.spinner("Verificando sesión…"):
+                st.rerun()
+        else:
+            # Segundo ciclo y sigue sin token → definitivamente no hay sesión
+            _pantalla_login()
+            st.stop()
 
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
