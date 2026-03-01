@@ -73,16 +73,30 @@ def _init_db():
             origen_cliente      TEXT,
             fecha_ingreso       TEXT NOT NULL,
             estado              TEXT DEFAULT 'Disponible',
-            notas               TEXT
+            notas               TEXT,
+            precio_recuperacion REAL DEFAULT 0,
+            precio_mercado_m2   REAL DEFAULT 0
         )
     """)
+    # Migración segura: añade columnas nuevas si la tabla ya existe sin ellas
+    for _col, _def in [
+        ("precio_recuperacion", "REAL DEFAULT 0"),
+        ("precio_mercado_m2",   "REAL DEFAULT 0"),
+    ]:
+        try:
+            cur.execute(
+                f"ALTER TABLE inventario_retales ADD COLUMN IF NOT EXISTS {_col} {_def}"
+            )
+        except Exception:
+            pass
     conn.commit()
     cur.close()
     conn.close()
 
 # ── CRUD Banco de Retales ─────────────────────────────────────────────────────
 
-def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, referencia: str, m2_retal: float):
+def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, referencia: str,
+                    m2_retal: float, precio_m2_original: float = 0):
     """Registra el retal de una cotización aprobada en el inventario."""
     if m2_retal <= 0:
         return
@@ -95,10 +109,12 @@ def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, refe
         cur.execute(
             """INSERT INTO inventario_retales
                (material_categoria, referencia, m2_disponibles, m2_original,
-                origen_cotizacion_id, origen_numero, origen_cliente, fecha_ingreso, estado)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible')""",
+                origen_cotizacion_id, origen_numero, origen_cliente, fecha_ingreso,
+                estado, precio_recuperacion, precio_mercado_m2)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible', 0, %s)""",
             (categoria, referencia or "", round(m2_retal, 4), round(m2_retal, 4),
-             cot_id, numero, cliente or "Sin nombre", date.today().isoformat())
+             cot_id, numero, cliente or "Sin nombre", date.today().isoformat(),
+             round(precio_m2_original, 0))
         )
         conn.commit()
     cur.close()
@@ -151,7 +167,8 @@ def _listar_retales() -> list:
     cur = conn.cursor()
     cur.execute(
         """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
-                  origen_numero, origen_cliente, fecha_ingreso, estado, notas
+                  origen_numero, origen_cliente, fecha_ingreso, estado, notas,
+                  COALESCE(precio_recuperacion, 0)
            FROM inventario_retales
            ORDER BY estado ASC, fecha_ingreso DESC"""
     )
@@ -226,10 +243,12 @@ def _actualizar_estado(cot_id, nuevo_estado):
                 _datos = json.loads(_datos_json) if _datos_json else {}
                 _retal = float(_datos.get("retal", 0))
                 _referencia = _datos.get("referencia", "")
+                _precio_m2_orig = float(_datos.get("precio_m2", 0))
                 if _retal > 0.05:
                     cur.close()
                     conn.close()
-                    _inyectar_retal(cot_id, _numero, _cliente, _material, _referencia, _retal)
+                    _inyectar_retal(cot_id, _numero, _cliente, _material, _referencia, _retal,
+                                    precio_m2_original=_precio_m2_orig)
                     return
             except Exception:
                 pass
@@ -269,7 +288,40 @@ def _stats_db():
     conn.close()
     return s
 
-def _chat_parametros(historial: list, mensaje: str) -> str:
+def _stats_retales() -> dict:
+    """Calcula el capital inmovilizado y métricas del banco de retales."""
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT
+            material_categoria,
+            COUNT(*) AS piezas,
+            SUM(m2_disponibles) AS m2_total,
+            SUM(m2_disponibles * precio_mercado_m2) AS valor_potencial
+        FROM inventario_retales
+        WHERE estado = 'Disponible' AND m2_disponibles > 0.05
+        GROUP BY material_categoria
+        ORDER BY valor_potencial DESC
+    """)
+    por_categoria = cur.fetchall()
+    cur.execute("""
+        SELECT
+            COUNT(*) AS total_piezas,
+            COALESCE(SUM(m2_disponibles), 0) AS m2_total,
+            COALESCE(SUM(m2_disponibles * precio_mercado_m2), 0) AS valor_total
+        FROM inventario_retales
+        WHERE estado = 'Disponible' AND m2_disponibles > 0.05
+    """)
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return {
+        "total_piezas":  int(row[0] or 0),
+        "m2_total":      float(row[1] or 0),
+        "valor_total":   float(row[2] or 0),
+        "por_categoria": por_categoria,
+    }(historial: list, mensaje: str) -> str:
     try:
         import anthropic
         api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
@@ -726,20 +778,37 @@ elif pagina == "Cotizacion Directa":
                     _rid_activo = st.session_state.get(f"retal_id_{midx}")
                     _rm2_activo = st.session_state.get(f"retal_m2_{midx}", _m2_total_retal)
 
-                    _mat_dict["precio_m2"]  = 0        # costo de material = $0
+                    # Leer precio de recuperación configurado para este retal
+                    _precio_rec = 0.0
+                    try:
+                        _conn_rec = _get_db_connection()
+                        _cur_rec  = _conn_rec.cursor()
+                        _cur_rec.execute(
+                            "SELECT precio_recuperacion FROM inventario_retales WHERE id=%s",
+                            (_rid_activo,)
+                        )
+                        _row_rec = _cur_rec.fetchone()
+                        _precio_rec = float(_row_rec[0] or 0) if _row_rec else 0.0
+                        _cur_rec.close()
+                        _conn_rec.close()
+                    except Exception:
+                        _precio_rec = 0.0
+
+                    _mat_dict["precio_m2"]  = _precio_rec   # precio_recuperacion (0 si no configurado)
                     _mat_dict["area_placa"] = _rm2_activo
                     _mat_dict["es_retal"]   = True
                     _mat_dict["retal_id"]   = _rid_activo
 
+                    _prec_txt = f"Precio/m² de recuperación: {numero_completo(_precio_rec)}" if _precio_rec > 0 else "Precio/m² fijado en $0"
                     st.markdown(
                         f'<div style="border:1px solid #15803d;border-left:4px solid #15803d;'
                         f'border-radius:8px;padding:10px 16px;margin:8px 0;'
                         f'background:rgba(21,128,61,0.06);">'
                         f'<div style="font-size:0.8rem;font-weight:700;color:#15803d;margin-bottom:3px">'
-                        f'Retal activo — Precio/m² fijado en $0 · Área disponible: {fmt_m2(_rm2_activo, 3)}'
+                        f'Retal activo — {_prec_txt} · Área disponible: {fmt_m2(_rm2_activo, 3)}'
                         f'</div>'
                         f'<div style="font-size:0.75rem;opacity:0.65">'
-                        f'Costo de material = $0 · El margen sube al 80-90%+ según los demás costos</div>'
+                        f'El margen sube al 80-90%+ según los demás costos. Configura el precio de recuperación en Banco de Retales.</div>'
                         f'</div>',
                         unsafe_allow_html=True
                     )
@@ -1771,6 +1840,72 @@ elif pagina == "Dashboard":
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
+    # ── KPI: Capital Inmovilizado en Retales ─────────────────────────────────
+    try:
+        _sr = _stats_retales()
+    except Exception:
+        _sr = {"total_piezas": 0, "m2_total": 0.0, "valor_total": 0.0, "por_categoria": []}
+
+    if _sr["total_piezas"] > 0:
+        _valor_ret  = _sr["valor_total"]
+        _m2_ret     = _sr["m2_total"]
+        _piezas_ret = _sr["total_piezas"]
+        _proyectos_est = max(1, int(_m2_ret / 1.5))
+        _insight = (
+            f"Tienes {numero_completo(_valor_ret)} COP en retales disponibles "
+            f"({fmt_m2(_m2_ret, 2)}, {_piezas_ret} {'pieza' if _piezas_ret == 1 else 'piezas'}). "
+            f"Prioriza su uso en proyectos pequeños (~{_proyectos_est} proyectos estimados) "
+            "para generar un margen de ganancia superior al 80%."
+        )
+        st.markdown(
+            f"""
+            <div style="
+                background: linear-gradient(135deg, rgba(201,168,76,0.10) 0%, rgba(27,95,168,0.08) 100%);
+                border: 1px solid rgba(201,168,76,0.45);
+                border-left: 5px solid #C9A84C;
+                border-radius: 12px;
+                padding: 20px 24px;
+                margin: 4px 0 20px 0;
+            ">
+                <div style="
+                    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.16em;
+                    text-transform: uppercase; color: #C9A84C; margin-bottom: 6px;
+                ">💎 Capital Inmovilizado Recuperable</div>
+                <div style="
+                    font-size: 2.1rem; font-weight: 900;
+                    font-family: 'Playfair Display', serif;
+                    color: var(--text-color); line-height: 1.1; margin-bottom: 4px;
+                ">{numero_completo(_valor_ret)}</div>
+                <div style="
+                    font-size: 0.8rem; opacity: 0.55; margin-bottom: 12px;
+                ">{fmt_m2(_m2_ret, 2)} disponibles · {_piezas_ret} {'pieza' if _piezas_ret == 1 else 'piezas'} en inventario</div>
+                <div style="
+                    font-size: 0.84rem; line-height: 1.65;
+                    color: var(--text-color); opacity: 0.80;
+                    background: rgba(0,0,0,0.04); border-radius: 8px;
+                    padding: 10px 14px;
+                ">{_insight}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        if len(_sr["por_categoria"]) > 1:
+            with st.expander("📦 Ver desglose por material"):
+                _cols_ret = st.columns(min(len(_sr["por_categoria"]), 4))
+                for _ci, (_rcat, _rpzs, _rm2c, _rvalc) in enumerate(_sr["por_categoria"]):
+                    _bg, _fg = BADGE_COLORS.get(_rcat, ("#e8f0f8", "#1a4a8a"))
+                    _cols_ret[_ci % 4].markdown(
+                        f'<div style="background:{_bg};color:{_fg};border-radius:8px;'
+                        f'padding:12px 14px;text-align:center;margin-bottom:6px">'
+                        f'<div style="font-size:0.7rem;font-weight:800;letter-spacing:0.1em;'
+                        f'text-transform:uppercase;margin-bottom:4px">{_rcat}</div>'
+                        f'<div style="font-size:1.1rem;font-weight:900">{numero_completo(_rvalc)}</div>'
+                        f'<div style="font-size:0.72rem;opacity:0.7;margin-top:2px">'
+                        f'{fmt_m2(_rm2c, 2)} · {int(_rpzs)} pza.</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
     # ── Alerta de margen ──────────────────────────────────────────────────────
     if _s["margen_prom"] and _s["margen_prom"] < 25:
         st.warning(
@@ -2177,7 +2312,8 @@ elif pagina == "Banco de Retales":
         st.markdown("<hr style='margin:0 0 8px'>", unsafe_allow_html=True)
 
         for _rr in _filas_filtradas:
-            _rr_id, _rr_cat, _rr_ref, _rr_m2d, _rr_m2o, _rr_onum, _rr_ocli, _rr_fech, _rr_est, _rr_nota = _rr
+            _rr_id, _rr_cat, _rr_ref, _rr_m2d, _rr_m2o, _rr_onum, _rr_ocli, _rr_fech, _rr_est, _rr_nota = _rr[:10]
+            _rr_precio_rec = float(_rr[10]) if len(_rr) > 10 else 0.0
             _pct_rest = (_rr_m2d / _rr_m2o * 100) if _rr_m2o > 0 else 0
             _est_color = "#15803d" if _rr_est == "Disponible" else "#6b7280"
 
@@ -2222,6 +2358,33 @@ elif pagina == "Banco de Retales":
                         _eliminar_retal(_rr_id)
                         st.session_state.pop(_del_retal_key, None)
                         st.rerun()
+
+            # Campo editable: precio de recuperación
+            if _rr_est == "Disponible":
+                _pr_key = f"prec_rec_{_rr_id}"
+                _nuevo_precio_rec = st.number_input(
+                    f"💰 Precio recuperación (COP/m²) — {_rr_ref or _rr_cat}",
+                    min_value=0,
+                    max_value=5_000_000,
+                    value=int(_rr_precio_rec),
+                    step=5_000,
+                    key=_pr_key,
+                    help="Costo mínimo al cotizar con este retal. Cubre manipulación y bodegaje. $0 = costo de material en cero.",
+                )
+                if _nuevo_precio_rec != int(_rr_precio_rec):
+                    try:
+                        _conn_pr = _get_db_connection()
+                        _cur_pr  = _conn_pr.cursor()
+                        _cur_pr.execute(
+                            "UPDATE inventario_retales SET precio_recuperacion=%s WHERE id=%s",
+                            (_nuevo_precio_rec, _rr_id)
+                        )
+                        _conn_pr.commit()
+                        _cur_pr.close()
+                        _conn_pr.close()
+                        st.toast("✅ Precio de recuperación actualizado", icon="💾")
+                    except Exception as _e_pr:
+                        st.error(f"Error al guardar: {_e_pr}")
 
             # Barra de progreso de cuánto queda
             if _rr_m2o > 0 and _rr_est == "Disponible":
