@@ -780,7 +780,7 @@ def _pantalla_login():
     </style>
     """, unsafe_allow_html=True)
 
-    _, col, _ = st.columns([1, 2, 1])
+    _, col, _ = st.columns([2, 1, 2])
     with col:
         # ── Logo corporativo centrado ─────────────────────────────────────────
         # Busca la imagen en las extensiones habituales; fallback al texto "CC"
@@ -793,15 +793,13 @@ def _pantalla_login():
             None
         )
 
-        # Logo centrado con ancho fijo (180 px) para que el formulario
-        # sea visible sin scroll en pantallas de laptop estándar (1366×768+).
-        # Se usa st.columns para centrar horizontalmente sin use_container_width.
-        _lc1, _lc2, _lc3 = st.columns([1, 1, 1])
+        # Logo centrado con use_container_width para equilibrio perfecto.
+        _lc1, _lc2, _lc3 = st.columns([1, 2, 1])
         with _lc2:
             if st.session_state.get("logo_bytes"):
-                st.image(st.session_state.logo_bytes, width=180)
+                st.image(st.session_state.logo_bytes, use_container_width=True)
             elif _login_logo:
-                st.image(_login_logo, width=180)
+                st.image(_login_logo, use_container_width=True)
             else:
                 st.markdown(
                     '<div style="text-align:center;padding:10px 0 6px">' +
