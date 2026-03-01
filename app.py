@@ -897,6 +897,21 @@ elif pagina == "Cotizacion Directa":
     # ── PASO 1: MATERIAL(ES) ─────────────────────────────────────────────────
     seccion_titulo("Paso 1 — Material(es)", "Puedes agregar uno o más materiales si el proyecto mezcla referencias")
 
+    with st.expander("❓ ¿Cómo lleno este paso? — Ayuda rápida", expanded=False):
+        st.markdown("""
+**Categoría:** El tipo de piedra o material que vas a instalar (Mármol, Granito, etc.).
+
+**Referencia:** El nombre específico de la lámina que compraste, por ejemplo "Crema Marfil" o "Calacatta Gold". Si no sabes el nombre exacto, deja "Otra referencia" y escríbelo.
+
+**Precio por m² (COP):** Exactamente lo que te cobró el proveedor por cada metro cuadrado del material. 
+Está en la factura de compra. **No lo inventes — usa el valor real de lo que pagaste.**
+
+**Área comprada (m²):** Los metros cuadrados totales de material que compraste. 
+Está en la factura. Ejemplo: si compraste una lámina de 1,20 m × 2,60 m = **3,12 m²**.
+
+> 💡 Si tienes sobrante de un proyecto anterior, la app te avisará aquí con un aviso azul y podrás usarlo gratis.
+        """)
+
     # Inicializar lista de materiales si no existe
     if "materiales_proyecto" not in st.session_state or not st.session_state.materiales_proyecto:
         st.session_state.materiales_proyecto = pre.get("materiales_proyecto", [
@@ -1050,6 +1065,31 @@ elif pagina == "Cotizacion Directa":
     # ── PASO 2: DIMENSIONES ──────────────────────────────────────────────────
     seccion_titulo("Paso 2 — Dimensiones del proyecto", "Ingresa cada pieza por metros lineales — la app convierte a m² automaticamente")
 
+    with st.expander("❓ ¿Cómo mido las piezas? — Ayuda con metros lineales", expanded=False):
+        st.markdown("""
+**¿Qué es un metro lineal (ML)?**
+
+En marmolería, se habla de **metros lineales de largo**, no de metros cuadrados. 
+La app necesita el **largo** de cada pieza, y el ancho ya está preconfigurado según el tipo de elemento.
+
+**Ejemplo práctico:**
+- Mesón de cocina de 3 metros de largo → ingresas **3 ML** en "Largo"
+- El ancho estándar de un mesón es 0,60 m → la app calcula 3 × 0,60 = **1,80 m²** automáticamente
+
+**¿Qué es una "pieza"?**
+
+Cada elemento de piedra es una pieza. Si un mesón en L tiene dos tramos, son dos piezas separadas.
+
+**Tipos más comunes y su ancho estándar:**
+- Mesón de cocina: 0,60 m de ancho
+- Baño / lavamanos: 0,45 m de ancho  
+- Zócalo: 0,10 m de ancho
+- Escalón (huella): 0,30 m de ancho
+- Piso / revestimiento: se mide en m² directamente
+
+> 💡 Si el ancho de tu pieza es diferente al estándar, selecciona **"Personalizado"** e ingresa el valor real.
+        """)
+
     if "piezas" not in st.session_state or not st.session_state.piezas:
         st.session_state.piezas = pre.get("piezas", [{"nombre": "Meson de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}])
 
@@ -1152,13 +1192,32 @@ elif pagina == "Cotizacion Directa":
     with c1:
         m2_usados = st.number_input("m² finalmente instalados", min_value=0.0, value=float(pre.get("m2_usados", m2_real)), step=0.05, key="cdir_m2_usados")
     with c2:
-        margen_pct = st.slider("Margen de utilidad (%)", min_value=5, max_value=80, value=int(pre.get("margen_pct", 40)), step=1, key="cdir_margen")
+        margen_pct = st.slider(
+            "Margen de ganancia (%)",
+            min_value=5, max_value=80,
+            value=int(pre.get("margen_pct", 40)),
+            step=1, key="cdir_margen",
+            help=(
+                "El margen es la ganancia que quieres llevarte sobre el precio de venta.\n\n"
+                "Ejemplo con margen 40%: si tus costos son $600.000, el precio de venta será $1.000.000 "
+                "y tu ganancia son $400.000.\n\n"
+                "✅ Saludable: 30-45% | ⚠️ Aceptable: 20-30% | 🚨 Riesgo: menos del 20%"
+            )
+        )
     with c3:
         if area_placa > 0 and m2_usados > 0:
             aprv = min(100, m2_usados / area_placa * 100)
             retal = max(0, area_placa - m2_usados)
             estado_a = "bueno" if aprv >= 80 else "acepta" if aprv >= 50 else "bajo"
-            alerta(f"Aprovechamiento: **{aprv:.1f}%** — Retal: {fmt_m2(retal)}", estado_a)
+            alerta(
+                f"Uso del material: **{aprv:.1f}%** — Sobra: {fmt_m2(retal)}",
+                estado_a
+            )
+            if retal > 0.1:
+                st.caption(
+                    f"💡 Sobran **{fmt_m2(retal)}** de material. Si guardas ese pedazo, "
+                    f"el sistema lo registrará como sobrante aprovechable para el próximo proyecto."
+                )
 
     st.markdown("---")
 
@@ -1762,10 +1821,52 @@ elif pagina == "Cotizacion AIU":
     
     st.markdown("---")
     seccion_titulo("Porcentajes AIU y Logística")
+
+    # ── Guía explicativa AIU ──────────────────────────────────────────────────
+    with st.expander("📖 ¿Qué significa AIU? — Toca aquí para entenderlo", expanded=False):
+        st.markdown("""
+**AIU = Administración + Imprevistos + Utilidad**
+
+Es la estructura de cobro estándar para contratos de construcción y obra en Colombia 
+(exigida por constructoras y entidades públicas). Se aplica como **porcentaje sobre el Costo Directo** del proyecto.
+
+| Componente | ¿Qué incluye? | Valor típico |
+|---|---|---|
+| **A — Administración** | Gastos de oficina, papelería, contador, permisos, seguros | 1.5% – 3% |
+| **I — Imprevistos** | Colchón para imprevistos: clima, accidentes, retrasos | 1% – 3% |
+| **U — Utilidad** | Tu ganancia por el proyecto | 5% – 10% |
+
+**Sobre el IVA:** por ley colombiana (Decreto 1372/92), el IVA del 19% se cobra **solo sobre la Utilidad (U)**, 
+no sobre el total del contrato. La app calcula esto automáticamente.
+
+**Ejemplo práctico:**
+- Costo Directo: $10.000.000
+- A (2%): $200.000 — para cubrir gastos administrativos
+- I (2%): $200.000 — colchón de imprevistos
+- U (5%): $500.000 — tu ganancia
+- IVA 19% sobre U: $95.000
+- **Total contrato: $10.995.000**
+        """)
+
     c1, c2, c3, c4 = st.columns(4)
-    with c1: pct_a = st.number_input("Admin (%)", value=float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])), step=0.5, key="aiu_pct_a")
-    with c2: pct_i = st.number_input("Imprevistos (%)", value=float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])), step=0.5, key="aiu_pct_i")
-    with c3: pct_u = st.number_input("Utilidad (%)", value=float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])), step=0.5, key="aiu_pct_u")
+    with c1: pct_a = st.number_input(
+        "A — Administración (%)",
+        value=float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])),
+        step=0.5, key="aiu_pct_a",
+        help="Cubre los gastos administrativos del proyecto: papelería, seguros, contador, permisos. Valor habitual: 2%."
+    )
+    with c2: pct_i = st.number_input(
+        "I — Imprevistos (%)",
+        value=float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])),
+        step=0.5, key="aiu_pct_i",
+        help="Reserva para lo inesperado: un accidente, un día de lluvia que para la obra, un material que llega tarde. Valor habitual: 2%."
+    )
+    with c3: pct_u = st.number_input(
+        "U — Tu ganancia (%)",
+        value=float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])),
+        step=0.5, key="aiu_pct_u",
+        help="Este es tu margen de utilidad. El IVA del 19% se aplica SOLO sobre este valor (no sobre el total). Valor habitual: 5-8%."
+    )
     with c4:
         veh_aiu_lbl = st.selectbox("Vehículo", list(VEHICULOS.keys()), index=list(VEHICULOS.values()).index(st.session_state.pre.get("vehiculo_entrega", "frontier")) if st.session_state.pre.get("vehiculo_entrega", "frontier") in list(VEHICULOS.values()) else 0, key="aiu_vehiculo")
     
@@ -2611,11 +2712,39 @@ elif pagina == "Dashboard":
 elif pagina == "Banco de Retales":
     st.markdown(
         "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>♻️ Sobrantes Aprovechables</h2>"
-        "<p style='opacity:0.6;font-size:0.85rem;margin:0 0 20px'>"
+        "<p style='opacity:0.6;font-size:0.85rem;margin:0 0 12px'>"
         "Material que sobró de proyectos anteriores y puedes volver a vender — úsalo en el próximo proyecto y dispara tu margen de ganancia."
         "</p>",
         unsafe_allow_html=True
     )
+
+    # ── Tarjeta explicativa fija ──────────────────────────────────────────────
+    with st.expander("📖 ¿Cómo funciona este módulo? — Léeme si es tu primera vez", expanded=False):
+        st.markdown("""
+**¿Qué es un sobrante?**
+
+Cuando compras una lámina de mármol o granito para un proyecto, casi siempre sobra un pedazo que no se instaló. 
+Ese pedazo se llama **sobrante** (o retal). En lugar de botarlo o dejarlo arrinconado, este módulo te ayuda a registrarlo y usarlo en el próximo proyecto.
+
+**¿Por qué es importante?**
+
+Si usas ese sobrante en otro trabajo, **el costo del material en esa cotización sube a $0**, 
+lo que significa que toda la venta de ese material es ganancia pura. Tu margen puede subir del 40% habitual al 80-90%.
+
+**¿Cómo entra un sobrante aquí?**
+
+Automáticamente: cuando apruebas una cotización en el Historial que generó material de sobra, el sistema lo registra solo.
+
+Manual: puedes usar el botón **"+ Agregar sobrante manual"** para registrar piezas que ya tenías guardadas.
+
+**¿Cómo lo uso en una cotización?**
+
+Ve a **Cotización Directa**, selecciona el mismo material y la app te avisará que tienes sobrante disponible.
+Haz clic en "Usar sobrante" y el costo del material queda en $0.
+
+---
+**💡 Consejo:** Registra siempre dónde guardaste la pieza (usa el campo "Notas") para encontrarla rápido cuando la necesites.
+        """)
 
     # ── Métricas del banco ────────────────────────────────────────────────────
     try:
@@ -2780,13 +2909,21 @@ elif pagina == "Banco de Retales":
                         unsafe_allow_html=True
                     )
 
-                # Fila inferior: precio de recuperación compacto
+                # Fila inferior: precio de recuperación — con guía clara
                 if _rr_est == "Disponible":
+                    st.markdown(
+                        '<div style="border-top:1px solid var(--border-color);margin-top:10px;'
+                        'padding-top:10px"></div>',
+                        unsafe_allow_html=True
+                    )
                     _pr_col1, _pr_col2, _pr_col3 = st.columns([1.6, 1.5, 4.9])
                     with _pr_col1:
                         st.markdown(
-                            '<div style="font-size:0.7rem;font-weight:700;opacity:0.55;padding-top:8px">'
-                            '💰 Precio mínimo al reutilizar</div>',
+                            '<div style="font-size:0.75rem;font-weight:800;padding-top:8px;'
+                            'color:var(--text-color)">'
+                            '💰 ¿A qué precio lo vendes?</div>'
+                            '<div style="font-size:0.67rem;opacity:0.5;margin-top:3px;line-height:1.4">'
+                            'Por m² · Pon $0 si lo reutilizas sin cobrar el material</div>',
                             unsafe_allow_html=True
                         )
                     with _pr_col2:
@@ -2799,8 +2936,12 @@ elif pagina == "Banco de Retales":
                             step=5_000,
                             key=_pr_key,
                             label_visibility="collapsed",
-                            help="¿Cuánto cobras mínimo por este sobrante al usarlo en otra cotización? "
-                                 "Sirve para cubrir costos de guardado y manejo. Déjalo en $0 para no cobrar nada.",
+                            help=(
+                                "Este es el precio por m² que le vas a cobrar al cliente cuando uses este sobrante.\n\n"
+                                "Ejemplo: si tienes 2 m² guardados y pones $80.000/m², "
+                                "en la próxima cotización ese material costará $80.000/m² (en vez del precio de mercado completo).\n\n"
+                                "Déjalo en $0 si no quieres cobrar nada por el material — eso maximiza tu margen al máximo."
+                            ),
                         )
                         if _nuevo_precio_rec != int(_rr_precio_rec):
                             try:
@@ -2813,13 +2954,25 @@ elif pagina == "Banco de Retales":
                                 _conn_pr.commit()
                                 _cur_pr.close()
                                 _conn_pr.close()
-                                st.toast("✅ Precio actualizado", icon="💾")
+                                st.toast("✅ Precio guardado", icon="💾")
                             except Exception as _e_pr:
                                 st.error(f"Error al guardar: {_e_pr}")
                     with _pr_col3:
-                        _hint = "Sin costo de recuperación — material al costo $0" if _nuevo_precio_rec == 0 else f"Al cotizar con este sobrante, el material costará {numero_completo(_nuevo_precio_rec)}/m²"
+                        if _nuevo_precio_rec == 0:
+                            _hint_icon = "🟢"
+                            _hint_txt  = "Material gratis para la próxima cotización — tu margen de ganancia sube al máximo."
+                            _hint_color = "#15803d"
+                        elif _nuevo_precio_rec < 50_000:
+                            _hint_icon = "🟡"
+                            _hint_txt  = f"Cobras {numero_completo(_nuevo_precio_rec)}/m² por este sobrante — precio simbólico, buen margen."
+                            _hint_color = "#d97706"
+                        else:
+                            _hint_icon = "🔵"
+                            _hint_txt  = f"Cobras {numero_completo(_nuevo_precio_rec)}/m² — precio de mercado parcial. El margen sigue siendo mejor que comprar nuevo."
+                            _hint_color = "#1B5FA8"
                         st.markdown(
-                            f'<div style="font-size:0.72rem;opacity:0.45;padding-top:10px">{_hint}</div>',
+                            f'<div style="font-size:0.77rem;padding-top:8px;color:{_hint_color};font-weight:600">' +
+                            f'{_hint_icon} {_hint_txt}</div>',
                             unsafe_allow_html=True
                         )
 
@@ -3141,6 +3294,23 @@ elif pagina == "Parametros":
 
     with t_tar:
         st.caption("Costos de mano de obra e insumos por material. Modifica cada campo y presiona **Guardar Tarifas**.")
+
+        with st.expander("📖 ¿Qué significa cada campo? — Toca aquí para entenderlo", expanded=False):
+            st.markdown("""
+Estos son los **costos que tú pagas** por producir el trabajo. No son el precio que le cobras al cliente — son los costos que la app usa para calcular ese precio automáticamente.
+
+| Campo | ¿Qué es en palabras simples? | Ejemplo |
+|---|---|---|
+| **Producción / ml** | Lo que le pagas al operario por cada metro lineal que corta e instala | El operario cobra $60.000 por cada ml → pon $60.000 |
+| **Zócalo / ml** | Lo que cuesta instalar el zócalo (la tira de piedra en el borde inferior de la pared) | $12.000 por cada ml de zócalo |
+| **Disco diamantado / m²** | Cuánto se gasta el disco de corte por cada m² que cortas. Los discos se desgastan. | Un disco cuesta $200.000 y dura ~90 m² → $2.200/m² |
+| **Máquina cortadora / día** | El costo diario de usar tu cortadora (depreciación + mantenimiento) | Si la cortadora vale $6M y dura 5 años → ~$20.000/día |
+| **Consumibles / m²** | Materiales que se gastan en cada obra: lijas, masilla, cera, sellador | Suma todo lo que gastas en insumos por m² instalado |
+| **Riesgo de rotura (%)** | Un porcentaje del costo del material que guardas por si se rompe algo | 2% = si el material cuesta $500.000, guardas $10.000 de provisión |
+
+**💡 Tip:** Si no sabes un valor exacto, deja el que ya está — son los valores del mercado de Barranquilla. Solo cambia cuando tengas un dato real de tu operación.
+            """)
+
         tar_act = get_tarifas()
         # NOTA: No sincronizamos session_state directamente aquí porque eso
         # sobreescribiría los valores que el usuario acaba de editar antes de guardar.
@@ -3227,6 +3397,30 @@ elif pagina == "Parametros":
 
     with t_via:
         st.caption("Costos de desplazamiento para proyectos fuera de Barranquilla. Modifica y presiona **Guardar Viáticos**.")
+
+        with st.expander("📖 ¿Para qué sirven los viáticos?", expanded=False):
+            st.markdown("""
+Los **viáticos** son los gastos que tiene el equipo cuando el proyecto es fuera de Barranquilla y deben quedarse a dormir.
+
+La app los suma automáticamente al costo del proyecto cuando activas la opción **"Proyecto fuera de la ciudad"** en la cotización.
+
+Hay dos destinos:
+- **Pueblo / Corregimiento:** zonas rurales o municipios pequeños (hospedaje más económico)
+- **Ciudad Capital:** Bogotá, Medellín, Cartagena, Santa Marta, etc. (hospedaje más costoso)
+
+Cada destino tiene tres componentes:
+
+| Campo | ¿Qué cubre? | Ejemplo Barranquilla 2026 |
+|---|---|---|
+| **Hospedaje** | Una noche de alojamiento por persona | $60.000–$90.000/noche |
+| **Alimentación** | Desayuno + almuerzo + cena por persona | $65.000–$70.000/día |
+| **Transporte local** | Movilidad dentro del destino (moto, taxi, buseta) | $20.000/día |
+
+La app multiplica estos valores por el número de personas y noches que configures en la cotización.
+
+**Ejemplo:** 2 operarios, 3 noches en pueblo = 2 × 3 × ($60.000 + $65.000 + $20.000) = **$870.000**
+            """)
+
         via_act = get_viaticos()
         # NOTA: No sincronizamos session_state directamente aquí.
         # Streamlit inicializa el widget con value= solo la primera vez que aparece el key.
@@ -3307,6 +3501,33 @@ elif pagina == "Parametros":
 
     with t_log:
         st.caption("Costos de transporte, vehículos propios, peajes y fletes. Modifica y presiona **Guardar Logística**.")
+
+        with st.expander("📖 ¿Cómo funciona el cálculo de logística?", expanded=False):
+            st.markdown("""
+La app calcula automáticamente el costo de llevar el material desde el taller hasta la obra del cliente.
+
+**¿Qué se suma?**
+- El costo del **combustible** del trayecto (según el rendimiento del vehículo y la distancia)
+- El **desgaste** del vehículo (llantas, frenos, suspensión) por kilómetro recorrido
+- El **costo base mínimo** por salir (aunque sea cerca)
+- Los **peajes** del camino
+- El **desgaste de herramientas** (llaves, niveles, espátulas que se gastan)
+- El **flete del agente externo** si alguien trajo el material desde el proveedor hasta tu taller
+
+**Vehículos propios (Frontier / Cheyenne):**
+El costo se calcula por kilómetro. La app hace:
+> costo = (gasolina ÷ rendimiento km/gal) + desgaste por km × km × 2 (ida + vuelta) + base mínima
+
+**Ejemplo con Frontier, 15 km de distancia:**
+> ($16.000 ÷ 7.2 km/gal) + $148/km = $2.370/km
+> $2.370 × 15 km × 2 (ida+vuelta) = $71.100 + $65.000 base = **$136.100 de transporte**
+
+**Vehículo externo / tercero:**
+Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre el mismo valor que configures aquí.
+
+**💡 Actualiza estos valores cada que cambien los precios del mercado** (gasolina, peajes, etc.).
+            """)
+
         log_act = get_logistica()
         # NOTA: No sincronizamos session_state directamente aquí.
         # Streamlit inicializa el widget con value= solo la primera vez que aparece el key.
