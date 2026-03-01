@@ -1,11 +1,12 @@
-# app.py — CostoMármol v7 · streamlit-authenticator · Feb 2026
+# app.py — CostoMármol v8 · CookieController Auth · Feb 2026
 # Mármoles Collante & Castro Ltda.
 
 import io
+import time
 import hashlib
-import bcrypt
+import hmac as _hmac_mod
 import streamlit as st
-import streamlit_authenticator as stauth
+from streamlit_cookies_controller import CookieController
 import psycopg2
 import json, os
 from datetime import date, datetime
@@ -35,6 +36,23 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded",
 )
+
+# ── GESTOR DE COOKIES HTTP ────────────────────────────────────────────────────
+# Instanciar INMEDIATAMENTE después de set_page_config, antes de cualquier
+# lógica de sesión. El componente React de CookieController necesita al menos
+# un ciclo de Streamlit para inyectar los valores de las cookies desde el
+# navegador al backend Python.
+cookie_ctrl = CookieController()
+_COOKIE_USUARIO = "costomarmol_usuario"   # guarda el username (30 días)
+
+# ── BLOQUEO DE RENDERIZADO ASÍNCRONO — solución definitiva al F5 ──────────────
+# En el ciclo 0 (cold start / F5), el JS del componente aún no ha enviado las
+# cookies al backend. Forzamos un rerun con delay mínimo para que el ciclo 1
+# ya tenga disponible el valor real de la cookie en cookie_ctrl.get().
+if "sesion_inicializada" not in st.session_state:
+    time.sleep(0.3)
+    st.session_state.sesion_inicializada = True
+    st.rerun()
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
 if "primera_visita" not in st.session_state:
@@ -533,72 +551,63 @@ REGLAS:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SISTEMA DE AUTENTICACIÓN — streamlit-authenticator + PostgreSQL
+# SISTEMA DE AUTENTICACIÓN — CookieController + PBKDF2-SHA256 + PostgreSQL
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# FLUJO:
-#   1. _cargar_credenciales_db()  →  lee usuarios de Supabase y construye el dict
-#      estándar que espera stauth.Authenticate.
-#   2. Authenticator gestiona la cookie de sesión internamente (bcrypt + JWT).
-#      Sobrevive a F5 sin race conditions.
-#   3. Tras login exitoso, _resolver_usuario_actual() inyecta el dict completo
-#      del usuario (id, rol, nombre) en st.session_state["usuario_actual"].
-#   4. El sidebar muestra el botón de logout nativo de stauth.
+# FLUJO (dos ciclos, sin race conditions):
+#   CICLO 0 (F5/cold-start): bloqueo arriba hace sleep(0.3) + rerun.
+#   CICLO 1+: cookie_ctrl.get() tiene el valor definitivo del navegador.
+#     • Si cookie existe → buscar usuario en BD → hidratar session_state → app.
+#     • Si no → _pantalla_login() → st.stop().
+#   LOGIN:  cookie_ctrl.set(username)  + time.sleep(0.3) + rerun.
+#   LOGOUT: cookie_ctrl.remove(key)    + time.sleep(0.3) + limpiar state + rerun.
 
-# ── Helpers de contraseña ────────────────────────────────────────────────────
+# ── Helpers de contraseña (PBKDF2-SHA256 puro, sin dependencias externas) ─────
 
 def _hash_password(password: str) -> str:
-    """
-    Hashing legacy PBKDF2-SHA256 (usado al crear/actualizar usuarios desde la app).
-    Los hashes existentes en la BD siguen este formato.
-    stauth usa bcrypt internamente para sus propias cookies; nosotros verificamos
-    contra el hash almacenado con esta función.
-    """
+    """Hashing PBKDF2-SHA256 con salt corporativo fijo. Sin dependencias externas."""
     salt = b"cc_marmoles_2026_salt"
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
     return dk.hex()
 
 def _verificar_password(password: str, hash_almacenado: str) -> bool:
-    """Verifica contra el hash PBKDF2 almacenado en la BD."""
-    import hmac as _hmac
-    return _hmac.compare_digest(_hash_password(password), hash_almacenado)
+    """Comparación segura contra timing-attacks via hmac.compare_digest."""
+    return _hmac_mod.compare_digest(_hash_password(password), hash_almacenado)
 
-def _pbkdf2_to_bcrypt(pbkdf2_hash: str, password_plain: str | None = None) -> str:
-    """
-    stauth.Authenticate espera hashes bcrypt en el dict de credenciales.
-    Como la BD almacena PBKDF2, generamos un bcrypt temporal del username+hash
-    para poblar el dict.  La verificación real ocurre en _pantalla_login_manual,
-    NO dentro de stauth.
-    NOTA: Este hash bcrypt solo es válido para que stauth no rechace el dict;
-    la autenticación verdadera sigue siendo nuestra.
-    """
-    seed = (pbkdf2_hash[:32]).encode()
-    return bcrypt.hashpw(seed, bcrypt.gensalt()).decode()
+# ── Helpers de cookie ─────────────────────────────────────────────────────────
 
-# ── Carga de credenciales desde PostgreSQL ───────────────────────────────────
+def _guardar_cookie_sesion(username: str) -> None:
+    """Persiste el username en cookie HTTP (30 días) y en session_state."""
+    cookie_ctrl.set(
+        _COOKIE_USUARIO, username,
+        max_age=30 * 24 * 3600,
+        path="/", secure=True, same_site="Lax",
+    )
+    st.session_state["_auth_username"] = username
 
-def _cargar_credenciales_db() -> dict:
-    """
-    Lee la tabla `usuarios` y construye el dict de credenciales que necesita
-    stauth.Authenticate:
-        {'usernames': {'jcastro': {'password': '<bcrypt>', 'name': 'Jorge Castro'}, ...}}
-    """
-    creds: dict = {"usernames": {}}
+def _leer_cookie_sesion() -> str | None:
+    """Lee el username desde session_state (caché de ciclo) o desde la cookie HTTP."""
+    cached = st.session_state.get("_auth_username")
+    if cached:
+        return cached
+    val = cookie_ctrl.get(_COOKIE_USUARIO)
+    if val:
+        st.session_state["_auth_username"] = val
+    return val or None
+
+def _limpiar_sesion() -> None:
+    """Cierra sesión: borra cookie HTTP y limpia session_state relevante."""
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute("SELECT username, password_hash, nombre_completo FROM usuarios")
-        for uname, pwd_hash, nombre in cur.fetchall():
-            # stauth valida contra bcrypt; derivamos uno desde el hash PBKDF2
-            creds["usernames"][uname] = {
-                "password": _pbkdf2_to_bcrypt(pwd_hash),
-                "name":     nombre or uname,
-            }
-        cur.close(); conn.close()
+        cookie_ctrl.remove(_COOKIE_USUARIO)
     except Exception:
         pass
-    return creds
+    for k in ["usuario_actual", "_auth_username", "_config_cargada",
+              "sesion_inicializada",
+              "cotizacion", "pre", "piezas", "materiales_proyecto",
+              "chat", "resumen_ia",
+              "_cotiz_guardada", "_cotiz_guardada_num",
+              "_aiu_guardada", "_aiu_guardada_num"]:
+        st.session_state.pop(k, None)
 
 # ── CRUD de usuarios ──────────────────────────────────────────────────────────
 
@@ -691,19 +700,12 @@ def _asegurar_admin_existe():
     except Exception:
         pass
 
-def _resolver_usuario_actual(username: str):
-    """Inyecta el dict completo del usuario en session_state tras login exitoso."""
-    usr = _buscar_usuario_por_username(username)
-    if usr:
-        st.session_state["usuario_actual"] = usr
+# ── Pantalla de Login ─────────────────────────────────────────────────────────
 
-# ── Pantalla de login manual (formulario propio + stauth cookie) ─────────────
-
-def _pantalla_login(authenticator: stauth.Authenticate):
+def _pantalla_login() -> None:
     """
-    Renderiza la pantalla de login corporativa.
-    Usa autenticación manual (verificamos el PBKDF2 nosotros) y después
-    forzamos la cookie de stauth para que sobreviva al F5.
+    Renderiza la pantalla de login corporativa con CookieController.
+    En login exitoso: _guardar_cookie_sesion() + time.sleep(0.3) + st.rerun().
     """
     _asegurar_admin_existe()
 
@@ -726,12 +728,12 @@ def _pantalla_login(authenticator: stauth.Authenticate):
          if os.path.exists(os.path.join(_login_base_dir, n))),
         None
     )
-    _, _lc, _ = st.columns([1, 1.5, 1])
-    with _lc:
+    _col1, _col2, _col3 = st.columns([1.2, 1, 1.2])
+    with _col2:
         if st.session_state.get("logo_bytes"):
-            st.image(st.session_state.logo_bytes, width=200)
+            st.image(st.session_state.logo_bytes, use_container_width=True)
         elif _login_logo:
-            st.image(_login_logo, width=200)
+            st.image(_login_logo, use_container_width=True)
         else:
             st.markdown(
                 '<div style="text-align:center;padding:10px 0 6px">'
@@ -762,26 +764,12 @@ def _pantalla_login(authenticator: stauth.Authenticate):
                 else:
                     _usr = _buscar_usuario_por_username(_uname)
                     if _usr and _verificar_password(_pwd, _usr["password_hash"]):
-                        # Autenticación exitosa: hidratar session_state de stauth
-                        # para que la cookie JWT se emita y sobreviva al F5.
-                        st.session_state["authentication_status"] = True
-                        st.session_state["username"]               = _usr["username"]
-                        st.session_state["name"]                   = _usr["nombre_completo"] or _usr["username"]
-                        st.session_state["usuario_actual"]         = _usr
-                        authenticator.credentials["usernames"].setdefault(
-                            _usr["username"], {
-                                "password": _pbkdf2_to_bcrypt(_usr["password_hash"]),
-                                "name":     _usr["nombre_completo"] or _usr["username"],
-                            }
-                        )
-                        # Emitir cookie JWT de stauth (persistencia F5)
-                        try:
-                            authenticator._implement_logout    # noqa: just probe attr
-                            authenticator.cookie_handler.set_cookie()
-                        except Exception:
-                            pass
+                        # Login exitoso: persistir username en cookie HTTP (30 días)
+                        _guardar_cookie_sesion(_usr["username"])
+                        st.session_state["usuario_actual"] = _usr
                         st.success(
                             f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
+                        time.sleep(0.3)
                         st.rerun()
                     else:
                         st.error("Usuario o contraseña incorrectos.", icon="🚨")
@@ -957,57 +945,30 @@ except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MURO DE AUTENTICACIÓN — streamlit-authenticator
+# MURO DE AUTENTICACIÓN — CookieController
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# FLUJO (sin race conditions):
-#   1. Construimos el dict de credenciales desde Supabase (una vez por sesión).
-#   2. Instanciamos stauth.Authenticate. El objeto gestiona internamente la
-#      cookie JWT: la lee en cada ciclo y la escribe en login exitoso.
-#   3. Si authentication_status es True (cookie válida o login manual):
-#      → aseguramos que usuario_actual esté en session_state y mostramos la app.
-#   4. Si es False → error de credenciales.
-#   5. Si es None → pantalla de login corporativa.
+# FLUJO (ciclo 1+ — el ciclo 0 ya hizo rerun arriba):
+#   1. Leer username de la cookie HTTP (o del caché de session_state).
+#   2. Si existe → buscar usuario en BD → hidratar session_state → mostrar app.
+#   3. Si no existe → mostrar _pantalla_login() → st.stop().
 
-# Cargar credenciales desde BD (una sola vez por sesión de Python)
-if "stauth_credentials" not in st.session_state:
-    st.session_state["stauth_credentials"] = _cargar_credenciales_db()
+_usuario_cookie = _leer_cookie_sesion()
 
-_credentials = st.session_state["stauth_credentials"]
-
-# Instanciar el autenticador (se re-crea en cada ciclo, pero es barato)
-_authenticator = stauth.Authenticate(
-    _credentials,
-    "costomarmol_cookie",   # cookie_name
-    st.secrets.get("APP_SECRET", "cc_marbles_auth_key_2026"),  # key
-    cookie_expiry_days=30,
-)
-
-# Intentar leer la cookie JWT de sesiones previas / actuales
-_auth_name, _auth_status, _auth_username = _authenticator.login(
-    location="unrendered"   # No renderiza formulario propio — usamos el nuestro
-)
-
-# Resolver authentication_status: puede venir de cookie (ciclos anteriores)
-# o del login manual que inyectó el valor directamente en session_state.
-_auth_status = st.session_state.get("authentication_status", _auth_status)
-_auth_username = st.session_state.get("username", _auth_username)
-
-if _auth_status:
-    # ── Sesión activa ─────────────────────────────────────────────────────────
-    # Asegurar que usuario_actual esté hidratado (puede perderse en F5 raro)
-    if not st.session_state.get("usuario_actual") and _auth_username:
-        _resolver_usuario_actual(_auth_username)
-
-elif _auth_status is False:
-    # ── Credenciales incorrectas (no debería ocurrir con nuestro formulario) ──
-    st.error("Usuario o contraseña incorrectos.", icon="🚨")
-    _pantalla_login(_authenticator)
-    st.stop()
-
+if _usuario_cookie:
+    # ── Cookie activa: hidratar usuario si aún no está en session_state ───────
+    if not st.session_state.get("usuario_actual"):
+        _usr_hidratado = _buscar_usuario_por_username(_usuario_cookie)
+        if _usr_hidratado:
+            st.session_state["usuario_actual"] = _usr_hidratado
+        else:
+            # Cookie apunta a usuario eliminado → limpiar y mostrar login
+            _limpiar_sesion()
+            _pantalla_login()
+            st.stop()
 else:
-    # ── Sin sesión activa → mostrar login corporativo ─────────────────────────
-    _pantalla_login(_authenticator)
+    # ── Sin cookie activa → mostrar login corporativo ─────────────────────────
+    _pantalla_login()
     st.stop()
 
 
@@ -1120,16 +1081,8 @@ with st.sidebar:
         unsafe_allow_html=True
     )
     if st.button("⏻ Cerrar sesión", use_container_width=True, key="btn_logout"):
-        # stauth limpia su cookie JWT; nosotros limpiamos session_state
-        try:
-            _authenticator.logout(location="unrendered")
-        except Exception:
-            pass
-        for k in ["usuario_actual", "authentication_status", "username", "name",
-                  "stauth_credentials", "_config_cargada",
-                  "cotizacion", "pre", "piezas", "materiales_proyecto",
-                  "chat", "resumen_ia"]:
-            st.session_state.pop(k, None)
+        _limpiar_sesion()
+        time.sleep(0.3)
         st.rerun()
 
     # ── 🆘 Botón SOS — Ayuda contextual inteligente en sidebar ───────────────
@@ -2508,7 +2461,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         _btn_aiu_actualizar = False
         _btn_aiu_nueva      = False
         _btn_aiu_cancelar   = False
-        _btn_aiu_calcular   = st.button("Calcular y Guardar AIU", type="primary", use_container_width=True)
+        _btn_aiu_calcular   = st.button("Calcular cotización AIU", type="primary", use_container_width=True)
 
     _ejecutar_aiu = (
         (_editando_id_aiu and (_btn_aiu_actualizar or _btn_aiu_nueva))
@@ -2518,7 +2471,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
     if _ejecutar_aiu:
         res_aiu = calcular_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu, agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu)
 
-        # Preparación exacta para la base de datos
+        # Preparación de campos para compatibilidad con BD y PDF
         res_aiu["tipo_proyecto"] = "Licitación AIU"
         res_aiu["categoria"] = "Proyecto Constructora"
         res_aiu["referencia"] = "Múltiple"
@@ -2536,30 +2489,31 @@ no sobre el total del contrato. La app calcula esto automáticamente.
 
         st.session_state.cotizacion = res_aiu
 
-        # [PERSISTENCIA] Guardar borrador AIU en BD
+        # [PERSISTENCIA] Guardar borrador AIU en BD (solo borrador, no historial)
         try:
             _guardar_config("borrador_cotizacion_aiu", res_aiu["_estado_guardado"])
         except Exception:
             pass
 
         import random as _r
-        _num_auto = f"AIU-{_hoy().strftime('%Y%m%d')}-{_r.randint(100,999)}"
+        _num_auto_aiu = f"AIU-{_hoy().strftime('%Y%m%d')}-{_r.randint(100,999)}"
+        st.session_state["_aiu_num_sugerido"] = _num_auto_aiu
 
         if _editando_id_aiu and _btn_aiu_actualizar:
             _actualizar_cotizacion(_editando_id_aiu, _editando_num_aiu, nombre_cliente_aiu or "Sin nombre", res_aiu)
             st.session_state.pop("editando_id", None)
             st.session_state.pop("editando_num", None)
+            st.session_state["_aiu_guardada"] = True
+            st.session_state["_aiu_guardada_num"] = _editando_num_aiu
             st.success(f"✅ Cotización AIU **{_editando_num_aiu}** actualizada correctamente.")
-        else:
-            _guardar_cotizacion(_num_auto, nombre_cliente_aiu or "Sin nombre", res_aiu)
-            if _editando_id_aiu and _btn_aiu_nueva:
-                st.session_state.pop("editando_id", None)
-                st.session_state.pop("editando_num", None)
-            st.success("✅ Cotización AIU guardada en el historial.")
+        elif _editando_id_aiu and _btn_aiu_nueva:
+            st.session_state.pop("editando_id", None)
+            st.session_state.pop("editando_num", None)
+            st.session_state["_aiu_guardada"] = False   # Nueva: dejar que el usuario decida guardar
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU":
         r = st.session_state.cotizacion
-        
+
         st.markdown(f"""
         <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
           <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio total del contrato (AIU)</div>
@@ -2579,13 +2533,68 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             ], "PRECIO TOTAL", r['precio_total'])
 
         st.markdown("---")
+
+        # ── Bloque de guardado en historial (idéntico al de Cotización Directa) ─
+        _ya_guardada_aiu = st.session_state.get("_aiu_guardada", False)
+        _num_sugerido_aiu = st.session_state.get("_aiu_num_sugerido",
+                                                   f"AIU-{_hoy().strftime('%Y%m%d')}-001")
+
+        if _ya_guardada_aiu:
+            _num_g_aiu = st.session_state.get("_aiu_guardada_num", "")
+            if _num_g_aiu:
+                st.success(f"✅ Cotización AIU **{_num_g_aiu}** guardada en el historial.", icon="💾")
+            else:
+                st.info("📋 Cotización calculada como borrador. No se guardó en historial.")
+        else:
+            st.markdown(
+                """<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                border-radius:12px;padding:18px 22px;margin-bottom:4px">
+                <div style="font-size:0.75rem;font-weight:700;opacity:0.5;text-transform:uppercase;margin-bottom:4px">💾 ¿Guardar en historial?</div>
+                <div style="font-size:0.88rem;opacity:0.75;margin-bottom:12px">
+                Si esta es una oferta real para un cliente, guárdala. Si es un borrador o prueba, puedes omitirlo.
+                </div></div>""",
+                unsafe_allow_html=True
+            )
+            _gc1_aiu, _gc2_aiu, _gc3_aiu = st.columns([2, 1.5, 1])
+            with _gc1_aiu:
+                _num_guardar_aiu = st.text_input(
+                    "Número de cotización AIU",
+                    value=_num_sugerido_aiu,
+                    key="num_guardar_aiu_hist",
+                    label_visibility="collapsed",
+                    placeholder="Ej: AIU-20260301-001"
+                )
+            with _gc2_aiu:
+                if st.button("💾 Guardar en historial", type="primary",
+                             use_container_width=True, key="btn_guardar_aiu_hist"):
+                    try:
+                        _guardar_cotizacion(
+                            _num_guardar_aiu,
+                            nombre_cliente_aiu or "Sin nombre",
+                            r
+                        )
+                        st.session_state["_aiu_guardada"] = True
+                        st.session_state["_aiu_guardada_num"] = _num_guardar_aiu
+                        st.rerun()
+                    except Exception as _eg_aiu:
+                        st.error(f"Error al guardar: {_eg_aiu}")
+            with _gc3_aiu:
+                if st.button("✕ Solo borrador", use_container_width=True,
+                             key="btn_no_guardar_aiu_hist"):
+                    st.session_state["_aiu_guardada"] = True
+                    st.session_state["_aiu_guardada_num"] = ""
+                    st.toast("Cotización AIU calculada como borrador. No se guardó en historial.",
+                             icon="📋")
+                    st.rerun()
+
+        st.markdown("---")
         st.markdown("#### Exportar Documentos Institucionales")
-        from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
+        from generador_pdf import generar_pdf_cotizacion_aiu, generar_cuenta_cobro
         cp1, cp2 = st.columns(2)
         with cp1:
             num_cot_a = st.text_input("Número de Oferta", value=f"OFE-AIU-{_hoy().strftime('%Y')}-001")
             if st.button("📄 Generar Oferta AIU (PDF)", type="primary", use_container_width=True):
-                pdf_bytes = generar_pdf_cotizacion(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
+                pdf_bytes = generar_pdf_cotizacion_aiu(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
                 st.download_button("⬇ Descargar Oferta", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
         with cp2:
             num_cc_a = st.text_input("Número de Cuenta / Factura", value=f"FAC-AIU-{_hoy().strftime('%Y')}-001")
