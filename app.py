@@ -1188,6 +1188,17 @@ Cada elemento de piedra es una pieza. Si un mesón en L tiene dos tramos, son do
             m2_cortados_total = m2_cortados_input if m2_cortados_input > 0 else m2_real
 
     st.markdown("---")
+    # ── Sincronización automática de m² finalmente instalados ─────────────────
+    # Cuando el usuario modifica ML o ancho de una pieza, m2_real cambia pero el
+    # widget "cdir_m2_usados" conserva el valor anterior porque Streamlit lo
+    # almacena en session_state por key. Detectamos el cambio y reseteamos el
+    # widget para que refleje siempre los m² actuales del proyecto.
+    _m2_real_prev = st.session_state.get("_cdir_m2_real_prev", None)
+    if _m2_real_prev is None or abs(_m2_real_prev - m2_real) > 0.001:
+        # m2_real cambió (o es la primera vez) → forzar actualización del widget
+        st.session_state["cdir_m2_usados"] = round(m2_real, 3)
+        st.session_state["_cdir_m2_real_prev"] = m2_real
+
     c1, c2, c3 = st.columns(3)
     with c1:
         m2_usados = st.number_input("m² finalmente instalados", min_value=0.0, value=float(pre.get("m2_usados", m2_real)), step=0.05, key="cdir_m2_usados")
