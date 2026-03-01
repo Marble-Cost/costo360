@@ -1640,25 +1640,21 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
             _actualizar_cotizacion(_editando_id, _editando_num, nombre_cliente, resultado)
             st.session_state.pop("editando_id", None)
             st.session_state.pop("editando_num", None)
+            st.session_state["_cotiz_guardada_num"] = _editando_num
+            st.session_state["_cotiz_guardada"] = True
             st.success(f"✅ Cotización **{_editando_num}** actualizada correctamente.")
-        else:
-            # NUEVA cotización (o "Guardar como nueva" desde edición)
+        elif _editando_id and _btn_guardar_nuevo:
+            # Guardar como nueva desde modo edición
             _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
-            if _editando_id and _btn_guardar_nuevo:
-                st.session_state.pop("editando_id", None)
-                st.session_state.pop("editando_num", None)
+            st.session_state.pop("editando_id", None)
+            st.session_state.pop("editando_num", None)
+            st.session_state["_cotiz_guardada_num"] = _num_auto
+            st.session_state["_cotiz_guardada"] = True
             st.success("✅ Cotización guardada exitosamente en el Historial.")
-
-        # ── Banco de Retales: descontar m² consumidos si se usó retal ─────────
-        for _mi, _md in enumerate(st.session_state.get("materiales_proyecto", [])):
-            if _md.get("es_retal") and _md.get("retal_id"):
-                try:
-                    _marcar_retal_usado(_md["retal_id"], _md.get("area_placa", 0))
-                    st.session_state.pop(f"usar_retal_{_mi}", None)
-                    st.session_state.pop(f"retal_id_{_mi}", None)
-                    st.session_state.pop(f"retal_m2_{_mi}", None)
-                except Exception:
-                    pass
+        else:
+            # NUEVA cotización — NO guardar automáticamente. El usuario decide al final.
+            st.session_state["_cotiz_guardada"] = False
+            st.session_state["_num_auto_sugerido"] = _num_auto
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") != "Licitación AIU":
         r = st.session_state.cotizacion
@@ -1703,14 +1699,14 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
         # ── Nota contextual ───────────────────────────────────────────────────
         if _iva_activo:
             alerta(
-                "ℹ️ **¿Cuándo cobrar IVA?** El IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
+                "**¿Cuándo cobrar IVA?** El IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
                 "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Se aplica sobre el total de la cotización. "
                 "Consulta a tu contador para confirmar.",
                 "info"
             )
         else:
             alerta(
-                "ℹ️ **Cotización sin IVA.** Si en algún momento cambias de régimen o el cliente lo requiere, "
+                "**Cotización sin IVA.** Si en algún momento cambias de régimen o el cliente lo requiere, "
                 "activa el IVA en el Paso 7 y recalcula.",
                 "info"
             )
@@ -1745,9 +1741,85 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
             _sim_ut = _sim_p - r["costo_total"]
             _sim_iva = _sim_p * 0.19 if _iva_activo else 0.0
             if _iva_activo:
-                alerta(f"Sin IVA: **{numero_completo(_sim_p)}**   |   Con IVA 19% s/total: **{numero_completo(_sim_p + _sim_iva)}**", "info")
+                st.markdown(
+                    f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                    border-radius:10px;padding:12px 16px;margin-top:4px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                      <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Sin IVA</span>
+                      <span style="font-size:1.05rem;font-weight:900;color:#1B5FA8">{numero_completo(_sim_p)}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px">
+                      <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span>
+                      <span style="font-size:1.05rem;font-weight:900;color:#C9A84C">{numero_completo(_sim_p + _sim_iva)}</span>
+                    </div>
+                    <div style="font-size:0.72rem;opacity:0.5;margin-top:6px">Utilidad: {numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
+                    </div>""",
+                    unsafe_allow_html=True
+                )
             else:
-                alerta(f"Precio total (sin IVA): **{numero_completo(_sim_p)}**", "info")
+                st.markdown(
+                    f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                    border-radius:10px;padding:12px 16px;margin-top:4px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                      <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Precio total (sin IVA)</span>
+                      <span style="font-size:1.1rem;font-weight:900;color:#1B5FA8">{numero_completo(_sim_p)}</span>
+                    </div>
+                    <div style="font-size:0.72rem;opacity:0.5;margin-top:6px">Utilidad: {numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
+                    </div>""",
+                    unsafe_allow_html=True
+                )
+
+        st.markdown("---")
+
+        # ── Bloque de guardado en historial ───────────────────────────────────
+        _ya_guardada = st.session_state.get("_cotiz_guardada", False)
+        _num_sugerido = st.session_state.get("_num_auto_sugerido", f"COT-{_hoy().strftime('%Y%m%d')}-001")
+
+        if _ya_guardada:
+            _num_g = st.session_state.get("_cotiz_guardada_num", "")
+            st.success(f"✅ Cotización **{_num_g}** guardada en el historial.", icon="💾")
+        else:
+            st.markdown(
+                """<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                border-radius:12px;padding:18px 22px;margin-bottom:4px">
+                <div style="font-size:0.75rem;font-weight:700;opacity:0.5;text-transform:uppercase;margin-bottom:4px">💾 ¿Guardar en historial?</div>
+                <div style="font-size:0.88rem;opacity:0.75;margin-bottom:12px">
+                Si esta es una cotización real para un cliente, guárdala. Si es un borrador o prueba, puedes omitirlo.
+                </div></div>""",
+                unsafe_allow_html=True
+            )
+            _gc1, _gc2, _gc3 = st.columns([2, 1.5, 1])
+            with _gc1:
+                _num_guardar = st.text_input(
+                    "Número de cotización",
+                    value=_num_sugerido,
+                    key="num_guardar_hist",
+                    label_visibility="collapsed",
+                    placeholder="Ej: COT-20260301-001"
+                )
+            with _gc2:
+                if st.button("💾 Guardar en historial", type="primary", use_container_width=True, key="btn_guardar_hist"):
+                    try:
+                        _guardar_cotizacion(_num_guardar, r.get("nombre_cliente", "Sin nombre"), r)
+                        # Descontar retales si aplica
+                        for _mi, _md in enumerate(st.session_state.get("materiales_proyecto", [])):
+                            if _md.get("es_retal") and _md.get("retal_id"):
+                                try:
+                                    _marcar_retal_usado(_md["retal_id"], _md.get("area_placa", 0))
+                                    st.session_state.pop(f"usar_retal_{_mi}", None)
+                                except Exception:
+                                    pass
+                        st.session_state["_cotiz_guardada"] = True
+                        st.session_state["_cotiz_guardada_num"] = _num_guardar
+                        st.rerun()
+                    except Exception as _eg:
+                        st.error(f"Error al guardar: {_eg}")
+            with _gc3:
+                if st.button("✕ Solo borrador", use_container_width=True, key="btn_no_guardar_hist"):
+                    st.session_state["_cotiz_guardada"] = True   # marcar como "ya decidido"
+                    st.session_state["_cotiz_guardada_num"] = ""
+                    st.toast("Cotización calculada como borrador. No se guardó en historial.", icon="📋")
+                    st.rerun()
 
         st.markdown("---")
         st.markdown("#### Exportar documentos comerciales")
