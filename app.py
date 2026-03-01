@@ -73,6 +73,16 @@ def _init_db():
             margen REAL, estado TEXT DEFAULT 'Pendiente', datos_json TEXT
         )
     """)
+    # ── Configuración persistente (parámetros, empresa_info, etc.) ────────────
+    # Tabla key-value: cada clave almacena un JSON serializado.
+    # Sobrevive a F5 / reinicios del servidor porque vive en Supabase.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS app_config (
+            clave TEXT PRIMARY KEY,
+            valor TEXT NOT NULL,
+            actualizado TEXT DEFAULT ''
+        )
+    """)
     # ── Banco de Retales Digital ──────────────────────────────────────────────
     cur.execute("""
         CREATE TABLE IF NOT EXISTS inventario_retales (
@@ -105,6 +115,64 @@ def _init_db():
     conn.commit()
     cur.close()
     conn.close()
+
+# ── Persistencia de configuración en Supabase ────────────────────────────────
+# Por qué: session_state se pierde en cada F5 / reinicio del servidor.
+# Solución: guardar en tabla app_config (key-value) y recargar al arrancar.
+
+def _guardar_config(clave: str, valor) -> None:
+    """Serializa `valor` como JSON y lo guarda/actualiza en app_config."""
+    _init_db()
+    conn = _get_db_connection()
+    cur  = conn.cursor()
+    cur.execute(
+        """INSERT INTO app_config (clave, valor, actualizado)
+           VALUES (%s, %s, %s)
+           ON CONFLICT (clave) DO UPDATE
+           SET valor = EXCLUDED.valor, actualizado = EXCLUDED.actualizado""",
+        (clave, json.dumps(valor, ensure_ascii=False, default=str), _hoy().isoformat())
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def _leer_config(clave: str, defecto=None):
+    """Lee un valor de app_config. Devuelve `defecto` si la clave no existe."""
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute("SELECT valor FROM app_config WHERE clave = %s", (clave,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return json.loads(row[0]) if row else defecto
+    except Exception:
+        return defecto
+
+def _cargar_config_desde_db() -> None:
+    """
+    Hidrata session_state desde Supabase al arrancar la app.
+    Solo sobreescribe si el valor en BD es distinto de None/vacío,
+    para no pisar datos que el usuario acaba de editar en esta sesión.
+    Marcamos con _config_cargada para ejecutarlo solo una vez por sesión.
+    """
+    if st.session_state.get("_config_cargada"):
+        return
+
+    _CLAVES_CONFIG = [
+        ("tarifas_custom",    None),
+        ("logistica_custom",  None),
+        ("viaticos_custom",   None),
+        ("adicionales_custom",None),
+        ("empresa_info",      None),
+    ]
+    for _clave, _def in _CLAVES_CONFIG:
+        _val = _leer_config(_clave, _def)
+        if _val is not None:
+            st.session_state[_clave] = _val
+
+    st.session_state["_config_cargada"] = True
 
 # ── CRUD Banco de Retales ─────────────────────────────────────────────────────
 
@@ -516,6 +584,16 @@ for k, v in _defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
+# ── Cargar configuración persistente desde Supabase ──────────────────────────
+# Se ejecuta UNA VEZ por sesión (marcador _config_cargada).
+# Sobreescribe tarifas_custom, logistica_custom, viaticos_custom,
+# adicionales_custom y empresa_info con los valores guardados en la BD,
+# de modo que sobreviven a F5 y reinicios del servidor.
+try:
+    _cargar_config_desde_db()
+except Exception:
+    pass   # Si la BD no está disponible, se usan los defaults del código
+
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
 def get_viaticos(): return st.session_state.viaticos_custom or VIATICOS
@@ -780,10 +858,27 @@ elif pagina == "Cotizacion Directa":
     st.markdown("<p style='opacity:0.7;font-size:0.88rem;margin-bottom:20px'>Para proyectos residenciales y clientes particulares</p>", unsafe_allow_html=True)
 
     pre = st.session_state.pre
+
+    # [PERSISTENCIA] Si el formulario está vacío (recién recargado con F5) y hay
+    # un borrador guardado en BD, restaurarlo automáticamente una sola vez.
+    if not pre and not st.session_state.get("_borrador_restaurado"):
+        try:
+            _borrador = _leer_config("borrador_cotizacion_directa")
+            if _borrador:
+                _borrador["_origen"] = "borrador"
+                st.session_state.pre  = _borrador
+                pre = _borrador
+        except Exception:
+            pass
+        st.session_state["_borrador_restaurado"] = True
+
     # Mostrar alerta SOLO cuando los datos vienen de Historial o IA (no del autosave propio)
     if pre and pre.get("_origen") in ("historial", "ia"):
         alerta("Datos cargados exitosamente (desde Historial o IA). Revisa y ajusta lo que necesites.", "bueno")
         # Limpiar el marcador de origen para que no reaparezca en cada render
+        st.session_state.pre.pop("_origen", None)
+    elif pre and pre.get("_origen") == "borrador":
+        alerta("📋 Se restauró tu último cálculo guardado (antes de la recarga). Puedes continuar donde lo dejaste.", "info")
         st.session_state.pre.pop("_origen", None)
     if pre and pre.get("nombre_cliente") or pre.get("piezas") or pre.get("materiales_proyecto"):
         if st.button("🗑️ Limpiar formulario y empezar de cero"):
@@ -1459,6 +1554,14 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
 
         st.session_state.cotizacion = resultado
         resultado["incluir_iva"] = incluir_iva
+
+        # [PERSISTENCIA] Guardar borrador del formulario en BD
+        # Permite restaurar el último cálculo tras un F5 o cierre accidental.
+        try:
+            _guardar_config("borrador_cotizacion_directa", resultado["_estado_guardado"])
+        except Exception:
+            pass
+
         import random as _rand
         _num_auto = f"COT-{_hoy().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
 
@@ -1614,6 +1717,19 @@ elif pagina == "Cotizacion AIU":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Cotizacion AIU</h2>", unsafe_allow_html=True)
     st.markdown("<p style='opacity:0.7;font-size:0.88rem'>Estructura formal colombiana A+I+U+IVA</p>", unsafe_allow_html=True)
 
+    # [PERSISTENCIA] Restaurar borrador AIU desde BD si session_state está vacío (post-F5)
+    if not st.session_state.pre and not st.session_state.get("_borrador_aiu_restaurado"):
+        try:
+            _borrador_aiu = _leer_config("borrador_cotizacion_aiu")
+            if _borrador_aiu:
+                st.session_state.pre = _borrador_aiu
+                if _borrador_aiu.get("aiu_items"):
+                    st.session_state.aiu_items = _borrador_aiu["aiu_items"]
+                st.info("📋 Se restauró tu último cálculo AIU (antes de la recarga).")
+        except Exception:
+            pass
+        st.session_state["_borrador_aiu_restaurado"] = True
+
     nombre_cliente_aiu = st.text_input("Nombre de la Constructora o Proyecto", placeholder="Ej: Constructora ABC", value=st.session_state.pre.get("nombre_cliente", ""), key="aiu_nombre_cliente")
 
     seccion_titulo("Items del contrato")
@@ -1740,6 +1856,13 @@ elif pagina == "Cotizacion AIU":
         }
 
         st.session_state.cotizacion = res_aiu
+
+        # [PERSISTENCIA] Guardar borrador AIU en BD
+        try:
+            _guardar_config("borrador_cotizacion_aiu", res_aiu["_estado_guardado"])
+        except Exception:
+            pass
+
         import random as _r
         _num_auto = f"AIU-{_hoy().strftime('%Y%m%d')}-{_r.randint(100,999)}"
 
@@ -2800,10 +2923,14 @@ elif pagina == "Parametros":
                                         _antes = (st.session_state.viaticos_custom or VIATICOS).copy()
                                         st.session_state.viaticos_custom = _d
                                         st.session_state.params_cambios_aplicados.append({"tipo": "viaticos", "antes": _antes, "despues": _d})
+                                        try: _guardar_config("viaticos_custom", _d)
+                                        except Exception: pass
                                     elif any(k in _d for k in ["Mármol", "Granito", "Sinterizado"]):
                                         _antes = (st.session_state.tarifas_custom or TARIFAS).copy()
                                         st.session_state.tarifas_custom = _d
                                         st.session_state.params_cambios_aplicados.append({"tipo": "tarifas", "antes": _antes, "despues": _d})
+                                        try: _guardar_config("tarifas_custom", _d)
+                                        except Exception: pass
                                     _aplicado_cmd = True
                                 except Exception:
                                     pass
@@ -2877,10 +3004,14 @@ elif pagina == "Parametros":
                                 _pantes = (st.session_state.viaticos_custom or VIATICOS).copy()
                                 st.session_state.viaticos_custom = _pd
                                 st.session_state.params_cambios_aplicados.append({"tipo": "viaticos", "antes": _pantes, "despues": _pd})
+                                try: _guardar_config("viaticos_custom", _pd)
+                                except Exception: pass
                             elif any(k in _pd for k in ["Mármol", "Granito", "Sinterizado"]):
                                 _pantes = (st.session_state.tarifas_custom or TARIFAS).copy()
                                 st.session_state.tarifas_custom = _pd
                                 st.session_state.params_cambios_aplicados.append({"tipo": "tarifas", "antes": _pantes, "despues": _pd})
+                                try: _guardar_config("tarifas_custom", _pd)
+                                except Exception: pass
                             _p_aplic = True
                         except Exception:
                             pass
@@ -3069,15 +3200,24 @@ elif pagina == "Parametros":
                     "riesgo_rotura": float(st.session_state.get(f"tar_rie_{_sm}", 0.02)),
                 }
             st.session_state.tarifas_custom = _saved_tar
+            # [PERSISTENCIA] Guardar en Supabase para sobrevivir a F5 y reinicios
+            try:
+                _guardar_config("tarifas_custom", _saved_tar)
+            except Exception:
+                pass
             # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
             for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
                 for _sfx in ["pml", "zoc", "dis", "maq", "con", "rie"]:
                     st.session_state.pop(f"tar_{_sfx}_{_sm}", None)
-            st.toast("✅ Tarifas guardadas correctamente", icon="💾")
+            st.toast("✅ Tarifas guardadas y persistidas correctamente", icon="💾")
             st.rerun()
         if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
                                   help="Vuelve a los valores por defecto de fábrica"):
             st.session_state.tarifas_custom = None
+            try:
+                _guardar_config("tarifas_custom", None)
+            except Exception:
+                pass
             # Limpiar keys de widgets para forzar recarga con valores por defecto
             for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
                 for _sfx in ["pml", "zoc", "dis", "maq", "con", "rie"]:
@@ -3141,15 +3281,24 @@ elif pagina == "Parametros":
                     "transporte_local": int(st.session_state.get("via_ciudad_tran", 20_000)),
                 },
             }
+            # [PERSISTENCIA] Guardar en Supabase
+            try:
+                _guardar_config("viaticos_custom", st.session_state.viaticos_custom)
+            except Exception:
+                pass
             # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
             for _vk in ["via_pueblo_hosp", "via_pueblo_alim", "via_pueblo_tran",
                         "via_ciudad_hosp", "via_ciudad_alim", "via_ciudad_tran"]:
                 st.session_state.pop(_vk, None)
-            st.toast("✅ Viáticos guardados correctamente", icon="💾")
+            st.toast("✅ Viáticos guardados y persistidos correctamente", icon="💾")
             st.rerun()
         if _col_reset_via.button("↺ Restaurar", key="btn_reset_via", use_container_width=True,
                                   help="Vuelve a los valores por defecto de fábrica"):
             st.session_state.viaticos_custom = None
+            try:
+                _guardar_config("viaticos_custom", None)
+            except Exception:
+                pass
             for _vk in ["via_pueblo_hosp", "via_pueblo_alim", "via_pueblo_tran",
                         "via_ciudad_hosp", "via_ciudad_alim", "via_ciudad_tran"]:
                 st.session_state.pop(_vk, None)
@@ -3267,16 +3416,25 @@ elif pagina == "Parametros":
                     "flete": int(st.session_state.get("log_ext_flete", 165_000)),
                 },
             }
+            # [PERSISTENCIA] Guardar en Supabase
+            try:
+                _guardar_config("logistica_custom", st.session_state.logistica_custom)
+            except Exception:
+                pass
             # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
             for _lk in ["log_gas", "log_pea", "log_her", "log_age",
                         "log_fr_rend", "log_fr_desg", "log_fr_base",
                         "log_ch_rend", "log_ch_desg", "log_ch_base", "log_ext_flete"]:
                 st.session_state.pop(_lk, None)
-            st.toast("✅ Logística guardada correctamente", icon="💾")
+            st.toast("✅ Logística guardada y persistida correctamente", icon="💾")
             st.rerun()
         if _col_reset_log.button("↺ Restaurar", key="btn_reset_log", use_container_width=True,
                                   help="Vuelve a los valores por defecto de fábrica"):
             st.session_state.logistica_custom = None
+            try:
+                _guardar_config("logistica_custom", None)
+            except Exception:
+                pass
             for _lk in ["log_gas", "log_pea", "log_her", "log_age",
                         "log_fr_rend", "log_fr_desg", "log_fr_base",
                         "log_ch_rend", "log_ch_desg", "log_ch_base", "log_ext_flete"]:
@@ -3402,11 +3560,16 @@ elif pagina == "Parametros":
                 })
             st.session_state.adicionales_custom = _saved_add
             st.session_state.add_editor = _saved_add
+            # [PERSISTENCIA] Guardar en Supabase
+            try:
+                _guardar_config("adicionales_custom", _saved_add)
+            except Exception:
+                pass
             # Limpiar keys para que se reinicialicen con los nuevos valores
             for _ai in range(len(_saved_add)):
                 for _sfx in ["con", "und", "ter", "aca", "est", "com"]:
                     st.session_state.pop(f"add_{_sfx}_{_ai}", None)
-            st.toast("✅ Costos adicionales guardados", icon="💾")
+            st.toast("✅ Costos adicionales guardados y persistidos", icon="💾")
             st.rerun()
 
         if _col_reset_add.button("↺ Restaurar", key="btn_reset_add", use_container_width=True,
@@ -3414,6 +3577,10 @@ elif pagina == "Parametros":
             import copy
             st.session_state.adicionales_custom = None
             st.session_state.add_editor = copy.deepcopy(ADICIONALES)
+            try:
+                _guardar_config("adicionales_custom", None)
+            except Exception:
+                pass
             for _ai in range(20):  # limpiar hasta 20 posibles keys
                 for _sfx in ["con", "und", "ter", "aca", "est", "com"]:
                     st.session_state.pop(f"add_{_sfx}_{_ai}", None)
@@ -3765,6 +3932,13 @@ elif pagina == "Configuracion":
             placeholder="Ej: Garantía de 1 año en instalación, no cubre manchas por ácidos...",
             help="Este texto aparecerá en el pie de página de las cotizaciones y cuentas de cobro PDF."
         )
+        st.markdown("")
+        if st.button("💾 Guardar datos de la empresa", type="primary", key="btn_save_emp", use_container_width=True):
+            try:
+                _guardar_config("empresa_info", st.session_state.empresa_info)
+                st.toast("✅ Datos de la empresa guardados y persistidos correctamente", icon="💾")
+            except Exception as _e:
+                st.error(f"Error al guardar: {_e}")
 
     with tab_finanzas:
         st.markdown("#### 🏦 Datos Bancarios (Aparecen en los PDFs de cobro)")
@@ -3813,6 +3987,13 @@ elif pagina == "Configuracion":
             f'</div>',
             unsafe_allow_html=True
         )
+        st.markdown("")
+        if st.button("💾 Guardar finanzas y parámetros comerciales", type="primary", key="btn_save_fin", use_container_width=True):
+            try:
+                _guardar_config("empresa_info", st.session_state.empresa_info)
+                st.toast("✅ Datos financieros guardados y persistidos correctamente", icon="💾")
+            except Exception as _e:
+                st.error(f"Error al guardar: {_e}")
 
     with tab_logo:
         st.info("El logo se redimensiona automáticamente para el sidebar y los encabezados PDF.", icon="🎨")
