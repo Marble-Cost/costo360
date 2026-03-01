@@ -321,7 +321,9 @@ def _stats_retales() -> dict:
         "m2_total":      float(row[1] or 0),
         "valor_total":   float(row[2] or 0),
         "por_categoria": por_categoria,
-    }(historial: list, mensaje: str) -> str:
+    }
+
+def _chat_parametros(historial: list, mensaje: str) -> str:
     try:
         import anthropic
         api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
