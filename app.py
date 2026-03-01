@@ -257,9 +257,16 @@ def _actualizar_estado(cot_id, nuevo_estado):
     conn.close()
 
 def _eliminar_cotizacion(cot_id):
+    """Elimina la cotizacion y sus sobrantes asociados del inventario."""
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
+    # Primero eliminar los sobrantes que provienen de esta cotizacion
+    cur.execute(
+        "DELETE FROM inventario_retales WHERE origen_cotizacion_id = %s",
+        (cot_id,)
+    )
+    # Luego eliminar la cotizacion
     cur.execute("DELETE FROM cotizaciones WHERE id=%s", (cot_id,))
     conn.commit()
     cur.close()
@@ -1687,14 +1694,21 @@ elif pagina == "Historial":
                                 st.session_state[_ck] = True
                                 st.rerun()
                         else:
-                            st.warning(f"¿Eliminar **{_rnum}**?")
+                            st.markdown(
+                                f'<div style="background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.3);'
+                                f'border-radius:8px;padding:10px 12px;margin-bottom:6px">'
+                                f'<div style="font-size:0.8rem;font-weight:700;color:#dc2626;margin-bottom:2px">¿Eliminar esta cotizacion?</div>'
+                                f'<div style="font-size:0.73rem;opacity:0.7">Se borrara {_rnum} y sus sobrantes asociados.</div>'
+                                f'</div>',
+                                unsafe_allow_html=True
+                            )
                             _dx, _dy = st.columns(2)
-                            if _dx.button("Sí", key=f"dsi_{_rid}",
+                            if _dx.button("Eliminar", key=f"dsi_{_rid}",
                                           type="primary", use_container_width=True):
                                 _eliminar_cotizacion(_rid)
                                 st.session_state.pop(_ck, None)
                                 st.rerun()
-                            if _dy.button("No", key=f"dno_{_rid}",
+                            if _dy.button("Cancelar", key=f"dno_{_rid}",
                                           use_container_width=True):
                                 st.session_state[_ck] = False
                                 st.rerun()
@@ -1760,9 +1774,18 @@ elif pagina == "Historial":
                         st.session_state[_ck2] = True
                         st.rerun()
                 else:
-                    st.warning(f"¿Eliminar **{_rnum}** — {_rcli}? Esta acción no se puede deshacer.")
+                    st.markdown(
+                        f'<div style="background:rgba(220,38,38,0.08);border:1px solid rgba(220,38,38,0.3);'
+                        f'border-radius:8px;padding:10px 14px;margin:4px 0 8px">'
+                        f'<div style="font-size:0.82rem;font-weight:700;color:#dc2626;margin-bottom:3px">'
+                        f'Eliminar {_rnum} — {_rcli}</div>'
+                        f'<div style="font-size:0.76rem;opacity:0.65">'
+                        f'Esta accion no se puede deshacer. Se eliminaran tambien los sobrantes asociados.</div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
                     _dx2, _dy2 = st.columns(2)
-                    if _dx2.button("Sí, eliminar", key=f"dsit_{_rid}",
+                    if _dx2.button("Eliminar", key=f"dsit_{_rid}",
                                    type="primary", use_container_width=True):
                         _eliminar_cotizacion(_rid)
                         st.session_state.pop(_ck2, None)
