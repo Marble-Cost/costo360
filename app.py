@@ -7,6 +7,13 @@ import streamlit as st
 import psycopg2
 import json, os
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
+
+_BOG = ZoneInfo("America/Bogota")
+
+def _hoy() -> date:
+    """Fecha actual en zona horaria de Colombia (evita desfase UTC del servidor)."""
+    return datetime.now(_BOG).date()
 from calculos import (
     calcular_cotizacion_directa, analizar_precio_real,
     calcular_aiu, calcular_logistica, ml_a_m2, cop,
@@ -113,7 +120,7 @@ def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, refe
                 estado, precio_recuperacion, precio_mercado_m2)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible', 0, %s)""",
             (categoria, referencia or "", round(m2_retal, 4), round(m2_retal, 4),
-             cot_id, numero, cliente or "Sin nombre", date.today().isoformat(),
+             cot_id, numero, cliente or "Sin nombre", _hoy().isoformat(),
              round(precio_m2_original, 0))
         )
         conn.commit()
@@ -201,7 +208,7 @@ def _guardar_cotizacion(numero, cliente, resultado):
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-        (numero, date.today().isoformat(), cliente or "Sin nombre",
+        (numero, _hoy().isoformat(), cliente or "Sin nombre",
          resultado.get("categoria",""), resultado.get("tipo_proyecto",""),
          resultado.get("m2_real",0), resultado.get("ml_proyecto",0),
          resultado.get("costo_total",0), resultado.get("precio_sugerido",0),
@@ -211,7 +218,9 @@ def _guardar_cotizacion(numero, cliente, resultado):
     conn.commit()
     cur.close()
     conn.close()
+    st.cache_data.clear()
 
+@st.cache_data(ttl=60)
 def _listar_cotizaciones(busqueda=""):
     _init_db()
     conn = _get_db_connection()
@@ -247,6 +256,7 @@ def _actualizar_estado(cot_id, nuevo_estado):
                 if _retal > 0.05:
                     cur.close()
                     conn.close()
+                    st.cache_data.clear()
                     _inyectar_retal(cot_id, _numero, _cliente, _material, _referencia, _retal,
                                     precio_m2_original=_precio_m2_orig)
                     return
@@ -255,6 +265,7 @@ def _actualizar_estado(cot_id, nuevo_estado):
 
     cur.close()
     conn.close()
+    st.cache_data.clear()
 
 def _eliminar_cotizacion(cot_id):
     """Elimina la cotizacion y sus sobrantes asociados del inventario."""
@@ -271,7 +282,9 @@ def _eliminar_cotizacion(cot_id):
     conn.commit()
     cur.close()
     conn.close()
+    st.cache_data.clear()
 
+@st.cache_data(ttl=60)
 def _stats_db():
     _init_db()
     conn = _get_db_connection()
@@ -1260,7 +1273,7 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
         st.session_state.cotizacion = resultado
         resultado["incluir_iva"] = incluir_iva
         import random as _rand
-        _num_auto = f"COT-{date.today().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
+        _num_auto = f"COT-{_hoy().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
         _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
 
         # ── Banco de Retales: descontar m² consumidos si se usó retal ─────────
@@ -1370,7 +1383,7 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
         from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
         colp1, colp2 = st.columns(2)
         with colp1:
-            num_cot = st.text_input("Número de Cotización", value=f"COT-{datetime.today().strftime('%Y')}-001", key="num_cot")
+            num_cot = st.text_input("Número de Cotización", value=f"COT-{_hoy().strftime('%Y')}-001", key="num_cot")
             if st.button("📄 Generar Cotización PDF", type="primary", use_container_width=True):
                 pdf_bytes = generar_pdf_cotizacion(
                     r, numero=num_cot,
@@ -1380,7 +1393,7 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
                 )
                 st.download_button("⬇ Descargar PDF", pdf_bytes, file_name=f"{num_cot}_Cotizacion.pdf", mime="application/pdf", use_container_width=True)
         with colp2:
-            num_cc = st.text_input("Número de Cuenta", value=f"CC-{datetime.today().strftime('%Y')}-001", key="num_cc")
+            num_cc = st.text_input("Número de Cuenta", value=f"CC-{_hoy().strftime('%Y')}-001", key="num_cc")
             nom_pag = st.text_input("Facturar a:", value=r.get("nombre_cliente",""), key="nom_pag")
             nit_pag = st.text_input("NIT / CC", value="", key="nit_pag")
             dir_pag = st.text_input("Dirección", value="", key="dir_pag")
@@ -1480,7 +1493,7 @@ elif pagina == "Cotizacion AIU":
         
         st.session_state.cotizacion = res_aiu
         import random as _r
-        _num_auto = f"AIU-{date.today().strftime('%Y%m%d')}-{_r.randint(100,999)}"
+        _num_auto = f"AIU-{_hoy().strftime('%Y%m%d')}-{_r.randint(100,999)}"
         _guardar_cotizacion(_num_auto, nombre_cliente_aiu or "Sin nombre", res_aiu)
         st.success("✅ Cotización AIU guardada en el historial.")
 
@@ -1510,12 +1523,12 @@ elif pagina == "Cotizacion AIU":
         from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
         cp1, cp2 = st.columns(2)
         with cp1:
-            num_cot_a = st.text_input("Número de Oferta", value=f"OFE-AIU-{datetime.today().strftime('%Y')}-001")
+            num_cot_a = st.text_input("Número de Oferta", value=f"OFE-AIU-{_hoy().strftime('%Y')}-001")
             if st.button("📄 Generar Oferta AIU (PDF)", type="primary", use_container_width=True):
                 pdf_bytes = generar_pdf_cotizacion(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
                 st.download_button("⬇ Descargar Oferta", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
         with cp2:
-            num_cc_a = st.text_input("Número de Cuenta / Factura", value=f"FAC-AIU-{datetime.today().strftime('%Y')}-001")
+            num_cc_a = st.text_input("Número de Cuenta / Factura", value=f"FAC-AIU-{_hoy().strftime('%Y')}-001")
             nom_pag_a = st.text_input("Facturar a:", value=nombre_cliente_aiu)
             nit_pag_a = st.text_input("NIT / Rut", value="")
             if st.button("📄 Generar Cobro AIU (PDF)", type="primary", use_container_width=True):
@@ -1596,9 +1609,28 @@ elif pagina == "Historial":
             try:
                 datos = json.loads(rjson)
                 eg = datos.get("_estado_guardado", datos)
+
+                # ── Limpiar claves residuales del formulario anterior ─────────
+                # Sin esto, Streamlit mantiene valores de la cotización previa
+                # porque los widgets ya están montados con las keys anteriores.
+                _CLAVES_FORMULARIO = [
+                    "piezas",
+                    "materiales_proyecto",
+                    "aiu_items",
+                    "zocalo_activo",
+                    "adicionales_activos",
+                    "foraneo_activo",
+                    "viaticos_activos",
+                    "resultado_calculo",
+                    "resumen_ia",
+                    "pre",
+                ]
+                for _k in _CLAVES_FORMULARIO:
+                    st.session_state.pop(_k, None)
+
                 if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
                         or eg.get("tipo_proyecto") == "Licitación AIU":
-                    st.session_state.aiu_items = eg.get("aiu_items", st.session_state.aiu_items)
+                    st.session_state.aiu_items = eg.get("aiu_items", [])
                     st.session_state.pre = eg
                     st.session_state.nav_radio = st.session_state.radio_ui = "Cotizacion AIU"
                 else:
@@ -2298,7 +2330,7 @@ elif pagina == "Banco de Retales":
                                (material_categoria, referencia, m2_disponibles, m2_original,
                                 fecha_ingreso, estado, notas)
                                VALUES (%s, %s, %s, %s, %s, 'Disponible', %s)""",
-                            (_ncat, _nref, _nm2, _nm2, date.today().isoformat(), _nnota)
+                            (_ncat, _nref, _nm2, _nm2, _hoy().isoformat(), _nnota)
                         )
                         _conn.commit()
                         _cur.close()
