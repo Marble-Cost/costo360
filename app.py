@@ -51,6 +51,12 @@ if "nav_radio" not in st.session_state:
     pag_url = st.query_params.get("pagina", "Inicio")
     st.session_state.nav_radio = pag_url
     st.session_state.radio_ui = pag_url
+else:
+    # CRÍTICO: sincronizar radio_ui con nav_radio en cada rerun.
+    # Sin esto, Streamlit restaura el widget radio al último valor del usuario
+    # (ej: "Historial") y sobreescribe una navegación programática al hacer rerun
+    # (ej: al cargar una cotización para editar → "Cotizacion Directa").
+    st.session_state.radio_ui = st.session_state.nav_radio
 
 # ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
 def _get_db_connection():
@@ -689,6 +695,50 @@ if st.session_state.get("onboarding_activo"):
                     st.rerun()
 
     st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HELPER GLOBAL: cargar cotización del historial en la calculadora
+# DEBE estar a nivel global (NO anidado en elif pagina == "Historial") para que
+# el st.rerun() que cambia la página no destruya la función antes de ejecutarse.
+# ═══════════════════════════════════════════════════════════════════════════════
+def _cargar_en_calculadora(rid, rnum, rjson):
+    """Carga una cotización del historial en el formulario para editarla."""
+    try:
+        datos = json.loads(rjson)
+    except Exception:
+        st.error("No se pudo leer el JSON de esta cotización.")
+        return
+
+    eg = datos.get("_estado_guardado", datos)
+
+    # Limpiar claves residuales del formulario anterior para evitar contaminación
+    _CLAVES_FORMULARIO = [
+        "piezas", "materiales_proyecto", "aiu_items",
+        "zocalo_activo", "adicionales_activos", "foraneo_activo",
+        "viaticos_activos", "resultado_calculo", "resumen_ia",
+        "pre", "editando_id", "cotizacion",
+    ]
+    for _k in _CLAVES_FORMULARIO:
+        st.session_state.pop(_k, None)
+
+    # Marcar modo edición con ID y número del registro
+    st.session_state.editando_id  = rid
+    st.session_state.editando_num = rnum
+    st.session_state.pre          = eg
+
+    if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
+            or eg.get("tipo_proyecto") == "Licitación AIU":
+        st.session_state.aiu_items = eg.get("aiu_items", [])
+        destino = "Cotizacion AIU"
+    else:
+        destino = "Cotizacion Directa"
+
+    # Actualizar navegación — la sincronización al inicio del rerun (línea ~49)
+    # garantiza que radio_ui quede alineado con nav_radio y el menú se vea correcto.
+    st.session_state.nav_radio = destino
+    st.query_params["pagina"]  = destino
+    st.rerun()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # INICIO
@@ -1735,46 +1785,7 @@ elif pagina == "Historial":
             "En revision": ("#1B5FA8", "🔵"),
         }
 
-        # Helper: cargar cotización en la calculadora
-        def _cargar_en_calculadora(rid, rnum, rjson):
-            # ── Parsear JSON de forma aislada ─────────────────────────────────
-            try:
-                datos = json.loads(rjson)
-            except Exception:
-                st.error("No se pudo leer el JSON de esta cotización.")
-                return
-
-            eg = datos.get("_estado_guardado", datos)
-
-            # ── Limpiar claves residuales del formulario anterior ─────────────
-            _CLAVES_FORMULARIO = [
-                "piezas", "materiales_proyecto", "aiu_items",
-                "zocalo_activo", "adicionales_activos", "foraneo_activo",
-                "viaticos_activos", "resultado_calculo", "resumen_ia",
-                "pre", "editando_id", "cotizacion",
-            ]
-            for _k in _CLAVES_FORMULARIO:
-                st.session_state.pop(_k, None)
-
-            # ── Marcar que estamos en modo edición ────────────────────────────
-            st.session_state.editando_id  = rid
-            st.session_state.editando_num = rnum
-
-            if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
-                    or eg.get("tipo_proyecto") == "Licitación AIU":
-                st.session_state.aiu_items = eg.get("aiu_items", [])
-                st.session_state.pre = eg
-                destino = "Cotizacion AIU"
-            else:
-                st.session_state.pre = eg
-                destino = "Cotizacion Directa"
-
-            # Actualizar TODAS las variables de navegación para evitar desfase visual
-            st.session_state.nav_radio  = destino
-            st.session_state.radio_ui   = destino
-            st.session_state._radio_ui  = destino
-            st.query_params["pagina"]   = destino
-            st.rerun()
+        # _cargar_en_calculadora se define a nivel global (ver más abajo en el archivo)
 
         # ── VISTA TARJETAS ────────────────────────────────────────────────────
         if _vista == "🃏 Tarjetas":
