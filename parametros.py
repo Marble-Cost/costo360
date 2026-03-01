@@ -239,6 +239,14 @@ TOUR_PASOS = [
         "pagina":   "Dashboard",
     },
     {
+        "id":       "banco_retales",
+        "etiqueta": "BANCO DE RETALES",
+        "icono":    "♻️",
+        "titulo":   "Maximiza tu Margen de Ganancia",
+        "cuerpo":   "CostoMármol rastrea automáticamente los sobrantes de tus proyectos aprobados. Cuando vayas a cotizar un trabajo pequeño, el sistema te avisará si tienes retal disponible.\n\nUsarlo disparará la rentabilidad de ese proyecto al reducir tu costo de compra a cero — o al precio de recuperación mínimo que tú configures en el Banco de Retales.\n\nEl Dashboard te muestra el Capital Inmovilizado Recuperable: el valor total de tus retales calculado al precio de mercado original del material.",
+        "pagina":   "Dashboard",
+    },
+    {
         "id":       "pdf",
         "etiqueta": "DOCUMENTOS",
         "icono":    "📄",
