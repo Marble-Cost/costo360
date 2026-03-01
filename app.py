@@ -2198,12 +2198,14 @@ elif pagina == "Dashboard":
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# BANCO DE RETALES DIGITAL
+# SOBRANTES APROVECHABLES (antes: Banco de Retales)
 # ═══════════════════════════════════════════════════════════════════════════════
 elif pagina == "Banco de Retales":
     st.markdown(
-        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>Banco de Retales</h2>"
-        "<p style='opacity:0.6;font-size:0.85rem;margin:0 0 20px'>Inventario de material sobrante con costo $0 — margen puro</p>",
+        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>♻️ Sobrantes Aprovechables</h2>"
+        "<p style='opacity:0.6;font-size:0.85rem;margin:0 0 20px'>"
+        "Material que sobró de proyectos anteriores y puedes volver a vender — úsalo en el próximo proyecto y dispara tu margen de ganancia."
+        "</p>",
         unsafe_allow_html=True
     )
 
@@ -2219,10 +2221,10 @@ elif pagina == "Banco de Retales":
     _m2_orig_total = sum(r[4] for r in _todos_retales)
 
     _rm1, _rm2, _rm3, _rm4 = st.columns(4)
-    _rm1.metric("Piezas disponibles", len(_disp))
-    _rm2.metric("m² disponibles", f"{_m2_disp_total:.2f} m²")
-    _rm3.metric("Piezas consumidas", len(_usados))
-    _rm4.metric("Total registrado", f"{len(_todos_retales)} piezas")
+    _rm1.metric("Sobrantes disponibles", len(_disp), help="Piezas de material que tienes guardadas y listas para usar en un nuevo proyecto.")
+    _rm2.metric("m² disponibles", f"{_m2_disp_total:.2f} m²", help="Metros cuadrados totales de material sobrante que tienes en inventario.")
+    _rm3.metric("Ya utilizados", len(_usados), help="Sobrantes que ya fueron asignados a un proyecto posterior.")
+    _rm4.metric("Total registrado", f"{len(_todos_retales)} piezas", help="Total de sobrantes que el sistema ha registrado, incluyendo los ya utilizados.")
 
     st.markdown("<hr style='margin:10px 0 20px'>", unsafe_allow_html=True)
 
@@ -2241,13 +2243,13 @@ elif pagina == "Banco de Retales":
             key="retal_filtro_est", label_visibility="collapsed"
         )
     with _rf3:
-        if st.button("+ Registrar retal manual", use_container_width=True, type="primary"):
+        if st.button("+ Agregar sobrante manual", use_container_width=True, type="primary"):
             st.session_state["retal_form_abierto"] = True
 
     # ── Formulario de registro manual ─────────────────────────────────────────
     if st.session_state.get("retal_form_abierto"):
         with st.container(border=True):
-            st.markdown("<div style='font-weight:700;margin-bottom:10px'>Registrar retal manualmente</div>", unsafe_allow_html=True)
+            st.markdown("<div style='font-weight:700;margin-bottom:10px'>Registrar sobrante manualmente</div>", unsafe_allow_html=True)
             _rf_c1, _rf_c2, _rf_c3 = st.columns([1.5, 1.5, 1])
             with _rf_c1:
                 _ncat = st.selectbox("Categoría", CATEGORIAS_MATERIAL, key="rfm_cat")
@@ -2295,109 +2297,126 @@ elif pagina == "Banco de Retales":
     if not _filas_filtradas:
         st.markdown(
             '<div style="text-align:center;padding:56px 0;opacity:0.38">'
-            '<div style="font-size:0.95rem;font-weight:700;margin-bottom:8px">Sin retales en el inventario</div>'
-            '<div style="font-size:0.83rem">Los retales se registran automáticamente cuando apruebas una cotización<br>'
-            'que generó sobrante de material. También puedes registrarlos manualmente.</div>'
+            '<div style="font-size:0.95rem;font-weight:700;margin-bottom:8px">No hay sobrantes en el inventario</div>'
+            '<div style="font-size:0.83rem">Los sobrantes se registran automáticamente cuando apruebas una cotización<br>'
+            'que generó material de sobra. También puedes agregarlos manualmente.</div>'
             '</div>',
             unsafe_allow_html=True
         )
     else:
-        # Cabecera de tabla
-        _th = st.columns([1.8, 1.4, 0.8, 0.8, 1.2, 1.2, 1.1, 0.7])
-        for _tc, _tl in zip(_th, ["Material", "Referencia", "Disp. (m²)", "Original (m²)",
-                                   "Origen", "Cliente", "Fecha", "Acción"]):
-            _tc.markdown(
-                f"<div style='font-size:0.68rem;font-weight:800;opacity:0.5;text-transform:uppercase;"
-                f"letter-spacing:0.06em;padding-bottom:4px'>{_tl}</div>",
-                unsafe_allow_html=True
-            )
-        st.markdown("<hr style='margin:0 0 8px'>", unsafe_allow_html=True)
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         for _rr in _filas_filtradas:
             _rr_id, _rr_cat, _rr_ref, _rr_m2d, _rr_m2o, _rr_onum, _rr_ocli, _rr_fech, _rr_est, _rr_nota = _rr[:10]
             _rr_precio_rec = float(_rr[10]) if len(_rr) > 10 else 0.0
             _pct_rest = (_rr_m2d / _rr_m2o * 100) if _rr_m2o > 0 else 0
             _est_color = "#15803d" if _rr_est == "Disponible" else "#6b7280"
+            _bg_card = "rgba(21,128,61,0.04)" if _rr_est == "Disponible" else "rgba(107,114,128,0.05)"
+            _border_color = "#15803d" if _rr_est == "Disponible" else "#6b7280"
 
-            _rc = st.columns([1.8, 1.4, 0.8, 0.8, 1.2, 1.2, 1.1, 0.7])
-            _rc[0].markdown(
-                f'<span style="font-size:0.82rem;font-weight:700">{_rr_cat}</span>',
-                unsafe_allow_html=True
-            )
-            _rc[1].markdown(
-                f'<span style="font-size:0.8rem;opacity:0.8">{_rr_ref or "—"}</span>',
-                unsafe_allow_html=True
-            )
-            _rc[2].markdown(
-                f'<span style="font-size:0.88rem;font-weight:800;color:{_est_color}">'
-                f'{_rr_m2d:.3f}</span>',
-                unsafe_allow_html=True
-            )
-            _rc[3].markdown(
-                f'<span style="font-size:0.8rem;opacity:0.55">{_rr_m2o:.3f}</span>',
-                unsafe_allow_html=True
-            )
-            _rc[4].markdown(
-                f'<span style="font-size:0.78rem;opacity:0.7">{_rr_onum or "Manual"}</span>',
-                unsafe_allow_html=True
-            )
-            _rc[5].markdown(
-                f'<span style="font-size:0.78rem;opacity:0.7">{_rr_ocli or "—"}</span>',
-                unsafe_allow_html=True
-            )
-            _rc[6].markdown(
-                f'<span style="font-size:0.78rem;opacity:0.55">{_rr_fech}</span>',
-                unsafe_allow_html=True
-            )
-            with _rc[7]:
-                _del_retal_key = f"del_retal_ok_{_rr_id}"
-                if not st.session_state.get(_del_retal_key):
-                    if st.button("Eliminar", key=f"del_retal_{_rr_id}", use_container_width=True):
-                        st.session_state[_del_retal_key] = True
-                        st.rerun()
-                else:
-                    if st.button("Confirmar", key=f"delconf_retal_{_rr_id}", use_container_width=True, type="primary"):
-                        _eliminar_retal(_rr_id)
-                        st.session_state.pop(_del_retal_key, None)
-                        st.rerun()
-
-            # Campo editable: precio de recuperación
-            if _rr_est == "Disponible":
-                _pr_key = f"prec_rec_{_rr_id}"
-                _nuevo_precio_rec = st.number_input(
-                    f"💰 Precio recuperación (COP/m²) — {_rr_ref or _rr_cat}",
-                    min_value=0,
-                    max_value=5_000_000,
-                    value=int(_rr_precio_rec),
-                    step=5_000,
-                    key=_pr_key,
-                    help="Costo mínimo al cotizar con este retal. Cubre manipulación y bodegaje. $0 = costo de material en cero.",
-                )
-                if _nuevo_precio_rec != int(_rr_precio_rec):
-                    try:
-                        _conn_pr = _get_db_connection()
-                        _cur_pr  = _conn_pr.cursor()
-                        _cur_pr.execute(
-                            "UPDATE inventario_retales SET precio_recuperacion=%s WHERE id=%s",
-                            (_nuevo_precio_rec, _rr_id)
-                        )
-                        _conn_pr.commit()
-                        _cur_pr.close()
-                        _conn_pr.close()
-                        st.toast("✅ Precio de recuperación actualizado", icon="💾")
-                    except Exception as _e_pr:
-                        st.error(f"Error al guardar: {_e_pr}")
-
-            # Barra de progreso de cuánto queda
-            if _rr_m2o > 0 and _rr_est == "Disponible":
+            # ── Tarjeta compacta por sobrante ─────────────────────────────────
+            with st.container():
                 st.markdown(
-                    f'<div style="height:3px;background:#e5e7eb;border-radius:2px;margin:2px 0 8px">'
-                    f'<div style="height:100%;width:{_pct_rest:.0f}%;background:#15803d;border-radius:2px"></div>'
-                    f'</div>',
+                    f'<div style="border:1px solid {_border_color};border-left:4px solid {_border_color};'
+                    f'border-radius:10px;padding:12px 16px 10px;margin-bottom:10px;background:{_bg_card}">',
                     unsafe_allow_html=True
                 )
-            else:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                # Fila superior: material + ref + m² + origen + fecha + badge estado
+                _ca, _cb, _cc, _cd, _ce, _cf = st.columns([1.6, 1.4, 0.9, 1.4, 1.1, 0.9])
+                _ca.markdown(
+                    f'<div style="font-size:0.85rem;font-weight:800">{_rr_cat}</div>'
+                    f'<div style="font-size:0.76rem;opacity:0.6">{_rr_ref or "Sin referencia"}</div>',
+                    unsafe_allow_html=True
+                )
+                _cb.markdown(
+                    f'<div style="font-size:0.7rem;opacity:0.5;text-transform:uppercase;font-weight:700">Disponible</div>'
+                    f'<div style="font-size:1.1rem;font-weight:900;color:{_est_color}">{_rr_m2d:.3f} m²</div>',
+                    unsafe_allow_html=True
+                )
+                _cc.markdown(
+                    f'<div style="font-size:0.7rem;opacity:0.5;text-transform:uppercase;font-weight:700">Original</div>'
+                    f'<div style="font-size:0.85rem;opacity:0.6">{_rr_m2o:.3f} m²</div>',
+                    unsafe_allow_html=True
+                )
+                _cd.markdown(
+                    f'<div style="font-size:0.7rem;opacity:0.5;text-transform:uppercase;font-weight:700">Origen</div>'
+                    f'<div style="font-size:0.78rem">{_rr_onum or "Manual"}</div>'
+                    f'<div style="font-size:0.72rem;opacity:0.55">{_rr_ocli or "—"}</div>',
+                    unsafe_allow_html=True
+                )
+                _ce.markdown(
+                    f'<div style="font-size:0.7rem;opacity:0.5;text-transform:uppercase;font-weight:700">Fecha</div>'
+                    f'<div style="font-size:0.76rem;opacity:0.65">{_rr_fech}</div>',
+                    unsafe_allow_html=True
+                )
+                with _cf:
+                    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                    _del_retal_key = f"del_retal_ok_{_rr_id}"
+                    if not st.session_state.get(_del_retal_key):
+                        if st.button("🗑️ Eliminar", key=f"del_retal_{_rr_id}", use_container_width=True):
+                            st.session_state[_del_retal_key] = True
+                            st.rerun()
+                    else:
+                        if st.button("✅ Confirmar", key=f"delconf_retal_{_rr_id}", use_container_width=True, type="primary"):
+                            _eliminar_retal(_rr_id)
+                            st.session_state.pop(_del_retal_key, None)
+                            st.rerun()
+
+                # Barra de progreso de cuánto queda
+                if _rr_m2o > 0 and _rr_est == "Disponible":
+                    st.markdown(
+                        f'<div style="height:4px;background:rgba(0,0,0,0.1);border-radius:2px;margin:10px 0 8px">'
+                        f'<div style="height:100%;width:{_pct_rest:.0f}%;background:{_est_color};border-radius:2px"></div>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+
+                # Fila inferior: precio de recuperación compacto
+                if _rr_est == "Disponible":
+                    _pr_col1, _pr_col2, _pr_col3 = st.columns([1.6, 1.5, 4.9])
+                    with _pr_col1:
+                        st.markdown(
+                            '<div style="font-size:0.7rem;font-weight:700;opacity:0.55;padding-top:8px">'
+                            '💰 Precio mínimo al reutilizar</div>',
+                            unsafe_allow_html=True
+                        )
+                    with _pr_col2:
+                        _pr_key = f"prec_rec_{_rr_id}"
+                        _nuevo_precio_rec = st.number_input(
+                            "precio_rec",
+                            min_value=0,
+                            max_value=5_000_000,
+                            value=int(_rr_precio_rec),
+                            step=5_000,
+                            key=_pr_key,
+                            label_visibility="collapsed",
+                            help="¿Cuánto cobras mínimo por este sobrante al usarlo en otra cotización? "
+                                 "Sirve para cubrir costos de guardado y manejo. Déjalo en $0 para no cobrar nada.",
+                        )
+                        if _nuevo_precio_rec != int(_rr_precio_rec):
+                            try:
+                                _conn_pr = _get_db_connection()
+                                _cur_pr  = _conn_pr.cursor()
+                                _cur_pr.execute(
+                                    "UPDATE inventario_retales SET precio_recuperacion=%s WHERE id=%s",
+                                    (_nuevo_precio_rec, _rr_id)
+                                )
+                                _conn_pr.commit()
+                                _cur_pr.close()
+                                _conn_pr.close()
+                                st.toast("✅ Precio actualizado", icon="💾")
+                            except Exception as _e_pr:
+                                st.error(f"Error al guardar: {_e_pr}")
+                    with _pr_col3:
+                        _hint = "Sin costo de recuperación — material al costo $0" if _nuevo_precio_rec == 0 else f"Al cotizar con este sobrante, el material costará {numero_completo(_nuevo_precio_rec)}/m²"
+                        st.markdown(
+                            f'<div style="font-size:0.72rem;opacity:0.45;padding-top:10px">{_hint}</div>',
+                            unsafe_allow_html=True
+                        )
+
+                st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
