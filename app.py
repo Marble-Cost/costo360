@@ -27,7 +27,7 @@ from parametros import (
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS,
 )
-from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
+from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos
 import plotly.graph_objects as go
 
 st.set_page_config(
@@ -1026,13 +1026,19 @@ with st.sidebar:
     )
 
     # Historial: redirección legacy si alguien tenía ruta guardada sin "Historial"
-    if st.session_state.get("nav_radio") not in ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
-                                                   "Historial", "Dashboard", "Banco de Retales",
-                                                   "Parametros", "Asistente IA", "Configuracion"]:
+    _paginas_validas = ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
+                        "Historial", "Dashboard", "Banco de Retales",
+                        "Parametros", "Asistente IA", "Configuracion", "Gestion de Equipo"]
+    if st.session_state.get("nav_radio") not in _paginas_validas:
         st.session_state.nav_radio = "Inicio"
         st.session_state.radio_ui = "Inicio"
 
-    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Banco de Retales", "Parametros", "Asistente IA", "Configuracion"]
+    # Menú dinámico: "Gestión de Equipo" solo visible para rol Admin
+    _rol_nav = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
+    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard",
+                     "Banco de Retales", "Parametros", "Asistente IA", "Configuracion"]
+    if _rol_nav == "Admin":
+        opciones_menu.append("Gestion de Equipo")
 
     def update_nav():
         st.session_state.nav_radio = st.session_state.radio_ui
@@ -1072,6 +1078,44 @@ with st.sidebar:
     if st.button("⏻ Cerrar sesión", use_container_width=True, key="btn_logout"):
         _limpiar_sesion()
         st.rerun()
+
+    # ── 🆘 Botón SOS — Ayuda contextual inteligente en sidebar ───────────────
+    st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
+    with st.expander("🆘 ¿Necesitas ayuda rápida?", expanded=False):
+        st.markdown(
+            "<div style='font-size:0.75rem;opacity:0.6;margin-bottom:8px'>"
+            "Pregunta cualquier duda sobre la app o sobre marmolería. "
+            "La IA responde en menos de 2 párrafos.</div>",
+            unsafe_allow_html=True
+        )
+        _sos_pregunta = st.text_input(
+            "Tu duda",
+            placeholder="Ej: ¿Qué es el retal? ¿Cómo funciona el AIU?",
+            label_visibility="collapsed",
+            key="sos_input"
+        )
+        if st.button("Preguntar →", use_container_width=True, key="btn_sos",
+                     type="primary"):
+            if _sos_pregunta.strip():
+                _sos_ctx = st.session_state.get("nav_radio", "Inicio")
+                with st.spinner("Consultando..."):
+                    _sos_resp = chat_sos(_sos_pregunta.strip(), _sos_ctx)
+                st.session_state["_sos_ultima_respuesta"] = _sos_resp
+                st.session_state["_sos_ultima_pregunta"]  = _sos_pregunta.strip()
+            else:
+                st.warning("Escribe tu duda primero.", icon="⚠️")
+
+        if st.session_state.get("_sos_ultima_respuesta"):
+            st.markdown(
+                f"<div style='background:var(--secondary-background-color);"
+                f"border:1px solid var(--border-color);border-radius:8px;"
+                f"padding:10px 12px;margin-top:8px;font-size:0.8rem;line-height:1.6'>"
+                f"<div style='font-size:0.65rem;font-weight:700;opacity:0.4;"
+                f"text-transform:uppercase;margin-bottom:6px'>Respuesta IA</div>"
+                f"{st.session_state['_sos_ultima_respuesta'].replace(chr(10), '<br>')}"
+                f"</div>",
+                unsafe_allow_html=True
+            )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TOUR GUIADO (ONBOARDING) — DISEÑO CORPORATIVO
@@ -4606,11 +4650,11 @@ elif pagina == "Configuracion":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Perfil de la Empresa y Preferencias</h2>", unsafe_allow_html=True)
 
     _rol_actual = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
-if _rol_actual == "Admin":
-    tab_emp, tab_finanzas, tab_logo, tab_usuarios = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual", "👥 Gestión de Usuarios"])
-else:
-    tab_emp, tab_finanzas, tab_logo = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual"])
-    tab_usuarios = None
+    if _rol_actual == "Admin":
+        tab_emp, tab_finanzas, tab_logo, tab_usuarios = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual", "👥 Gestión de Usuarios"])
+    else:
+        tab_emp, tab_finanzas, tab_logo = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual"])
+        tab_usuarios = None
 
     with tab_emp:
         c1, c2 = st.columns(2)
@@ -4727,56 +4771,369 @@ else:
     # ── Tab de gestión de usuarios (solo Admin) ───────────────────────────────
     if tab_usuarios is not None:
         with tab_usuarios:
-            st.markdown("#### 👥 Gestión de Usuarios del Sistema")
-            st.caption("Solo los Administradores pueden crear, ver y eliminar usuarios.")
+            st.markdown("#### 👥 Gestión de Equipo")
+            st.caption("Solo los Administradores pueden registrar nuevos usuarios. La contraseña se encripta con PBKDF2-SHA256 antes de guardarse.")
 
-            with st.expander("➕ Crear nuevo usuario", expanded=False):
-                _nu_nombre  = st.text_input("Nombre completo", key="nu_nombre")
-                _nu_user    = st.text_input("Usuario (sin espacios, minúsculas)", key="nu_user",
-                                            placeholder="Ej: jcastro")
-                _nu_pwd     = st.text_input("Contraseña inicial", type="password", key="nu_pwd")
-                _nu_pin     = st.text_input("PIN de recuperación (4 dígitos)", key="nu_pin",
-                                            max_chars=4, placeholder="1234")
-                _nu_rol     = st.selectbox("Rol", ["Operario", "Admin"], key="nu_rol")
-                if st.button("✅ Crear usuario", type="primary", key="btn_crear_usr"):
-                    if not _nu_user or not _nu_pwd or not _nu_pin:
-                        st.error("Completa todos los campos obligatorios.")
-                    elif len(_nu_pin) != 4 or not _nu_pin.isdigit():
-                        st.error("El PIN debe tener exactamente 4 dígitos numéricos.")
-                    elif len(_nu_pwd) < 6:
-                        st.error("La contraseña debe tener al menos 6 caracteres.")
-                    else:
-                        _ok_usr = _crear_usuario(
-                            _nu_user.strip().lower(), _nu_pwd, _nu_pin,
-                            _nu_rol, _nu_nombre
+            # ── Formulario de registro con st.form ───────────────────────────
+            with st.form("form_nuevo_usuario", clear_on_submit=True):
+                st.markdown("**Registrar nuevo usuario**")
+                _f1, _f2 = st.columns(2)
+                _fu_nombre = _f1.text_input(
+                    "Nombre completo *",
+                    placeholder="Ej: Jorge Castro Díaz"
+                )
+                _fu_user = _f2.text_input(
+                    "Username *",
+                    placeholder="Ej: jcastro  (sin espacios)",
+                    help="Se guarda en minúsculas automáticamente."
+                )
+                _f3, _f4 = st.columns(2)
+                _fu_pwd = _f3.text_input(
+                    "Contraseña *",
+                    type="password",
+                    placeholder="Mínimo 6 caracteres"
+                )
+                _fu_pwd2 = _f4.text_input(
+                    "Confirmar contraseña *",
+                    type="password",
+                    placeholder="Repite la contraseña"
+                )
+                _f5, _f6 = st.columns(2)
+                _fu_pin = _f5.text_input(
+                    "PIN de recuperación * (4 dígitos)",
+                    placeholder="Ej: 4821",
+                    max_chars=4,
+                    help="El usuario lo usará para restablecer su contraseña si la olvida."
+                )
+                _fu_rol = _f6.selectbox(
+                    "Rol *",
+                    ["Operario", "Admin"],
+                    help="Admin: acceso total. Operario: solo sus cotizaciones."
+                )
+
+                _submit_form = st.form_submit_button(
+                    "✅ Registrar usuario",
+                    type="primary",
+                    use_container_width=True
+                )
+
+            # Validación y ejecución del INSERT (fuera del form para mostrar mensajes)
+            if _submit_form:
+                _err_form = []
+                if not _fu_nombre.strip():
+                    _err_form.append("El nombre completo es obligatorio.")
+                if not _fu_user.strip() or " " in _fu_user.strip():
+                    _err_form.append("El username no puede estar vacío ni contener espacios.")
+                if len(_fu_pwd) < 6:
+                    _err_form.append("La contraseña debe tener al menos 6 caracteres.")
+                elif _fu_pwd != _fu_pwd2:
+                    _err_form.append("Las contraseñas no coinciden.")
+                if not _fu_pin.strip() or len(_fu_pin.strip()) != 4 or not _fu_pin.strip().isdigit():
+                    _err_form.append("El PIN debe tener exactamente 4 dígitos numéricos.")
+
+                if _err_form:
+                    for _e in _err_form:
+                        st.error(_e, icon="⚠️")
+                else:
+                    # INSERT seguro y parametrizado — la contraseña ya viene hasheada
+                    # desde _crear_usuario usando PBKDF2-SHA256
+                    _ok_form = _crear_usuario(
+                        _fu_user.strip().lower(),
+                        _fu_pwd,
+                        _fu_pin.strip(),
+                        _fu_rol,
+                        _fu_nombre.strip()
+                    )
+                    if _ok_form:
+                        st.success(
+                            f"✅ Usuario **{_fu_user.strip().lower()}** registrado con rol **{_fu_rol}**.",
+                            icon="👤"
                         )
-                        if _ok_usr:
-                            st.success(f"✅ Usuario **{_nu_user}** creado correctamente.")
-                            st.rerun()
-                        else:
-                            st.error("Error al crear el usuario. ¿El nombre de usuario ya existe?")
+                        st.balloons()
+                    else:
+                        st.error(
+                            "No se pudo crear el usuario. ¿El username ya existe en el sistema?",
+                            icon="🚨"
+                        )
 
             st.markdown("---")
-            st.markdown("**Usuarios registrados:**")
+
+            # ── Listado del equipo registrado ─────────────────────────────────
+            st.markdown("**Equipo registrado:**")
             _todos_usr = _listar_usuarios()
             _uid_propio = st.session_state.get("usuario_actual", {}).get("id")
-            for _u in _todos_usr:
-                _u_id, _u_name, _u_rol, _u_nom = _u
-                _col_a, _col_b, _col_c = st.columns([3, 1.5, 1])
-                _col_a.markdown(
-                    f"**{_u_nom or _u_name}** · `{_u_name}`"
-                    f"<span style='background:{'#1B5FA8' if _u_rol=='Admin' else '#6b7280'};"
-                    f"color:white;font-size:0.62rem;font-weight:700;padding:2px 7px;"
-                    f"border-radius:4px;margin-left:8px;text-transform:uppercase'>{_u_rol}</span>",
+
+            if not _todos_usr:
+                st.info("No hay usuarios registrados aún.", icon="ℹ️")
+            else:
+                # Cabecera
+                _hc0, _hc1, _hc2, _hc3 = st.columns([0.4, 2.8, 1.4, 0.8])
+                for _hcol, _hlbl in zip([_hc0, _hc1, _hc2, _hc3], ["#", "Nombre / Username", "Rol", "Acción"]):
+                    _hcol.markdown(
+                        f"<span style='font-size:0.67rem;font-weight:700;opacity:0.4;text-transform:uppercase'>{_hlbl}</span>",
+                        unsafe_allow_html=True
+                    )
+                st.markdown("<hr style='margin:4px 0 8px'>", unsafe_allow_html=True)
+
+                for _i_u, _u in enumerate(_todos_usr):
+                    _u_id, _u_name, _u_rol, _u_nom = _u
+                    _es_yo = (_u_id == _uid_propio)
+                    _uc0, _uc1, _uc2, _uc3 = st.columns([0.4, 2.8, 1.4, 0.8])
+                    _uc0.markdown(
+                        f"<div style='padding-top:6px;font-size:0.78rem;opacity:0.35'>{_i_u+1}</div>",
+                        unsafe_allow_html=True
+                    )
+                    _uc1.markdown(
+                        f"<div style='padding-top:3px'>"
+                        f"<span style='font-size:0.87rem;font-weight:700'>{_u_nom or _u_name}</span>"
+                        f"<br><span style='font-size:0.7rem;opacity:0.45;font-family:monospace'>{_u_name}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    _uc2.markdown(
+                        f"<div style='padding-top:7px'>"
+                        f"<span style='background:{'#1B5FA8' if _u_rol=='Admin' else '#6b7280'};"
+                        f"color:white;font-size:0.63rem;font-weight:700;padding:3px 8px;"
+                        f"border-radius:4px;text-transform:uppercase'>{_u_rol}</span>"
+                        f"{'<span style="font-size:0.65rem;opacity:0.4;margin-left:5px">(tú)</span>' if _es_yo else ''}"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    with _uc3:
+                        if not _es_yo:
+                            if st.button("🗑️", key=f"del_usr_{_u_id}",
+                                         help=f"Eliminar {_u_name}"):
+                                _eliminar_usuario(_u_id)
+                                st.toast(f"Usuario {_u_name} eliminado.", icon="🗑️")
+                                st.rerun()
+                        else:
+                            st.markdown(
+                                "<div style='padding-top:6px;font-size:0.7rem;opacity:0.3'>—</div>",
+                                unsafe_allow_html=True
+                            )
+                    if _i_u < len(_todos_usr) - 1:
+                        st.markdown("<hr style='margin:3px 0;opacity:0.15'>", unsafe_allow_html=True)
+
+            st.caption("💡 No puedes eliminarte a ti mismo. Para transferir el rol Admin, crea primero otro usuario Admin.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GESTIÓN DE EQUIPO — Sección dedicada (solo Admin)
+# Accesible desde el menú lateral cuando rol == "Admin"
+# ═══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Gestion de Equipo":
+    # Guard de seguridad: doble verificación de rol
+    _ge_rol = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
+    if _ge_rol != "Admin":
+        st.error("🔒 Acceso restringido. Solo los Administradores pueden acceder a esta sección.")
+        st.stop()
+
+    st.markdown(
+        "<h2 style='font-family:Playfair Display,serif'>👥 Gestión de Equipo</h2>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        "<p style='opacity:0.6;font-size:0.88rem;margin-bottom:20px'>"
+        "Administra quién tiene acceso al sistema. Las contraseñas se encriptan con "
+        "PBKDF2-SHA256 antes de guardarse — nunca se almacenan en texto plano.</p>",
+        unsafe_allow_html=True
+    )
+
+    _ge_tab_crear, _ge_tab_equipo = st.tabs(["➕ Registrar usuario", "📋 Equipo activo"])
+
+    # ── Tab: Registrar nuevo usuario con st.form ──────────────────────────────
+    with _ge_tab_crear:
+        st.markdown(
+            "<div style='background:rgba(27,95,168,0.06);border-left:3px solid #1B5FA8;"
+            "border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.8rem;margin-bottom:18px'>"
+            "Todos los campos marcados con <strong>*</strong> son obligatorios. "
+            "El <strong>PIN</strong> de 4 dígitos sirve para que el usuario recupere su contraseña "
+            "desde la pantalla de inicio de sesión, sin necesidad de correo electrónico.</div>",
+            unsafe_allow_html=True
+        )
+
+        with st.form("form_ge_nuevo_usuario", clear_on_submit=True):
+            _ge_c1, _ge_c2 = st.columns(2)
+            _ge_nombre = _ge_c1.text_input(
+                "Nombre completo *",
+                placeholder="Ej: Jorge Castro Díaz"
+            )
+            _ge_user = _ge_c2.text_input(
+                "Username *",
+                placeholder="Ej: jcastro  (sin espacios, minúsculas)",
+                help="Se convierte a minúsculas automáticamente al guardar."
+            )
+            _ge_c3, _ge_c4 = st.columns(2)
+            _ge_pwd = _ge_c3.text_input(
+                "Contraseña *",
+                type="password",
+                placeholder="Mínimo 6 caracteres",
+                help="Se encriptará con PBKDF2-SHA256 antes de guardarse."
+            )
+            _ge_pwd2 = _ge_c4.text_input(
+                "Confirmar contraseña *",
+                type="password",
+                placeholder="Repite la contraseña"
+            )
+            _ge_c5, _ge_c6 = st.columns(2)
+            _ge_pin = _ge_c5.text_input(
+                "PIN de recuperación * (4 dígitos)",
+                placeholder="Ej: 4821",
+                max_chars=4,
+                help="4 dígitos numéricos. El usuario lo usa para cambiar su contraseña si la olvida."
+            )
+            _ge_rol_nuevo = _ge_c6.selectbox(
+                "Rol *",
+                ["Operario", "Admin"],
+                help="Operario: solo ve sus cotizaciones. Admin: acceso total + Gestión de Equipo."
+            )
+
+            # Resumen descriptivo del rol
+            _ge_desc_rol = (
+                "Acceso total al sistema, puede ver todas las cotizaciones "
+                "y gestionar el equipo."
+            ) if _ge_rol_nuevo == "Admin" else (
+                "Solo visualiza y gestiona sus propias cotizaciones y retales. "
+                "No tiene acceso a Gestión de Equipo."
+            )
+            st.markdown(
+                f"<div style='background:var(--secondary-background-color);"
+                f"border:1px solid var(--border-color);border-radius:6px;"
+                f"padding:8px 12px;font-size:0.78rem;margin-top:4px'>"
+                f"<strong>{_ge_rol_nuevo}:</strong> {_ge_desc_rol}</div>",
+                unsafe_allow_html=True
+            )
+
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            _ge_submit = st.form_submit_button(
+                "✅ Registrar usuario en el sistema",
+                type="primary",
+                use_container_width=True
+            )
+
+        # Validación y ejecución del INSERT parametrizado
+        if _ge_submit:
+            _ge_errores = []
+            if not _ge_nombre.strip():
+                _ge_errores.append("El nombre completo es obligatorio.")
+            if not _ge_user.strip():
+                _ge_errores.append("El username es obligatorio.")
+            elif " " in _ge_user.strip():
+                _ge_errores.append("El username no puede contener espacios.")
+            if len(_ge_pwd) < 6:
+                _ge_errores.append("La contraseña debe tener al menos 6 caracteres.")
+            elif _ge_pwd != _ge_pwd2:
+                _ge_errores.append("Las contraseñas no coinciden.")
+            if not _ge_pin.strip() or len(_ge_pin.strip()) != 4 or not _ge_pin.strip().isdigit():
+                _ge_errores.append("El PIN debe tener exactamente 4 dígitos numéricos.")
+
+            if _ge_errores:
+                for _ge_e in _ge_errores:
+                    st.error(_ge_e, icon="⚠️")
+            else:
+                # _crear_usuario ejecuta INSERT parametrizado y hashea la contraseña
+                _ge_ok = _crear_usuario(
+                    _ge_user.strip().lower(),
+                    _ge_pwd,
+                    _ge_pin.strip(),
+                    _ge_rol_nuevo,
+                    _ge_nombre.strip()
+                )
+                if _ge_ok:
+                    st.success(
+                        f"✅ Usuario **{_ge_user.strip().lower()}** registrado "
+                        f"exitosamente con rol **{_ge_rol_nuevo}**.",
+                        icon="👤"
+                    )
+                    st.balloons()
+                else:
+                    st.error(
+                        "No se pudo registrar el usuario. "
+                        "¿El username ya existe en el sistema?",
+                        icon="🚨"
+                    )
+
+    # ── Tab: Listado del equipo activo ────────────────────────────────────────
+    with _ge_tab_equipo:
+        _ge_lista = _listar_usuarios()
+        _ge_uid_yo = st.session_state.get("usuario_actual", {}).get("id")
+
+        _ge_total_admin = sum(1 for u in _ge_lista if u[2] == "Admin")
+        _ge_total_op    = sum(1 for u in _ge_lista if u[2] == "Operario")
+
+        # Métricas rápidas
+        _m1, _m2, _m3 = st.columns(3)
+        _m1.metric("Total usuarios", len(_ge_lista))
+        _m2.metric("Administradores", _ge_total_admin)
+        _m3.metric("Operarios", _ge_total_op)
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        if not _ge_lista:
+            st.info("No hay usuarios registrados aún.", icon="ℹ️")
+        else:
+            # Cabecera de tabla
+            _gh0, _gh1, _gh2, _gh3, _gh4 = st.columns([0.4, 2.6, 1.4, 1.2, 0.8])
+            for _gc, _gl in zip([_gh0, _gh1, _gh2, _gh3, _gh4],
+                                 ["#", "Nombre / Username", "Rol", "ID Sistema", "Acción"]):
+                _gc.markdown(
+                    f"<span style='font-size:0.67rem;font-weight:700;opacity:0.4;"
+                    f"text-transform:uppercase'>{_gl}</span>",
                     unsafe_allow_html=True
                 )
-                with _col_c:
-                    if _u_id != _uid_propio:
-                        if st.button("🗑", key=f"del_usr_{_u_id}",
-                                     help="Eliminar este usuario"):
-                            _eliminar_usuario(_u_id)
-                            st.toast(f"Usuario {_u_name} eliminado.")
-                            st.rerun()
+            st.markdown("<hr style='margin:4px 0 6px'>", unsafe_allow_html=True)
+
+            for _ge_i, _ge_u in enumerate(_ge_lista):
+                _ge_uid, _ge_uname, _ge_urol, _ge_unom = _ge_u
+                _ge_yo = (_ge_uid == _ge_uid_yo)
+                _gc0, _gc1, _gc2, _gc3, _gc4 = st.columns([0.4, 2.6, 1.4, 1.2, 0.8])
+
+                _gc0.markdown(
+                    f"<div style='padding-top:7px;font-size:0.78rem;opacity:0.3'>{_ge_i+1}</div>",
+                    unsafe_allow_html=True
+                )
+                _gc1.markdown(
+                    f"<div style='padding-top:3px'>"
+                    f"<div style='font-size:0.88rem;font-weight:700'>{_ge_unom or _ge_uname}</div>"
+                    f"<div style='font-size:0.7rem;opacity:0.45;font-family:monospace'>@{_ge_uname}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                _gc2.markdown(
+                    f"<div style='padding-top:8px'>"
+                    f"<span style='background:{'#1B5FA8' if _ge_urol=='Admin' else '#6b7280'};"
+                    f"color:white;font-size:0.63rem;font-weight:700;padding:3px 9px;"
+                    f"border-radius:4px;text-transform:uppercase'>{_ge_urol}</span>"
+                    f"{'<span style="font-size:0.65rem;opacity:0.4;margin-left:6px">(tú)</span>' if _ge_yo else ''}"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                _gc3.markdown(
+                    f"<div style='padding-top:9px;font-size:0.73rem;opacity:0.38;"
+                    f"font-family:monospace'>#{_ge_uid}</div>",
+                    unsafe_allow_html=True
+                )
+                with _gc4:
+                    if _ge_yo:
+                        st.markdown(
+                            "<div style='padding-top:8px;font-size:0.72rem;opacity:0.3'>—</div>",
+                            unsafe_allow_html=True
+                        )
                     else:
-                        st.markdown("<span style='font-size:0.72rem;opacity:0.4'>(tú)</span>",
-                                    unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"ge_del_{_ge_uid}",
+                                     help=f"Eliminar {_ge_uname}"):
+                            _eliminar_usuario(_ge_uid)
+                            st.toast(f"Usuario @{_ge_uname} eliminado del sistema.", icon="🗑️")
+                            st.rerun()
+
+                if _ge_i < len(_ge_lista) - 1:
+                    st.markdown(
+                        "<hr style='margin:3px 0;opacity:0.15'>",
+                        unsafe_allow_html=True
+                    )
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        st.caption(
+            "💡 No puedes eliminar tu propio usuario. "
+            "Para transferir el rol Admin, primero registra otro usuario Admin."
+        )
