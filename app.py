@@ -220,6 +220,35 @@ def _guardar_cotizacion(numero, cliente, resultado):
     conn.close()
     st.cache_data.clear()
 
+def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: dict):
+    """Actualiza una cotización existente en la BD (modo edición)."""
+    _init_db()
+    conn = _get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """UPDATE cotizaciones
+           SET numero=%s, cliente=%s, material=%s, tipo=%s, m2=%s, ml=%s,
+               costo=%s, precio=%s, margen=%s, datos_json=%s
+           WHERE id=%s""",
+        (
+            numero,
+            cliente or "Sin nombre",
+            resultado.get("categoria", ""),
+            resultado.get("tipo_proyecto", ""),
+            resultado.get("m2_real", 0),
+            resultado.get("ml_proyecto", 0),
+            resultado.get("costo_total", 0),
+            resultado.get("precio_sugerido", 0),
+            resultado.get("margen_pct", 0),
+            json.dumps(resultado, ensure_ascii=False, default=str),
+            cot_id,
+        ),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    st.cache_data.clear()
+
 @st.cache_data(ttl=60)
 def _listar_cotizaciones(busqueda=""):
     _init_db()
@@ -889,7 +918,7 @@ elif pagina == "Cotizacion Directa":
     if "Por piezas" in modo_medida:
         alerta("Agrega cada pieza del proyecto. Largo en ML × ancho estandar = m² calculados.", "info")
         hdr = st.columns([3, 1.2, 2.5, 1.5, 1.6, 0.6])
-        for col, lbl in zip(hdr, ["Pieza / Descripcion", "ML largo", "Tipo de superficie", "Ancho (m)", "m² calculados", ""]):
+        for col, lbl in zip(hdr, ["Pieza / Descripcion", "ML largo", "Elemento / Pieza", "Ancho (m)", "m² calculados", ""]):
             col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
 
         tipos_superficie = list(ANCHOS_ESTANDAR.keys())
@@ -898,22 +927,43 @@ elif pagina == "Cotizacion Directa":
 
         for idx, pieza in enumerate(st.session_state.piezas):
             c0, c1, c2, c3, c4, c5 = st.columns([3, 1.2, 2.5, 1.5, 1.6, 0.6])
-            with c0: nombre_p = st.text_input("Nombre", value=pieza.get("nombre", ""), key=f"pnom_{idx}", label_visibility="collapsed")
-            with c1: ml_p = st.number_input("ML", value=float(pieza.get("ml", 1.0)), min_value=0.01, step=0.1, key=f"pml_{idx}", label_visibility="collapsed")
+            with c0:
+                nombre_p = st.text_input("Nombre", value=pieza.get("nombre", ""), key=f"pnom_{idx}", label_visibility="collapsed")
+            with c1:
+                ml_p = st.number_input("ML", value=float(pieza.get("ml", 1.0)), min_value=0.01, step=0.1, key=f"pml_{idx}", label_visibility="collapsed")
             with c2:
                 tipo_idx = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
-                ancho_tipo_p = st.selectbox("Tipo", tipos_superficie, index=tipo_idx, key=f"ptip_{idx}", label_visibility="collapsed")
+                ancho_tipo_p = st.selectbox("Elemento", tipos_superficie, index=tipo_idx, key=f"ptip_{idx}", label_visibility="collapsed")
             with c3:
                 ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
                 ancho_p = st.number_input("Ancho", value=float(ancho_def), min_value=0.01, step=0.01, key=f"panc_{idx}", label_visibility="collapsed")
             m2_p = ml_a_m2(ml_p, ancho_p)
             total_m2_piezas += m2_p
-            with c4: st.markdown(f"<div style='padding:8px 4px;font-weight:700;'>{fmt_m2(m2_p)}</div>", unsafe_allow_html=True)
+            with c4:
+                st.markdown(f"<div style='padding:8px 4px;font-weight:700;'>{fmt_m2(m2_p)}</div>", unsafe_allow_html=True)
             with c5:
                 if st.button("X", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
                     st.session_state.piezas.pop(idx)
                     st.rerun()
-            piezas_nuevas.append({"nombre": nombre_p, "ml": ml_p, "ancho_tipo": ancho_tipo_p, "ancho_custom": ancho_p})
+
+            # ── Input dinámico para tipo "Personalizado" ──────────────────────
+            nombre_personalizado_p = pieza.get("nombre_personalizado", "")
+            if ancho_tipo_p == "Personalizado":
+                nombre_personalizado_p = st.text_input(
+                    "Descripción del elemento",
+                    value=nombre_personalizado_p,
+                    key=f"pcustom_{idx}",
+                    placeholder='Ej: "Mesón de lavamanos", "Pantry", "Repisa"',
+                    help="Este nombre aparecerá en el PDF de cotización.",
+                )
+
+            piezas_nuevas.append({
+                "nombre": nombre_p,
+                "ml": ml_p,
+                "ancho_tipo": ancho_tipo_p,
+                "ancho_custom": ancho_p,
+                "nombre_personalizado": nombre_personalizado_p,
+            })
 
         st.session_state.piezas = piezas_nuevas
         m2_real = total_m2_piezas
@@ -1243,8 +1293,37 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
 
     st.markdown("---")
 
-    # ── CALCULAR ─────────────────────────────────────────────────────────────
-    if st.button("Calcular cotizacion", type="primary", use_container_width=True):
+    # ── CALCULAR / ACTUALIZAR ─────────────────────────────────────────────────
+    _editando_id  = st.session_state.get("editando_id")
+    _editando_num = st.session_state.get("editando_num", "")
+
+    if _editando_id:
+        st.info(
+            f"**Modo edición** — estás modificando la cotización **{_editando_num}**. "
+            "Al presionar *Actualizar* se sobreescribirá el registro existente.",
+            icon="✏️",
+        )
+        _col_upd, _col_new, _col_can = st.columns([2, 1.5, 1])
+        _btn_actualizar = _col_upd.button("✏️ Actualizar cotización", type="primary", use_container_width=True)
+        _btn_guardar_nuevo = _col_new.button("💾 Guardar como nueva", use_container_width=True)
+        _btn_cancelar = _col_can.button("✕ Cancelar edición", use_container_width=True)
+
+        if _btn_cancelar:
+            st.session_state.pop("editando_id", None)
+            st.session_state.pop("editando_num", None)
+            st.session_state.pop("pre", None)
+            st.session_state.pop("cotizacion", None)
+            st.rerun()
+    else:
+        _btn_actualizar    = False
+        _btn_guardar_nuevo = False
+        _btn_cancelar      = False
+        _col_calc, _ = st.columns([2, 1])
+        _btn_calcular = _col_calc.button("Calcular cotizacion", type="primary", use_container_width=True)
+
+    _ejecutar_calculo = _editando_id and (_btn_actualizar or _btn_guardar_nuevo) or (not _editando_id and _btn_calcular)
+
+    if _ejecutar_calculo:
         _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", [])) if "Por piezas" in modo_medida else (m2_real/0.60)
         resultado = calcular_cotizacion_directa(
             categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo, area_placa_comprada=area_placa,
@@ -1258,8 +1337,8 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
             vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
             tarifas_override=st.session_state.get("tarifas_custom"),
         )
-        
-        # Guardar TODO el estado para poder re-editar fácilmente
+
+        # Guardar estado completo para re-edición
         resultado["_estado_guardado"] = {
             "categoria": cat_sel, "referencia": referencia, "precio_m2": precio_m2, "area_placa_comprada": area_placa,
             "piezas": st.session_state.piezas, "m2_proyecto": m2_real, "m2_usados": m2_usados, "margen_pct": margen_pct,
@@ -1269,12 +1348,25 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
             "viaticos_activos": viaticos_activos, "noches": noches, "adicionales_activos": adicionales_activos,
             "cantidades_add": cantidades_add, "incluir_iva": incluir_iva,
         }
-        
+
         st.session_state.cotizacion = resultado
         resultado["incluir_iva"] = incluir_iva
         import random as _rand
         _num_auto = f"COT-{_hoy().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
-        _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
+
+        if _editando_id and _btn_actualizar:
+            # MODO EDICIÓN: sobreescribir el registro existente
+            _actualizar_cotizacion(_editando_id, _editando_num, nombre_cliente, resultado)
+            st.session_state.pop("editando_id", None)
+            st.session_state.pop("editando_num", None)
+            st.success(f"✅ Cotización **{_editando_num}** actualizada correctamente.")
+        else:
+            # NUEVA cotización (o "Guardar como nueva" desde edición)
+            _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
+            if _editando_id and _btn_guardar_nuevo:
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+            st.success("✅ Cotización guardada exitosamente en el Historial.")
 
         # ── Banco de Retales: descontar m² consumidos si se usó retal ─────────
         for _mi, _md in enumerate(st.session_state.get("materiales_proyecto", [])):
@@ -1286,8 +1378,6 @@ Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proye
                     st.session_state.pop(f"retal_m2_{_mi}", None)
                 except Exception:
                     pass
-
-        st.success("✅ Cotización guardada exitosamente en el Historial.")
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") != "Licitación AIU":
         r = st.session_state.cotizacion
@@ -1472,9 +1562,40 @@ elif pagina == "Cotizacion AIU":
         noches_aiu = ca2.number_input("Noches", min_value=0, value=int(st.session_state.pre.get("noches", 1)), step=1)
         pers_aiu = ca3.number_input("Personas", min_value=1, value=int(st.session_state.pre.get("personas", 2)), step=1)
 
-    if st.button("Calcular y Guardar AIU", type="primary", use_container_width=True):
+    # ── CALCULAR / ACTUALIZAR AIU ─────────────────────────────────────────────
+    _editando_id_aiu  = st.session_state.get("editando_id")
+    _editando_num_aiu = st.session_state.get("editando_num", "")
+
+    if _editando_id_aiu:
+        st.info(
+            f"**Modo edición** — modificando cotización AIU **{_editando_num_aiu}**.",
+            icon="✏️",
+        )
+        _aiu_col_upd, _aiu_col_new, _aiu_col_can = st.columns([2, 1.5, 1])
+        _btn_aiu_actualizar   = _aiu_col_upd.button("✏️ Actualizar cotización AIU", type="primary", use_container_width=True)
+        _btn_aiu_nueva        = _aiu_col_new.button("💾 Guardar como nueva", use_container_width=True, key="aiu_nueva")
+        _btn_aiu_cancelar     = _aiu_col_can.button("✕ Cancelar edición", use_container_width=True, key="aiu_can")
+
+        if _btn_aiu_cancelar:
+            st.session_state.pop("editando_id", None)
+            st.session_state.pop("editando_num", None)
+            st.session_state.pop("pre", None)
+            st.session_state.pop("cotizacion", None)
+            st.rerun()
+    else:
+        _btn_aiu_actualizar = False
+        _btn_aiu_nueva      = False
+        _btn_aiu_cancelar   = False
+        _btn_aiu_calcular   = st.button("Calcular y Guardar AIU", type="primary", use_container_width=True)
+
+    _ejecutar_aiu = (
+        (_editando_id_aiu and (_btn_aiu_actualizar or _btn_aiu_nueva))
+        or (not _editando_id_aiu and _btn_aiu_calcular)
+    )
+
+    if _ejecutar_aiu:
         res_aiu = calcular_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu, agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu)
-        
+
         # Preparación exacta para la base de datos
         res_aiu["tipo_proyecto"] = "Licitación AIU"
         res_aiu["categoria"] = "Proyecto Constructora"
@@ -1483,19 +1604,29 @@ elif pagina == "Cotizacion AIU":
         res_aiu["ml_proyecto"] = 0
         res_aiu["costo_total"] = cd_total
         res_aiu["precio_sugerido"] = res_aiu['precio_total']
-        
+
         res_aiu["_estado_guardado"] = {
             "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
             "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
             "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu, "agente_externo_taller": agente_aiu,
             "foraneo_activo": foraneo_aiu, "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu
         }
-        
+
         st.session_state.cotizacion = res_aiu
         import random as _r
         _num_auto = f"AIU-{_hoy().strftime('%Y%m%d')}-{_r.randint(100,999)}"
-        _guardar_cotizacion(_num_auto, nombre_cliente_aiu or "Sin nombre", res_aiu)
-        st.success("✅ Cotización AIU guardada en el historial.")
+
+        if _editando_id_aiu and _btn_aiu_actualizar:
+            _actualizar_cotizacion(_editando_id_aiu, _editando_num_aiu, nombre_cliente_aiu or "Sin nombre", res_aiu)
+            st.session_state.pop("editando_id", None)
+            st.session_state.pop("editando_num", None)
+            st.success(f"✅ Cotización AIU **{_editando_num_aiu}** actualizada correctamente.")
+        else:
+            _guardar_cotizacion(_num_auto, nombre_cliente_aiu or "Sin nombre", res_aiu)
+            if _editando_id_aiu and _btn_aiu_nueva:
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+            st.success("✅ Cotización AIU guardada en el historial.")
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU":
         r = st.session_state.cotizacion
@@ -1606,39 +1737,44 @@ elif pagina == "Historial":
 
         # Helper: cargar cotización en la calculadora
         def _cargar_en_calculadora(rid, rnum, rjson):
+            # ── Parsear JSON de forma aislada ─────────────────────────────────
             try:
                 datos = json.loads(rjson)
-                eg = datos.get("_estado_guardado", datos)
-
-                # ── Limpiar claves residuales del formulario anterior ─────────
-                # Sin esto, Streamlit mantiene valores de la cotización previa
-                # porque los widgets ya están montados con las keys anteriores.
-                _CLAVES_FORMULARIO = [
-                    "piezas",
-                    "materiales_proyecto",
-                    "aiu_items",
-                    "zocalo_activo",
-                    "adicionales_activos",
-                    "foraneo_activo",
-                    "viaticos_activos",
-                    "resultado_calculo",
-                    "resumen_ia",
-                    "pre",
-                ]
-                for _k in _CLAVES_FORMULARIO:
-                    st.session_state.pop(_k, None)
-
-                if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
-                        or eg.get("tipo_proyecto") == "Licitación AIU":
-                    st.session_state.aiu_items = eg.get("aiu_items", [])
-                    st.session_state.pre = eg
-                    st.session_state.nav_radio = st.session_state.radio_ui = "Cotizacion AIU"
-                else:
-                    st.session_state.pre = eg
-                    st.session_state.nav_radio = st.session_state.radio_ui = "Cotizacion Directa"
-                st.rerun()
             except Exception:
-                st.error("No se pudo cargar esta cotización.")
+                st.error("No se pudo leer el JSON de esta cotización.")
+                return
+
+            eg = datos.get("_estado_guardado", datos)
+
+            # ── Limpiar claves residuales del formulario anterior ─────────────
+            _CLAVES_FORMULARIO = [
+                "piezas", "materiales_proyecto", "aiu_items",
+                "zocalo_activo", "adicionales_activos", "foraneo_activo",
+                "viaticos_activos", "resultado_calculo", "resumen_ia",
+                "pre", "editando_id", "cotizacion",
+            ]
+            for _k in _CLAVES_FORMULARIO:
+                st.session_state.pop(_k, None)
+
+            # ── Marcar que estamos en modo edición ────────────────────────────
+            st.session_state.editando_id  = rid
+            st.session_state.editando_num = rnum
+
+            if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
+                    or eg.get("tipo_proyecto") == "Licitación AIU":
+                st.session_state.aiu_items = eg.get("aiu_items", [])
+                st.session_state.pre = eg
+                destino = "Cotizacion AIU"
+            else:
+                st.session_state.pre = eg
+                destino = "Cotizacion Directa"
+
+            # Actualizar TODAS las variables de navegación para evitar desfase visual
+            st.session_state.nav_radio  = destino
+            st.session_state.radio_ui   = destino
+            st.session_state._radio_ui  = destino
+            st.query_params["pagina"]   = destino
+            st.rerun()
 
         # ── VISTA TARJETAS ────────────────────────────────────────────────────
         if _vista == "🃏 Tarjetas":
