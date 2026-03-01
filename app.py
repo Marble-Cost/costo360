@@ -2,6 +2,7 @@
 # Mármoles Collante & Castro Ltda. · Feb 2026
 
 import io
+import time
 import base64
 import hashlib
 import hmac
@@ -624,8 +625,8 @@ def _leer_cookie_sesion() -> str | None:
 
 def _limpiar_sesion():
     """Cierra sesión: elimina la cookie HTTP y borra session_state.
-    También resetea _cookie_checked para que el próximo acceso pase
-    por el ciclo de hidratación completo antes de mostrar el login.
+    Resetea cookies_inicializadas para que el próximo F5 pase por el ciclo
+    de espera completo antes de evaluar si hay sesión activa.
     """
     # Borrar la cookie HTTP para que el token no sobreviva al cierre de sesión
     try:
@@ -633,7 +634,7 @@ def _limpiar_sesion():
     except Exception:
         pass  # Si la cookie ya no existe, ignorar el error
     for k in ["usuario_actual", "_auth_token", "_config_cargada",
-              "_cookie_checked",
+              "cookies_inicializadas",          # ← resetear ciclo de hidratación
               "cotizacion", "pre", "piezas", "materiales_proyecto",
               "chat", "resumen_ia"]:
         st.session_state.pop(k, None)
@@ -781,15 +782,44 @@ def _pantalla_login():
 
     _, col, _ = st.columns([1, 2, 1])
     with col:
-        # Logo / identidad
-        st.markdown("""
-        <div class="login-logo">
-            <div class="brand">CC</div>
-            <div class="sub">Mármoles Collante &amp; Castro</div>
-        </div>
-        <div class="login-title">Iniciar Sesión</div>
-        """, unsafe_allow_html=True)
+        # ── Logo corporativo centrado ─────────────────────────────────────────
+        # Busca la imagen en las extensiones habituales; fallback al texto "CC"
+        _login_base_dir = os.path.dirname(os.path.abspath(__file__))
+        _login_logo = next(
+            (os.path.join(_login_base_dir, n) for n in
+             ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
+              "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
+             if os.path.exists(os.path.join(_login_base_dir, n))),
+            None
+        )
 
+        # Columnas 1:2:1 para centrar perfectamente el logo
+        _lc1, _lc2, _lc3 = st.columns([1, 2, 1])
+        with _lc2:
+            if st.session_state.get("logo_bytes"):
+                # Prioridad: logo subido en Configuración (memoria de sesión)
+                st.image(st.session_state.logo_bytes, use_container_width=True)
+            elif _login_logo:
+                # Logo en disco (logo_cc.jpeg junto al app.py)
+                st.image(_login_logo, use_container_width=True)
+            else:
+                # Fallback tipográfico si no hay archivo de logo
+                st.markdown(
+                    '''<div style="text-align:center;padding:18px 0 10px">
+                        <span style="color:#C9A84C;font-size:3rem;font-weight:900;
+                        font-family:'Playfair Display',serif;line-height:1">CC</span><br>
+                        <span style="font-size:0.68rem;font-weight:700;opacity:0.5;
+                        letter-spacing:0.13em;text-transform:uppercase">
+                        Mármoles Collante &amp; Castro</span>
+                    </div>''',
+                    unsafe_allow_html=True
+                )
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            '<div class="login-title">Iniciar Sesión</div>',
+            unsafe_allow_html=True
+        )
         st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
         with st.container(border=True):
@@ -810,21 +840,32 @@ def _pantalla_login():
                     else:
                         _usr = _buscar_usuario_por_username(_uname)
                         if _usr and _verificar_password(_pwd, _usr["password_hash"]):
-                            # Login exitoso: persistir token en cookie HTTP + session_state
+                            # Login exitoso:
+                            # 1. Generar token firmado (30 días)
                             token = _generar_token(_usr["username"])
+                            # 2. Persistir en cookie HTTP (sobrevive a F5) y session_state
                             _guardar_cookie_sesion(token)
+                            # 3. Hidratar usuario_actual ANTES del rerun para que el muro
+                            #    de autenticación lo encuentre listo en el siguiente ciclo
                             st.session_state["usuario_actual"] = _usr
-                            # Limpiar el flag de ciclo para que próximos F5 funcionen bien
-                            st.session_state.pop("_cookie_checked", None)
+                            # 4. Marcar cookies como ya inicializadas para evitar el spinner
+                            #    innecesario en el siguiente ciclo
+                            st.session_state["cookies_inicializadas"] = True
                             st.success(f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
-                            # Un único rerun limpia el formulario y carga la interfaz principal
+                            # 5. Único rerun: limpia el formulario y carga la interfaz principal
                             st.rerun()
                         else:
                             st.error("Usuario o contraseña incorrectos.", icon="🚨")
 
                 st.markdown(
-                    "<div style='font-size:0.72rem;opacity:0.45;text-align:center;"
-                    "margin-top:10px'>Sistema de uso exclusivo · Mármoles Collante &amp; Castro</div>",
+                    """<div style='text-align:center;margin-top:14px;padding-top:10px;
+                    border-top:1px solid rgba(128,128,128,0.15)'>
+                    <span style='color:#9ca3af;font-size:0.75rem;font-weight:400;
+                    letter-spacing:0.03em'>Sistema de uso exclusivo</span>
+                    <span style='color:#9ca3af;font-size:0.75rem'> · </span>
+                    <span style='font-style:italic;font-weight:600;color:#6b7280;
+                    font-size:0.75rem'>Marmoles Collante &amp; Castro</span>
+                    </div>""",
                     unsafe_allow_html=True
                 )
 
@@ -992,76 +1033,72 @@ try:
 except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
 
-# ── MURO DE AUTENTICACIÓN CON HIDRATACIÓN TEMPRANA ───────────────────────────
+# ── MURO DE AUTENTICACIÓN CON HIDRATACIÓN ASÍNCRONA DE COOKIES ───────────────
 #
-# PROBLEMA QUE RESUELVE:
-#   Cada F5 reinicia session_state (memoria del proceso Python), pero la cookie
-#   HTTP sigue viajando en el request del navegador. Sin este bloque, el servidor
-#   vería session_state vacío y mostraría el login aunque el usuario ya tuviera
-#   una sesión válida.
+# PROBLEMA RAÍZ — race condition del componente JS:
+#   CookieController es un componente Streamlit (React) que tarda 1 ciclo en
+#   enviar los valores desde el navegador al backend Python. En el ciclo 0
+#   (primer rerun tras F5) _cookie_ctrl.get() devuelve None aunque la cookie
+#   HTTP sí existe en el navegador — el JS aún no la ha enviado al servidor.
+#   Si respondemos a ese None mostrando el login, el usuario ve un parpadeo
+#   (o directamente se desloguea) aunque tenía sesión válida.
 #
-# FLUJO (se ejecuta en CADA rerun, incluido el primer ciclo tras F5):
-#
-#   ① _leer_cookie_sesion() lee primero session_state y, si está vacío,
-#     lee la cookie HTTP real (_cookie_ctrl.get). Con esto obtenemos el token
-#     incluso cuando session_state acaba de ser reiniciado por un F5.
-#
-#   ② Si el token existe y es válido → inyectar usuario_actual en session_state
-#     y continuar la app SIN mostrar login (redirección silenciosa, cero parpadeo).
-#
-#   ③ Si el token no existe o está expirado → limpiar todo y mostrar login.
-#
-#   ④ Cuando el usuario hace login manualmente (_pantalla_login), al final del
-#     handler se llama _guardar_cookie_sesion(token) que escribe la cookie HTTP
-#     Y espeja en session_state, seguido de st.rerun() para limpiar el formulario.
-#
-# NOTA SOBRE EL PRIMER CICLO DE streamlit-cookies-controller:
-#   En el primer rerun después de un F5, el componente de cookies aún puede estar
-#   hidratándose (el JS del componente aún no ha enviado los valores al backend).
-#   Por eso _leer_cookie_sesion devuelve None en ese primer ciclo y el código
-#   muestra un spinner de espera en lugar del formulario completo de login.
-#   En el segundo ciclo (disparado automáticamente por st.rerun()) la cookie ya
-#   está disponible y la sesión se restaura sin mostrar el login.
-
-_token_sesion = _leer_cookie_sesion()
+# SOLUCIÓN — estado "cookies_inicializadas":
+#   • Ciclo 0 (cookies_inicializadas = False/ausente):
+#       No intentamos leer la cookie todavía. Mostramos un spinner
+#       de "Validando credenciales…", hacemos time.sleep(0.5) para dar
+#       tiempo al JS, marcamos cookies_inicializadas = True y ejecutamos
+#       st.rerun() para forzar el ciclo 1.
+#   • Ciclo 1 (cookies_inicializadas = True):
+#       Ahora sí leemos la cookie. Si hay token válido → restaurar sesión
+#       silenciosamente. Si no hay token → definitivamente no hay sesión →
+#       mostrar pantalla de login.
+#   • Login manual exitoso:
+#       _guardar_cookie_sesion() escribe cookie HTTP + espejo session_state.
+#       st.session_state["usuario_actual"] se hidrata ANTES de st.rerun().
+#       cookies_inicializadas se limpia para que el próximo F5 pase por el
+#       ciclo de espera completo.
 
 if not st.session_state.get("usuario_actual"):
+
+    # ── Paso 0: Espera de inicialización del componente de cookies ────────────
+    if not st.session_state.get("cookies_inicializadas"):
+        # Primera ejecución o post-F5: el JS del CookieController aún no envió
+        # los valores. Mostramos spinner, esperamos y volvemos a ejecutar.
+        st.session_state["cookies_inicializadas"] = True
+        with st.spinner("Validando credenciales de seguridad..."):
+            time.sleep(0.5)   # Dar tiempo al componente React para hidratarse
+        st.rerun()            # Ciclo 1: ahora la cookie sí estará disponible
+        st.stop()             # Nunca se llega aquí, pero detiene ejecución por seguridad
+
+    # ── Paso 1: Cookies ya inicializadas — leer y evaluar ─────────────────────
+    _token_sesion = _leer_cookie_sesion()
+
     if _token_sesion:
-        # ── Token presente: validar y restaurar sesión ────────────────────────
+        # ── Token presente: validar firma y vigencia ──────────────────────────
         _username_tok = _validar_token(_token_sesion)
         if _username_tok:
             _usr_restaurado = _buscar_usuario_por_username(_username_tok)
             if _usr_restaurado:
-                # ✅ Sesión recuperada desde cookie — sin parpadeo de login
+                # ✅ Sesión recuperada desde cookie — sin parpadeo de login.
+                # Hidratamos usuario_actual ANTES de continuar para que el resto
+                # del script (sidebar, páginas) lo encuentre disponible.
                 st.session_state["usuario_actual"] = _usr_restaurado
-                # No hacemos st.rerun() aquí: dejamos que el script continúe
-                # directamente hacia la interfaz principal (redirección silenciosa).
+                # No llamamos st.rerun(): continuamos directo a la interfaz.
             else:
-                # Usuario del token ya no existe en BD (fue eliminado)
+                # Token válido pero el usuario ya no existe en BD (fue eliminado)
                 _limpiar_sesion()
                 _pantalla_login()
                 st.stop()
         else:
-            # Token expirado o manipulado — limpiar y pedir login
+            # Token expirado o firma inválida — sesión caducada
             _limpiar_sesion()
             _pantalla_login()
             st.stop()
     else:
-        # ── Sin token en session_state ni en cookie ───────────────────────────
-        # Puede ser porque: (a) nunca inició sesión, o (b) primer ciclo tras F5
-        # y el componente de cookies aún no se hidratò (race condition del JS).
-        # Detectamos el caso (b) mirando si ya pasamos por el primer ciclo.
-        if not st.session_state.get("_cookie_checked"):
-            # Primer ciclo: marcar como revisado y esperar el segundo ciclo
-            # donde el componente ya tendrá los valores listos.
-            st.session_state["_cookie_checked"] = True
-            # Mostrar pantalla de espera mínima (evita flash del login completo)
-            with st.spinner("Verificando sesión…"):
-                st.rerun()
-        else:
-            # Segundo ciclo y sigue sin token → definitivamente no hay sesión
-            _pantalla_login()
-            st.stop()
+        # Sin token en cookie ni en session_state → no hay sesión activa
+        _pantalla_login()
+        st.stop()
 
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
@@ -1137,10 +1174,14 @@ with st.sidebar:
         # Persistir la página en la URL para sobrevivir a F5
         st.query_params["pagina"] = st.session_state.nav_radio
 
-    _nav_idx = opciones_menu.index(st.session_state.nav_radio) \
-               if st.session_state.nav_radio in opciones_menu else 0
+    # CRÍTICO: NO usar index= en st.radio cuando la key está en session_state.
+    # Pasar index= y key= simultáneamente causa el error "conflicto de estado":
+    # Streamlit no puede reconciliar el valor externo (index) con el valor del
+    # session_state gestionado por on_change. La solución correcta es dejar que
+    # Streamlit lea directamente st.session_state["radio_ui"], que ya fue
+    # sincronizado con nav_radio justo al inicio del script (ver líneas ~61-72).
     st.radio("Menú", opciones_menu, key="radio_ui",
-             index=_nav_idx, on_change=update_nav,
+             on_change=update_nav,
              label_visibility="collapsed")
     pagina = st.session_state.nav_radio
 
