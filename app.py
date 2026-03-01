@@ -43,7 +43,7 @@ if "nav_radio" not in st.session_state:
     # Leer la página actual desde la URL, si no hay → Inicio
     pag_url = st.query_params.get("pagina", "Inicio")
     st.session_state.nav_radio = pag_url
-    st.session_state._radio_ui = pag_url
+    st.session_state.radio_ui = pag_url
 
 # ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
 def _get_db_connection():
@@ -527,18 +527,18 @@ with st.sidebar:
                                                    "Historial", "Dashboard", "Banco de Retales",
                                                    "Parametros", "Asistente IA", "Configuracion"]:
         st.session_state.nav_radio = "Inicio"
-        st.session_state._radio_ui = "Inicio"
+        st.session_state.radio_ui = "Inicio"
 
     opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Banco de Retales", "Parametros", "Asistente IA", "Configuracion"]
 
     def update_nav():
-        st.session_state.nav_radio = st.session_state._radio_ui
+        st.session_state.nav_radio = st.session_state.radio_ui
         # Persistir la página en la URL para sobrevivir a F5
         st.query_params["pagina"] = st.session_state.nav_radio
 
     _nav_idx = opciones_menu.index(st.session_state.nav_radio) \
                if st.session_state.nav_radio in opciones_menu else 0
-    st.radio("Menú", opciones_menu, key="_radio_ui",
+    st.radio("Menú", opciones_menu, key="radio_ui",
              index=_nav_idx, on_change=update_nav,
              label_visibility="collapsed")
     pagina = st.session_state.nav_radio
@@ -1600,10 +1600,10 @@ elif pagina == "Historial":
                         or eg.get("tipo_proyecto") == "Licitación AIU":
                     st.session_state.aiu_items = eg.get("aiu_items", st.session_state.aiu_items)
                     st.session_state.pre = eg
-                    st.session_state.nav_radio = st.session_state._radio_ui = "Cotizacion AIU"
+                    st.session_state.nav_radio = st.session_state.radio_ui = "Cotizacion AIU"
                 else:
                     st.session_state.pre = eg
-                    st.session_state.nav_radio = st.session_state._radio_ui = "Cotizacion Directa"
+                    st.session_state.nav_radio = st.session_state.radio_ui = "Cotizacion Directa"
                 st.rerun()
             except Exception:
                 st.error("No se pudo cargar esta cotización.")
@@ -3264,7 +3264,7 @@ elif pagina == "Asistente IA":
             )
             if st.button("Ir a Configuración →", type="primary"):
                 st.session_state.nav_radio = "Configuracion"
-                st.session_state._radio_ui = "Configuracion"
+                st.session_state.radio_ui = "Configuracion"
                 st.rerun()
         st.stop()
 
@@ -3383,7 +3383,7 @@ elif pagina == "Asistente IA":
                                      type="primary", use_container_width=True):
                             st.session_state.pre = _d
                             st.session_state.nav_radio = "Cotizacion Directa"
-                            st.session_state._radio_ui = "Cotizacion Directa"
+                            st.session_state.radio_ui = "Cotizacion Directa"
                             st.query_params["pagina"] = "Cotizacion Directa"
                             st.rerun()
 
