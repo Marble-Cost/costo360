@@ -165,7 +165,13 @@ def _init_db():
 # Solución: guardar en tabla app_config (key-value) y recargar al arrancar.
 
 def _guardar_config(clave: str, valor) -> None:
-    """Serializa `valor` como JSON y lo guarda/actualiza en app_config."""
+    """Serializa `valor` como JSON y lo guarda/actualiza en app_config.
+
+    FIX-3 Serialización Base64: los bytes se deben convertir a str UTF-8
+    antes de llegar aquí (ver _guardar_logo). json.dumps no serializa bytes
+    nativamente y lanzaría TypeError silencioso. Se conserva `default=str`
+    como red de seguridad, pero la responsabilidad primaria es del llamador.
+    """
     _init_db()
     conn = _get_db_connection()
     cur  = conn.cursor()
@@ -194,12 +200,65 @@ def _leer_config(clave: str, defecto=None):
     except Exception:
         return defecto
 
+
+# ── Helpers Multi-Tenant: claves dinámicas por usuario ───────────────────────
+
+def _uid() -> str:
+    """
+    Devuelve un sufijo único para el usuario activo.
+    Usar en TODAS las claves de borradores y chat para aislar datos
+    entre usuarios (FIX-1 Multi-Tenant).
+
+    Formato: str(id) del usuario ─ ej. "12".
+    Si por alguna razón no hay sesión activa, devuelve "anon" como fallback
+    seguro (no mezcla datos con ningún ID real).
+    """
+    u = st.session_state.get("usuario_actual")
+    if u and u.get("id"):
+        return str(u["id"])
+    return "anon"
+
+def _clave_borrador_cdir() -> str:
+    return f"borrador_cotizacion_directa_{_uid()}"
+
+def _clave_borrador_aiu() -> str:
+    return f"borrador_cotizacion_aiu_{_uid()}"
+
+
+# ── Helper Base64 para logo (FIX-3 Serialización) ─────────────────────────
+
+import base64 as _base64
+
+def _guardar_logo(logo_bytes: bytes) -> None:
+    """
+    Convierte los bytes del logo a string UTF-8 antes de persitir en BD.
+    json.dumps lanzaría TypeError si recibe bytes directamente.
+    FIX-3: encode → str, decode → bytes al recuperar.
+    """
+    logo_b64_str = _base64.b64encode(logo_bytes).decode("utf-8")
+    _guardar_config("empresa_logo_b64", logo_b64_str)
+
+def _cargar_logo() -> bytes | None:
+    """Recupera el logo de la BD y lo devuelve como bytes, o None si no existe."""
+    logo_b64_str = _leer_config("empresa_logo_b64")
+    if logo_b64_str and isinstance(logo_b64_str, str):
+        try:
+            return _base64.b64decode(logo_b64_str.encode("utf-8"))
+        except Exception:
+            return None
+    return None
+
 def _cargar_config_desde_db() -> None:
     """
     Hidrata session_state desde Supabase al arrancar la app.
     Solo sobreescribe si el valor en BD es distinto de None/vacío,
     para no pisar datos que el usuario acaba de editar en esta sesión.
     Marcamos con _config_cargada para ejecutarlo solo una vez por sesión.
+
+    FIX-3: el logo se recupera mediante _cargar_logo() que decodifica
+    correctamente desde la representación UTF-8 guardada en BD.
+    FIX-1: los borradores se leen con claves tenant-específicas para que
+    cada usuario vea solo sus propios datos.
     """
     if st.session_state.get("_config_cargada"):
         return
@@ -215,6 +274,12 @@ def _cargar_config_desde_db() -> None:
         _val = _leer_config(_clave, _def)
         if _val is not None:
             st.session_state[_clave] = _val
+
+    # FIX-3: cargar logo desde su representación base64 en BD
+    if not st.session_state.get("logo_bytes"):
+        _logo_db = _cargar_logo()
+        if _logo_db:
+            st.session_state["logo_bytes"] = _logo_db
 
     st.session_state["_config_cargada"] = True
 
@@ -1572,9 +1637,11 @@ elif pagina == "Cotizacion Directa":
     pre = st.session_state.pre
 
     # ── Restaurar borrador desde BD (una sola vez post-F5) ──────────────
+    # FIX-1 Multi-Tenant: se usa _clave_borrador_cdir() que incorpora el
+    # ID del usuario activo — cada usuario ve solo su propio borrador.
     if not pre and not st.session_state.get("_borrador_restaurado"):
         try:
-            _borrador = _leer_config("borrador_cotizacion_directa")
+            _borrador = _leer_config(_clave_borrador_cdir())
             if _borrador:
                 _borrador["_origen"] = "borrador"
                 st.session_state.pre = _borrador
@@ -2628,8 +2695,13 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 resultado["incluir_iva"]      = incluir_iva
                 st.session_state.cotizacion   = resultado
                 st.session_state["_recalcular_paso4"] = False
+                # FIX-2 Dirty-State: solo persiste si el contenido cambió.
+                # FIX-1 Multi-Tenant: clave dinámica por usuario.
                 try:
-                    _guardar_config("borrador_cotizacion_directa", _pre_snapshot)
+                    _nuevo_hash = hash(json.dumps(_pre_snapshot, sort_keys=True, default=str))
+                    if _nuevo_hash != st.session_state.get("last_pre_hash"):
+                        _guardar_config(_clave_borrador_cdir(), _pre_snapshot)
+                        st.session_state["last_pre_hash"] = _nuevo_hash
                 except Exception:
                     pass
 
@@ -2843,9 +2915,10 @@ elif pagina == "Cotizacion AIU":
         st.session_state.aiu_success = False
 
     # Restaurar borrador AIU
+    # FIX-1 Multi-Tenant: clave dinámica por usuario (_clave_borrador_aiu)
     if not st.session_state.pre and not st.session_state.get("_borrador_aiu_restaurado"):
         try:
-            _borrador_aiu = _leer_config("borrador_cotizacion_aiu")
+            _borrador_aiu = _leer_config(_clave_borrador_aiu())
             if _borrador_aiu:
                 st.session_state.pre = _borrador_aiu
                 if _borrador_aiu.get("aiu_items"):
@@ -3306,8 +3379,13 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 }
                 st.session_state.cotizacion = res_aiu
                 st.session_state["_recalcular_aiu"] = False
+                # FIX-2 Dirty-State + FIX-1 Multi-Tenant
                 try:
-                    _guardar_config("borrador_cotizacion_aiu", res_aiu["_estado_guardado"])
+                    _snap_aiu = res_aiu["_estado_guardado"]
+                    _hash_aiu = hash(json.dumps(_snap_aiu, sort_keys=True, default=str))
+                    if _hash_aiu != st.session_state.get("last_aiu_hash"):
+                        _guardar_config(_clave_borrador_aiu(), _snap_aiu)
+                        st.session_state["last_aiu_hash"] = _hash_aiu
                 except Exception:
                     pass
 
@@ -3452,9 +3530,10 @@ elif pagina == "Cotizacion AIU":
     st.markdown("<p style='opacity:0.7;font-size:0.88rem'>Estructura formal colombiana A+I+U+IVA</p>", unsafe_allow_html=True)
 
     # [PERSISTENCIA] Restaurar borrador AIU desde BD si session_state está vacío (post-F5)
+    # FIX-1 Multi-Tenant: clave dinámica por usuario
     if not st.session_state.pre and not st.session_state.get("_borrador_aiu_restaurado"):
         try:
-            _borrador_aiu = _leer_config("borrador_cotizacion_aiu")
+            _borrador_aiu = _leer_config(_clave_borrador_aiu())
             if _borrador_aiu:
                 st.session_state.pre = _borrador_aiu
                 if _borrador_aiu.get("aiu_items"):
@@ -3652,9 +3731,13 @@ no sobre el total del contrato. La app calcula esto automáticamente.
 
         st.session_state.cotizacion = res_aiu
 
-        # [PERSISTENCIA] Guardar borrador AIU en BD (solo borrador, no historial)
+        # [PERSISTENCIA] Guardar borrador AIU — FIX-2 Dirty-State + FIX-1 Multi-Tenant
         try:
-            _guardar_config("borrador_cotizacion_aiu", res_aiu["_estado_guardado"])
+            _snap_aiu2 = res_aiu["_estado_guardado"]
+            _hash_aiu2 = hash(json.dumps(_snap_aiu2, sort_keys=True, default=str))
+            if _hash_aiu2 != st.session_state.get("last_aiu_hash"):
+                _guardar_config(_clave_borrador_aiu(), _snap_aiu2)
+                st.session_state["last_aiu_hash"] = _hash_aiu2
         except Exception:
             pass
 
@@ -5983,8 +6066,16 @@ elif pagina == "Configuracion":
 
         logo = st.file_uploader("Subir nuevo logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
         if logo:
-            st.session_state.logo_bytes = logo.read()
-            st.success("✅ Logo cargado. Ya aparece en el sidebar y en los PDFs.")
+            _logo_raw = logo.read()
+            st.session_state.logo_bytes = _logo_raw
+            # FIX-3 Serialización Base64: bytes → str UTF-8 antes de JSON/BD.
+            # _guardar_logo() llama a base64.b64encode(...).decode('utf-8')
+            # para evitar el TypeError que json.dumps lanzaría con bytes crudos.
+            try:
+                _guardar_logo(_logo_raw)
+            except Exception as _le:
+                st.warning(f"Logo guardado en sesión pero no persistido en BD: {_le}")
+            st.success("✅ Logo cargado y guardado. Ya aparece en el sidebar y en los PDFs.")
             st.rerun()
 
     # ── Tab de gestión de usuarios (solo Admin) ───────────────────────────────
