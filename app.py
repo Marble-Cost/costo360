@@ -3979,6 +3979,50 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             st.session_state.pop("editando_num", None)
             st.session_state["_aiu_guardada"] = False   # Nueva: dejar que el usuario decida guardar
 
+    # ── RECÁLCULO DEFENSIVO AIU ──────────────────────────────────────────────
+    # Se ejecuta SIEMPRE antes de renderizar el resultado.
+    # Garantiza que st.session_state.cotizacion tenga precio_total válido
+    # incluso si el usuario llegó aquí sin pasar por el botón Calcular
+    # (navegación directa, F5, o salto de pasos desde pills/radio).
+    _pre = st.session_state.pre
+    _aiu_items_pre = _pre.get("aiu_items", st.session_state.get("aiu_items", []))
+    if _aiu_items_pre:
+        _cd_total_pre = sum(float(it.get("cant", 0)) * float(it.get("punit", 0)) for it in _aiu_items_pre)
+    else:
+        _cd_total_pre = _pre.get("cd_total", 0.0)
+
+    if _cd_total_pre > 0:
+        _res_aiu_pre = calcular_aiu(
+            _cd_total_pre,
+            float(_pre.get("pct_a", AIU_DEFAULTS["a"])),
+            float(_pre.get("pct_i", AIU_DEFAULTS["i"])),
+            float(_pre.get("pct_u", AIU_DEFAULTS["u"])),
+            _pre.get("vehiculo_entrega", "frontier"),
+            float(_pre.get("km", 0.0)),
+            int(_pre.get("peajes", 0)),
+            bool(_pre.get("agente_externo_taller", False)),
+            bool(_pre.get("foraneo_activo", False)),
+            _pre.get("tipo_aloj", "pueblo"),
+            int(_pre.get("noches", 0)),
+            int(_pre.get("personas", 2)),
+            incluir_iva=bool(_pre.get("incluir_iva", True)),
+        )
+        _res_aiu_pre["tipo_proyecto"]   = "Licitación AIU"
+        _res_aiu_pre["categoria"]       = "Proyecto Constructora"
+        _res_aiu_pre["referencia"]      = "Múltiple"
+        _res_aiu_pre["m2_real"]         = 0
+        _res_aiu_pre["ml_proyecto"]     = 0
+        _res_aiu_pre["costo_total"]     = _cd_total_pre
+        _res_aiu_pre["precio_sugerido"] = _res_aiu_pre["precio_total"]
+        _res_aiu_pre["nombre_cliente"]  = _pre.get("nombre_cliente", "")
+        _res_aiu_pre["incluir_iva"]     = bool(_pre.get("incluir_iva", True))
+        _res_aiu_pre["aiu_items"]       = _aiu_items_pre
+        # Solo sobreescribir cotizacion si NO es ya una AIU válida con precio_total
+        _cot_actual = st.session_state.cotizacion or {}
+        if not (_cot_actual.get("tipo_proyecto") == "Licitación AIU"
+                and _cot_actual.get("precio_total")):
+            st.session_state.cotizacion = _res_aiu_pre
+
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU":
         r = st.session_state.cotizacion
 
