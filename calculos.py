@@ -155,11 +155,8 @@ def calcular_cotizacion_directa(
     adicionales_lista: list,
     tipo_proyecto: str = "",
     nombre_cliente: str = "",
-    piezas_lista: list | None = None,  # Piezas nativas del wizard (con ancho_tipo por pieza)
     **kwargs,
 ) -> dict:
-    # Tipos de ancho_tipo que se pagan por m² (no por metro lineal de borde)
-    _ANCHOS_TIPO_AREA = {"Fachada / Panel"}
     _tarifas_src = kwargs.get("tarifas_override") or TARIFAS
     tar = _tarifas_src.get(categoria, TARIFAS["Mármol"])
 
@@ -167,60 +164,55 @@ def calcular_cotizacion_directa(
     costo_material = precio_m2 * area_placa_comprada
 
     # ── ② Producción ──────────────────────────────────────────────────────────
-    # ARQUITECTURA HÍBRIDA POR PIEZA (ML vs m²):
+    # ARQUITECTURA DUAL ML vs m²:
     #
-    # RUTA A — piezas_lista (wizard nativo, costeo más preciso):
-    #   Se itera cada pieza individualmente usando su ancho_tipo.
-    #   Si el tipo está en _ANCHOS_TIPO_AREA → m² × tarifa_prod_m2 (área).
-    #   Si no                               → ml × tarifa_prod_ml (borde).
-    #   Esto permite proyectos híbridos correctos: un mesón + un panel de
-    #   fachada en la misma cotización, cada pieza con su tarifa real.
+    # TIPO BORDE (Mesón, Baño, Escalera, Cocina…):
+    #   El operario cobra por ML cortado e instalado. Mayor cantidad de
+    #   cortes de borde y perfilado → tarifa prod_ml por metro lineal.
     #
-    # RUTA B — fallback legado (atajo de edición, AIU, datos desde pre):
-    #   Usa kwargs["piezas"] con unidad_venta, o tipo_proyecto como
-    #   tiebreaker global. Se conserva para retrocompatibilidad total.
+    # TIPO ÁREA (Piso, Fachada, Revestimiento):
+    #   El operario trabaja por m² instalado. Menos cortes de borde,
+    #   más colocación → tarifa prod_m2 por metro cuadrado.
+    #   Esta tarifa DEBE venir de TARIFAS["Material"]["prod_m2"] — no se
+    #   puede inferir dividiendo m2_real / 0.60 (eso era un hack incorrecto).
+    #
+    # Las piezas con unidad_venta=="m2" SIEMPRE usan prod_m2.
+    # Las piezas con unidad_venta=="ml"  SIEMPRE usan prod_ml.
+    # El tipo_proyecto actúa como tiebreaker en el fallback sin piezas.
+    piezas = kwargs.get("piezas", [])
+
+    ml_piezas = sum(
+        float(p.get("largo", p.get("ml", 0)))
+        for p in piezas if p.get("unidad_venta", "ml") == "ml"
+    )
+    m2_piezas = sum(
+        ml_a_m2(float(p.get("largo", p.get("ml", 0))), float(p.get("ancho", 0.60)))
+        for p in piezas if p.get("unidad_venta", "ml") == "m2"
+    )
+
+    # Tipos de proyecto que se pagan por área (no por borde)
+    _TIPOS_AREA = {"Piso", "Fachada", "Revestimiento"}
+    _es_tipo_area = any(t.strip() in _TIPOS_AREA for t in tipo_proyecto.split(",")) if tipo_proyecto else False
+
+    # Fallback cuando no hay piezas explícitas (carga desde pre, atajo, etc.)
+    ml_proyecto = kwargs.get("ml_proyecto", 0.0)
+    if ml_piezas <= 0 and ml_proyecto > 0:
+        ml_piezas = ml_proyecto
+
+    if ml_piezas <= 0 and m2_piezas <= 0:
+        if _es_tipo_area:
+            # Proyecto de área: costear todo por m², sin convertir a ML ficticio
+            m2_piezas = m2_real
+        else:
+            # Proyecto de borde: estimado razonable — 1 ML = 0.60 m de ancho estándar
+            # Solo se usa cuando no hay piezas detalladas disponibles
+            ml_piezas = m2_real / 0.60
 
     tarifa_prod_ml = tar.get("prod_ml", 60_000)
+    # prod_m2 viene de TARIFAS (valor real calibrado por material).
+    # El fallback 0.55×prod_ml se mantiene solo para retrocompatibilidad
+    # con instalaciones donde prod_m2 aún no esté en la BD de config.
     tarifa_prod_m2 = tar.get("prod_m2", round(tarifa_prod_ml * 0.55))
-    ml_piezas = 0.0
-    m2_piezas = 0.0
-
-    if piezas_lista:
-        # ── RUTA A: clasificación pieza a pieza por ancho_tipo ────────────────
-        for _p in piezas_lista:
-            _tipo_p  = _p.get("ancho_tipo", "")
-            _ml_p    = float(_p.get("ml", 0.0))
-            _ancho_p = float(_p.get("ancho_custom", 0.60))
-            _m2_p    = ml_a_m2(_ml_p, _ancho_p)
-            if _tipo_p in _ANCHOS_TIPO_AREA:
-                # Pieza de área (Fachada/Panel): mano de obra por m²
-                m2_piezas += _m2_p
-            else:
-                # Pieza de borde (Mesón, Baño, Escalera, etc.): mano de obra por ml
-                ml_piezas += _ml_p
-    else:
-        # ── RUTA B: fallback legado ───────────────────────────────────────────
-        piezas = kwargs.get("piezas", [])
-        ml_piezas = sum(
-            float(p.get("largo", p.get("ml", 0)))
-            for p in piezas if p.get("unidad_venta", "ml") == "ml"
-        )
-        m2_piezas = sum(
-            ml_a_m2(float(p.get("largo", p.get("ml", 0))), float(p.get("ancho", 0.60)))
-            for p in piezas if p.get("unidad_venta", "ml") == "m2"
-        )
-        # Tipos de proyecto que se pagan por área (fallback global)
-        _TIPOS_AREA = {"Piso", "Fachada", "Revestimiento"}
-        _es_tipo_area = any(t.strip() in _TIPOS_AREA for t in tipo_proyecto.split(",")) if tipo_proyecto else False
-        ml_proyecto = kwargs.get("ml_proyecto", 0.0)
-        if ml_piezas <= 0 and ml_proyecto > 0:
-            ml_piezas = ml_proyecto
-        if ml_piezas <= 0 and m2_piezas <= 0:
-            if _es_tipo_area:
-                m2_piezas = m2_real
-            else:
-                # Estimado de borde — solo cuando no hay piezas detalladas
-                ml_piezas = m2_real / 0.60
 
     c2_ml = ml_piezas * tarifa_prod_ml
     c2_m2 = m2_piezas * tarifa_prod_m2
@@ -233,18 +225,7 @@ def calcular_cotizacion_directa(
     m2_disco = m2_cortados if m2_cortados > 0 else m2_real
     costo_disco_maq  = (m2_disco * tar.get("disco", 2_200)) + (dias * tar.get("maquina", 20_000))
     costo_consumibles = m2_real * tar.get("consumibles", 10_000)   # Lijas, masilla, ceras, sellador
-    # Riesgo de rotura blindado sobre valor de mercado:
-    # Si precio_m2 < $100.000 (material retal/subsidiado), el costo del
-    # material es artificialmente bajo y la cobertura de accidente sería
-    # insuficiente. En ese caso se calcula sobre el precio mínimo de
-    # referencia del mercado ($220.000/m²) para mantener la provisión real.
-    _tasa_rotura = tar.get("riesgo_rotura", 0.02)
-    if precio_m2 < 100_000:
-        # Retal o precio subsidiado → base de seguro = mercado mínimo
-        costo_riesgo = (m2_real * 220_000) * _tasa_rotura
-    else:
-        # Material a precio normal → provisión sobre costo real de la placa
-        costo_riesgo = costo_material * _tasa_rotura
+    costo_riesgo      = costo_material * tar.get("riesgo_rotura", 0.02)  # % provisión rotura
     c4 = costo_disco_maq + costo_consumibles + costo_riesgo
 
     # ── ⑤ Logística ──────────────────────────────────────────────────────────
@@ -337,15 +318,20 @@ def analizar_precio_real(precio_real: float, costo_total: float, precio_sugerido
 
 
 def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
-                 agente_externo, foraneo_activo, tipo_aloj, noches, personas):
+                 agente_externo, foraneo_activo, tipo_aloj, noches, personas,
+                 incluir_iva: bool = True):
     """
     Cálculo AIU normativo colombiano.
     IVA (19%) solo sobre Utilidad (U) — Art. 3° Decreto 1372/92.
+
+    incluir_iva=False: cotización exenta (régimen simplificado).
+    En ese caso val_iva=0 y el total se ajusta dinámicamente.
     """
     val_a   = cd * (pct_a / 100)
     val_i   = cd * (pct_i / 100)
     val_u   = cd * (pct_u / 100)
-    val_iva = val_u * 0.19
+    # IVA solo sobre Utilidad — si exento, val_iva es 0 y no suma al total
+    val_iva = val_u * 0.19 if incluir_iva else 0.0
     sub_aiu = val_a + val_i + val_u + val_iva
     log_dict  = calcular_logistica(vehiculo, km, num_peajes, agente_externo)
     logistica = log_dict["total"]
@@ -359,6 +345,7 @@ def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
         "viaticos": viaticos,
         "precio_total": precio_total, "margen_pct": margen_pct,
         "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u,
+        "incluir_iva": incluir_iva,
     }
 
 
