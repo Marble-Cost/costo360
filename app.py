@@ -1,15 +1,15 @@
-# app.py — CostoMármol v6 · Adaptive UX & Fixes
-# Mármoles Collante & Castro Ltda. · Feb 2026
+# app.py — CostoMármol v8 · CookieController Auth · Feb 2026
+# Mármoles Collante & Castro Ltda.
 
 import io
-import base64
+import time
 import hashlib
-import hmac
-import secrets
+import hmac as _hmac_mod
 import streamlit as st
+from streamlit_cookies_controller import CookieController
 import psycopg2
 import json, os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 _BOG = ZoneInfo("America/Bogota")
@@ -27,15 +27,32 @@ from parametros import (
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS,
 )
-from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion
+from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos
 import plotly.graph_objects as go
 
 st.set_page_config(
     page_title="CostoMármol — Mármoles Collante & Castro",
     page_icon="🪨",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded",
 )
+
+# ── GESTOR DE COOKIES HTTP ────────────────────────────────────────────────────
+# Instanciar INMEDIATAMENTE después de set_page_config, antes de cualquier
+# lógica de sesión. El componente React de CookieController necesita al menos
+# un ciclo de Streamlit para inyectar los valores de las cookies desde el
+# navegador al backend Python.
+cookie_ctrl = CookieController()
+_COOKIE_USUARIO = "costomarmol_usuario"   # guarda el username (30 días)
+
+# ── BLOQUEO DE RENDERIZADO ASÍNCRONO — solución definitiva al F5 ──────────────
+# En el ciclo 0 (cold start / F5), el JS del componente aún no ha enviado las
+# cookies al backend. Forzamos un rerun con delay mínimo para que el ciclo 1
+# ya tenga disponible el valor real de la cookie en cookie_ctrl.get().
+if "sesion_inicializada" not in st.session_state:
+    time.sleep(0.3)
+    st.session_state.sesion_inicializada = True
+    st.rerun()
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
 if "primera_visita" not in st.session_state:
@@ -115,24 +132,6 @@ def _init_db():
             precio_mercado_m2   REAL DEFAULT 0
         )
     """)
-    # ── Tabla de sesiones persistentes (reemplaza cookies del browser) ──────────
-    # Permite que la sesion sobreviva a F5, cierre de pestana y reinicios.
-    # El token viaja en st.query_params["sid"] — se pega en la URL de la app.
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS sesiones_activas (
-            token       TEXT PRIMARY KEY,
-            usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
-            username    TEXT NOT NULL,
-            expiry      TEXT NOT NULL
-        )
-    """)
-    try:
-        # Limpiar sesiones expiradas (comparamos como texto ISO8601)
-        from datetime import datetime, timezone
-        _ahora = datetime.now(timezone.utc).isoformat()
-        cur.execute("DELETE FROM sesiones_activas WHERE expiry < %s", (_ahora,))
-    except Exception:
-        pass
     # ── Migraciones seguras: añade columnas nuevas sin romper datos existentes ──
     _migraciones = [
         ("inventario_retales", "precio_recuperacion", "REAL DEFAULT 0"),
@@ -552,183 +551,67 @@ REGLAS:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SISTEMA DE AUTENTICACIÓN MULTI-TENANT
+# SISTEMA DE AUTENTICACIÓN — CookieController + PBKDF2-SHA256 + PostgreSQL
 # ═══════════════════════════════════════════════════════════════════════════════
+#
+# FLUJO (dos ciclos, sin race conditions):
+#   CICLO 0 (F5/cold-start): bloqueo arriba hace sleep(0.3) + rerun.
+#   CICLO 1+: cookie_ctrl.get() tiene el valor definitivo del navegador.
+#     • Si cookie existe → buscar usuario en BD → hidratar session_state → app.
+#     • Si no → _pantalla_login() → st.stop().
+#   LOGIN:  cookie_ctrl.set(username)  + time.sleep(0.3) + rerun.
+#   LOGOUT: cookie_ctrl.remove(key)    + time.sleep(0.3) + limpiar state + rerun.
 
-# ── Clave interna para firmar tokens de sesión (se genera una vez por deploy) ─
-# Usa APP_SECRET en secrets.toml si existe; si no, usa una clave por defecto.
-def _get_secret_key() -> bytes:
-    try:
-        return st.secrets.get("APP_SECRET", "cc_marbles_secret_2026").encode()
-    except Exception:
-        return b"cc_marbles_secret_2026"
+# ── Helpers de contraseña (PBKDF2-SHA256 puro, sin dependencias externas) ─────
 
 def _hash_password(password: str) -> str:
-    """SHA-256 con salt fijo por usuario (PBKDF2 estilo liviano)."""
+    """Hashing PBKDF2-SHA256 con salt corporativo fijo. Sin dependencias externas."""
     salt = b"cc_marmoles_2026_salt"
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
     return dk.hex()
 
 def _verificar_password(password: str, hash_almacenado: str) -> bool:
-    return hmac.compare_digest(_hash_password(password), hash_almacenado)
+    """Comparación segura contra timing-attacks via hmac.compare_digest."""
+    return _hmac_mod.compare_digest(_hash_password(password), hash_almacenado)
 
-def _generar_token(username: str) -> str:
-    """Genera un token firmado: base64(username:timestamp):firma_hmac."""
-    expiry = (datetime.now(_BOG) + timedelta(days=30)).isoformat()
-    payload = f"{username}|{expiry}"
-    firma = hmac.new(_get_secret_key(), payload.encode(), hashlib.sha256).hexdigest()
-    token_raw = f"{payload}|{firma}"
-    return base64.b64encode(token_raw.encode()).decode()
+# ── Helpers de cookie ─────────────────────────────────────────────────────────
 
-def _validar_token(token: str) -> str | None:
-    """Valida el token. Retorna username si es válido y no expiró; None si no."""
-    try:
-        decoded = base64.b64decode(token.encode()).decode()
-        parts = decoded.split("|")
-        if len(parts) != 3:
-            return None
-        username, expiry_str, firma_recibida = parts
-        payload = f"{username}|{expiry_str}"
-        firma_esperada = hmac.new(_get_secret_key(), payload.encode(), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(firma_recibida, firma_esperada):
-            return None
-        expiry = datetime.fromisoformat(expiry_str)
-        if datetime.now(_BOG) > expiry:
-            return None
-        return username
-    except Exception:
-        return None
-
-# ── PERSISTENCIA DE SESIÓN — BD + query_params ───────────────────────────────
-# Estrategia: el token se guarda en la tabla sesiones_activas (PostgreSQL) y
-# viaja en la URL como ?sid=<token>. Esto permite que la sesión sobreviva a F5,
-# cierre de pestaña y reinicios del servidor sin depender de cookies del browser
-# ni de librerías externas.
-#
-# Ciclo completo:
-#   Login → INSERT en sesiones_activas + query_params["sid"] = token
-#   F5 / reload → leer query_params["sid"] → verificar en BD → restaurar session_state
-#   Logout → DELETE de BD + borrar query_params["sid"]
-
-def _guardar_sesion_bd(token: str, usuario_id: int, username: str) -> bool:
-    """Persiste el token en la BD y lo pone en la URL."""
-    try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        expiry = (datetime.now(_BOG) + timedelta(days=30)).isoformat()
-        cur.execute(
-            """INSERT INTO sesiones_activas (token, usuario_id, username, expiry)
-               VALUES (%s, %s, %s, %s)
-               ON CONFLICT (token) DO UPDATE SET expiry = EXCLUDED.expiry""",
-            (token, usuario_id, username, expiry)
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        # Guardar también en session_state + URL para acceso inmediato
-        st.session_state["_auth_token"] = token
-        st.query_params["sid"] = token
-        return True
-    except Exception:
-        return False
-
-def _verificar_sesion_bd(token: str) -> str | None:
-    """
-    Valida el token contra la BD.
-    Retorna username si es válido y no expiró; None si no.
-    También verifica la firma HMAC para doble seguridad.
-    """
-    # Primero validar firma criptográfica (evita consultas con tokens falsos)
-    username_tok = _validar_token(token)
-    if not username_tok:
-        return None
-    # Luego verificar que exista en BD y no haya expirado
-    try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute(
-            "SELECT username, expiry FROM sesiones_activas WHERE token = %s",
-            (token,)
-        )
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        if not row:
-            return None
-        _username_bd, _expiry_str = row
-        # Verificar expiración
-        try:
-            _expiry = datetime.fromisoformat(_expiry_str)
-            # Normalizar a naive si es necesario para comparación
-            _now = datetime.now(_BOG)
-            if _expiry.tzinfo is None:
-                _now = datetime.now()
-            if _now > _expiry:
-                return None
-        except Exception:
-            pass
-        return _username_bd
-    except Exception:
-        # Si hay error de BD, hacer fallback a validación HMAC pura
-        return username_tok
+def _guardar_cookie_sesion(username: str) -> None:
+    """Persiste el username en cookie HTTP (30 días) y en session_state."""
+    cookie_ctrl.set(
+        _COOKIE_USUARIO, username,
+        max_age=30 * 24 * 3600,
+        path="/", secure=True, same_site="Lax",
+    )
+    st.session_state["_auth_username"] = username
 
 def _leer_cookie_sesion() -> str | None:
-    """
-    Lee el token de sesión desde (en orden de prioridad):
-    1. session_state (mismo rerun de Streamlit)
-    2. query_params ?sid= (recarga de página / F5 / nueva pestaña)
-    """
-    # Prioridad 1: session_state (ya verificado en este ciclo de vida)
-    tok = st.session_state.get("_auth_token")
-    if tok:
-        return tok
-    # Prioridad 2: URL query_params (persiste entre F5)
-    tok_url = st.query_params.get("sid")
-    if tok_url:
-        st.session_state["_auth_token"] = tok_url  # cachear para este ciclo
-        return tok_url
-    return None
+    """Lee el username desde session_state (caché de ciclo) o desde la cookie HTTP."""
+    cached = st.session_state.get("_auth_username")
+    if cached:
+        return cached
+    val = cookie_ctrl.get(_COOKIE_USUARIO)
+    if val:
+        st.session_state["_auth_username"] = val
+    return val or None
 
-# Alias de compatibilidad (la firma de la función anterior)
-def _guardar_cookie_sesion(token: str):
-    st.session_state["_auth_token"] = token
-
-def _limpiar_sesion():
-    """Cierra sesión: elimina token de BD, query_params y session_state."""
-    # Borrar de la BD
-    tok = st.session_state.get("_auth_token") or st.query_params.get("sid")
-    if tok:
-        try:
-            _init_db()
-            conn = _get_db_connection()
-            cur  = conn.cursor()
-            cur.execute("DELETE FROM sesiones_activas WHERE token = %s", (tok,))
-            conn.commit()
-            cur.close()
-            conn.close()
-        except Exception:
-            pass
-    # Borrar de la URL
+def _limpiar_sesion() -> None:
+    """Cierra sesión: borra cookie HTTP y limpia session_state relevante."""
     try:
-        st.query_params.clear()
+        cookie_ctrl.remove(_COOKIE_USUARIO)
     except Exception:
-        try:
-            if "sid" in st.query_params:
-                del st.query_params["sid"]
-        except Exception:
-            pass
-    # Borrar session_state
-    for k in ["usuario_actual", "_auth_token", "_config_cargada",
+        pass
+    for k in ["usuario_actual", "_auth_username", "_config_cargada",
+              "sesion_inicializada",
               "cotizacion", "pre", "piezas", "materiales_proyecto",
-              "chat", "resumen_ia"]:
+              "chat", "resumen_ia",
+              "_cotiz_guardada", "_cotiz_guardada_num",
+              "_aiu_guardada", "_aiu_guardada_num"]:
         st.session_state.pop(k, None)
 
 # ── CRUD de usuarios ──────────────────────────────────────────────────────────
 
 def _buscar_usuario_por_username(username: str) -> dict | None:
-    """Retorna dict con datos del usuario o None si no existe."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -749,7 +632,6 @@ def _buscar_usuario_por_username(username: str) -> dict | None:
 
 def _crear_usuario(username: str, password: str, pin: str,
                    rol: str = "Operario", nombre_completo: str = "") -> bool:
-    """Crea un usuario nuevo. Retorna True si tuvo éxito."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -766,7 +648,6 @@ def _crear_usuario(username: str, password: str, pin: str,
         return False
 
 def _actualizar_password(username: str, nueva_password: str) -> bool:
-    """Actualiza la contraseña de un usuario."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -782,7 +663,6 @@ def _actualizar_password(username: str, nueva_password: str) -> bool:
         return False
 
 def _listar_usuarios() -> list:
-    """Lista todos los usuarios (para panel Admin)."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -807,11 +687,8 @@ def _eliminar_usuario(uid: int) -> bool:
         return False
 
 def _asegurar_admin_existe():
-    """
-    Crea el usuario admin por defecto si la tabla de usuarios está vacía.
-    Credenciales: admin / admin123 / PIN: 0000
-    IMPORTANTE: cambiar tras el primer login.
-    """
+    """Crea el usuario admin por defecto si la tabla está vacía.
+    Credenciales: admin / admin123 / PIN: 0000  — cambiar tras el primer login."""
     try:
         _init_db()
         conn = _get_db_connection()
@@ -825,140 +702,131 @@ def _asegurar_admin_existe():
 
 # ── Pantalla de Login ─────────────────────────────────────────────────────────
 
-def _pantalla_login():
-    """Renderiza la pantalla de login y maneja el flujo de autenticación."""
+def _pantalla_login() -> None:
+    """
+    Renderiza la pantalla de login corporativa con CookieController.
+    En login exitoso: _guardar_cookie_sesion() + time.sleep(0.3) + st.rerun().
+    """
     _asegurar_admin_existe()
 
-    # CSS exclusivo del login
     st.markdown("""
     <style>
-    .login-wrapper {
-        max-width: 420px;
-        margin: 60px auto 0;
-    }
-    .login-logo {
-        text-align: center;
-        padding: 28px 0 18px;
-    }
-    .login-logo .brand {
-        font-family: 'Playfair Display', serif;
-        font-size: 2.2rem;
-        font-weight: 900;
-        color: #C9A84C;
-        line-height: 1;
-    }
-    .login-logo .sub {
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        opacity: 0.55;
-        text-transform: uppercase;
-        margin-top: 4px;
-    }
     .login-title {
         font-family: 'Playfair Display', serif;
-        font-size: 1.45rem;
-        font-weight: 700;
-        color: #1B5FA8;
-        margin-bottom: 4px;
-        text-align: center;
+        font-size: 1.45rem; font-weight: 700;
+        color: #1B5FA8; margin-bottom: 4px; text-align: center;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    _, col, _ = st.columns([1, 2, 1])
-    with col:
-        # Logo / identidad
-        st.markdown("""
-        <div class="login-logo">
-            <div class="brand">CC</div>
-            <div class="sub">Mármoles Collante &amp; Castro</div>
-        </div>
-        <div class="login-title">Iniciar Sesión</div>
-        """, unsafe_allow_html=True)
+    # ── Logo centrado ─────────────────────────────────────────────────────────
+    _login_base_dir = os.path.dirname(os.path.abspath(__file__))
+    _login_logo = next(
+        (os.path.join(_login_base_dir, n) for n in
+         ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
+          "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
+         if os.path.exists(os.path.join(_login_base_dir, n))),
+        None
+    )
+    _col1, _col2, _col3 = st.columns([1.2, 1, 1.2])
+    with _col2:
+        if st.session_state.get("logo_bytes"):
+            st.image(st.session_state.logo_bytes, use_container_width=True)
+        elif _login_logo:
+            st.image(_login_logo, use_container_width=True)
+        else:
+            st.markdown(
+                '<div style="text-align:center;padding:10px 0 6px">'
+                '<span style="color:#C9A84C;font-size:2.4rem;font-weight:900;'
+                'font-family:serif;line-height:1">CC</span></div>',
+                unsafe_allow_html=True
+            )
 
-        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="login-title" style="margin-top:4px;margin-bottom:8px">Iniciar Sesión</div>',
+        unsafe_allow_html=True
+    )
 
-        with st.container(border=True):
-            _tab_login, _tab_pin = st.tabs(["🔐 Acceder", "🔑 Recuperar contraseña"])
+    with st.container(border=True):
+        _tab_login, _tab_pin = st.tabs(["🔐 Acceder", "🔑 Recuperar contraseña"])
 
-            # ── Tab login principal ───────────────────────────────────────────
-            with _tab_login:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                _uname = st.text_input("Usuario", placeholder="Ej: jcastro",
-                                       key="login_username")
-                _pwd   = st.text_input("Contraseña", type="password",
-                                       placeholder="••••••••", key="login_password")
+        # ── Tab login principal ───────────────────────────────────────────────
+        with _tab_login:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            _uname = st.text_input("Usuario", placeholder="Ej: jcastro", key="login_username")
+            _pwd   = st.text_input("Contraseña", type="password",
+                                   placeholder="••••••••", key="login_password")
 
-                if st.button("Ingresar →", type="primary",
-                             use_container_width=True, key="btn_login"):
-                    if not _uname or not _pwd:
-                        st.error("Completa usuario y contraseña.", icon="⚠️")
+            if st.button("Ingresar →", type="primary",
+                         use_container_width=True, key="btn_login"):
+                if not _uname or not _pwd:
+                    st.error("Completa usuario y contraseña.", icon="⚠️")
+                else:
+                    _usr = _buscar_usuario_por_username(_uname)
+                    if _usr and _verificar_password(_pwd, _usr["password_hash"]):
+                        # Login exitoso: persistir username en cookie HTTP (30 días)
+                        _guardar_cookie_sesion(_usr["username"])
+                        st.session_state["usuario_actual"] = _usr
+                        st.success(
+                            f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
+                        time.sleep(0.3)
+                        st.rerun()
                     else:
-                        _usr = _buscar_usuario_por_username(_uname)
-                        if _usr and _verificar_password(_pwd, _usr["password_hash"]):
-                            # Login exitoso: generar token y persistir en BD + URL
-                            token = _generar_token(_usr["username"])
-                            _guardar_sesion_bd(token, _usr["id"], _usr["username"])
-                            st.session_state["usuario_actual"] = _usr
-                            st.success(f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
+                        st.error("Usuario o contraseña incorrectos.", icon="🚨")
+
+            st.markdown(
+                """<div style='text-align:center;margin-top:14px;padding-top:10px;
+                border-top:1px solid rgba(128,128,128,0.15)'>
+                <span style='color:#9ca3af;font-size:0.75rem;font-weight:400;
+                letter-spacing:0.03em'>Sistema de uso exclusivo</span>
+                <span style='color:#9ca3af;font-size:0.75rem'> · </span>
+                <span style='font-style:italic;font-weight:600;color:#6b7280;
+                font-size:0.75rem'>Marmoles Collante &amp; Castro</span>
+                </div>""",
+                unsafe_allow_html=True
+            )
+
+        # ── Tab recuperación por PIN ──────────────────────────────────────────
+        with _tab_pin:
+            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+            st.caption("Ingresa tu usuario y el PIN de recuperación de 4 dígitos.")
+            _rec_user = st.text_input("Usuario", placeholder="Ej: jcastro", key="rec_username")
+            _rec_pin  = st.text_input("PIN de recuperación (4 dígitos)",
+                                      placeholder="0000", max_chars=4, key="rec_pin")
+
+            if st.button("Verificar PIN →", use_container_width=True, key="btn_verificar_pin"):
+                if not _rec_user or not _rec_pin:
+                    st.error("Completa usuario y PIN.", icon="⚠️")
+                else:
+                    _usr_rec = _buscar_usuario_por_username(_rec_user)
+                    if _usr_rec and _usr_rec["pin_recuperacion"] == _rec_pin.strip():
+                        st.session_state["_pin_verificado_user"] = _rec_user.strip().lower()
+                        st.success("PIN correcto. Ahora ingresa tu nueva contraseña.")
+                    else:
+                        st.error("Usuario o PIN incorrecto.", icon="🚨")
+                        st.session_state.pop("_pin_verificado_user", None)
+
+            if st.session_state.get("_pin_verificado_user"):
+                st.markdown("---")
+                _nueva_pwd = st.text_input("Nueva contraseña", type="password",
+                                           placeholder="Mínimo 6 caracteres", key="nueva_pwd")
+                _confirmar = st.text_input("Confirmar contraseña", type="password",
+                                           placeholder="Repite la contraseña", key="confirmar_pwd")
+                if st.button("Guardar nueva contraseña", type="primary",
+                             use_container_width=True, key="btn_cambiar_pwd"):
+                    if len(_nueva_pwd) < 6:
+                        st.error("La contraseña debe tener al menos 6 caracteres.")
+                    elif _nueva_pwd != _confirmar:
+                        st.error("Las contraseñas no coinciden.")
+                    else:
+                        if _actualizar_password(st.session_state["_pin_verificado_user"], _nueva_pwd):
+                            st.session_state.pop("_pin_verificado_user", None)
+                            st.success("Contraseña actualizada. Ya puedes iniciar sesión.")
                             st.rerun()
                         else:
-                            st.error("Usuario o contraseña incorrectos.", icon="🚨")
+                            st.error("Error al actualizar. Intenta de nuevo.")
 
-                st.markdown(
-                    "<div style='font-size:0.72rem;opacity:0.45;text-align:center;"
-                    "margin-top:10px'>Sistema de uso exclusivo · Mármoles Collante &amp; Castro</div>",
-                    unsafe_allow_html=True
-                )
 
-            # ── Tab recuperación por PIN ──────────────────────────────────────
-            with _tab_pin:
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-                st.caption("Ingresa tu usuario y el PIN de recuperación de 4 dígitos.")
-                _rec_user = st.text_input("Usuario", placeholder="Ej: jcastro",
-                                          key="rec_username")
-                _rec_pin  = st.text_input("PIN de recuperación (4 dígitos)",
-                                          placeholder="0000", max_chars=4,
-                                          key="rec_pin")
-
-                if st.button("Verificar PIN →", use_container_width=True, key="btn_verificar_pin"):
-                    if not _rec_user or not _rec_pin:
-                        st.error("Completa usuario y PIN.", icon="⚠️")
-                    else:
-                        _usr_rec = _buscar_usuario_por_username(_rec_user)
-                        if _usr_rec and _usr_rec["pin_recuperacion"] == _rec_pin.strip():
-                            st.session_state["_pin_verificado_user"] = _rec_user.strip().lower()
-                            st.success("PIN correcto. Ahora ingresa tu nueva contraseña.")
-                        else:
-                            st.error("Usuario o PIN incorrecto.", icon="🚨")
-                            st.session_state.pop("_pin_verificado_user", None)
-
-                # Mostrar campos de nueva contraseña solo si el PIN fue verificado
-                if st.session_state.get("_pin_verificado_user"):
-                    st.markdown("---")
-                    _nueva_pwd  = st.text_input("Nueva contraseña", type="password",
-                                                placeholder="Mínimo 6 caracteres",
-                                                key="nueva_pwd")
-                    _confirmar  = st.text_input("Confirmar contraseña", type="password",
-                                                placeholder="Repite la contraseña",
-                                                key="confirmar_pwd")
-                    if st.button("Guardar nueva contraseña", type="primary",
-                                 use_container_width=True, key="btn_cambiar_pwd"):
-                        if len(_nueva_pwd) < 6:
-                            st.error("La contraseña debe tener al menos 6 caracteres.")
-                        elif _nueva_pwd != _confirmar:
-                            st.error("Las contraseñas no coinciden.")
-                        else:
-                            _ok = _actualizar_password(
-                                st.session_state["_pin_verificado_user"], _nueva_pwd
-                            )
-                            if _ok:
-                                st.session_state.pop("_pin_verificado_user", None)
-                                st.success("Contraseña actualizada. Ya puedes iniciar sesión.")
-                                st.rerun()
-                            else:
-                                st.error("Error al actualizar. Intenta de nuevo.")
 
 # ── CSS NATIVO (ADAPTABLE A MODO CLARO/OSCURO) ────────────────────────────────
 st.markdown("""
@@ -1076,40 +944,33 @@ try:
 except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
 
-# ── MURO DE AUTENTICACIÓN ─────────────────────────────────────────────────────
-# Verifica sesión activa antes de renderizar cualquier contenido de la app.
-# Flujo:
-#   1. Si hay token válido en session_state → restaurar usuario_actual desde BD
-#   2. Si no hay token o expiró → mostrar pantalla de login y detener ejecución
-# ── MURO DE AUTENTICACIÓN ─────────────────────────────────────────────────────
-# Orden de verificación:
-#   1. session_state["usuario_actual"] → ya autenticado en este ciclo, pasar
-#   2. Token en session_state o URL (?sid=) → verificar firma + BD → restaurar
-#   3. Sin token → pantalla de login
-_token_sesion = _leer_cookie_sesion()
-if not st.session_state.get("usuario_actual"):
-    if _token_sesion:
-        # Verificar firma HMAC + existencia/expiración en BD
-        _username_restaurado = _verificar_sesion_bd(_token_sesion)
-        if _username_restaurado:
-            _usr_restaurado = _buscar_usuario_por_username(_username_restaurado)
-            if _usr_restaurado:
-                st.session_state["usuario_actual"] = _usr_restaurado
-                # Mantener el sid en la URL para próximas recargas
-                st.query_params["sid"] = _token_sesion
-            else:
-                # Token válido pero usuario borrado de BD
-                _limpiar_sesion()
-                _pantalla_login()
-                st.stop()
+# ══════════════════════════════════════════════════════════════════════════════
+# MURO DE AUTENTICACIÓN — CookieController
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# FLUJO (ciclo 1+ — el ciclo 0 ya hizo rerun arriba):
+#   1. Leer username de la cookie HTTP (o del caché de session_state).
+#   2. Si existe → buscar usuario en BD → hidratar session_state → mostrar app.
+#   3. Si no existe → mostrar _pantalla_login() → st.stop().
+
+_usuario_cookie = _leer_cookie_sesion()
+
+if _usuario_cookie:
+    # ── Cookie activa: hidratar usuario si aún no está en session_state ───────
+    if not st.session_state.get("usuario_actual"):
+        _usr_hidratado = _buscar_usuario_por_username(_usuario_cookie)
+        if _usr_hidratado:
+            st.session_state["usuario_actual"] = _usr_hidratado
         else:
-            # Token inválido o expirado
+            # Cookie apunta a usuario eliminado → limpiar y mostrar login
             _limpiar_sesion()
             _pantalla_login()
             st.stop()
-    else:
-        _pantalla_login()
-        st.stop()
+else:
+    # ── Sin cookie activa → mostrar login corporativo ─────────────────────────
+    _pantalla_login()
+    st.stop()
+
 
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
@@ -1166,23 +1027,33 @@ with st.sidebar:
     )
 
     # Historial: redirección legacy si alguien tenía ruta guardada sin "Historial"
-    if st.session_state.get("nav_radio") not in ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
-                                                   "Historial", "Dashboard", "Banco de Retales",
-                                                   "Parametros", "Asistente IA", "Configuracion"]:
+    _paginas_validas = ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
+                        "Historial", "Dashboard", "Banco de Retales",
+                        "Parametros", "Asistente IA", "Configuracion", "Gestion de Equipo"]
+    if st.session_state.get("nav_radio") not in _paginas_validas:
         st.session_state.nav_radio = "Inicio"
         st.session_state.radio_ui = "Inicio"
 
-    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard", "Banco de Retales", "Parametros", "Asistente IA", "Configuracion"]
+    # Menú dinámico: "Gestión de Equipo" solo visible para rol Admin
+    _rol_nav = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
+    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard",
+                     "Banco de Retales", "Parametros", "Asistente IA", "Configuracion"]
+    if _rol_nav == "Admin":
+        opciones_menu.append("Gestion de Equipo")
 
     def update_nav():
         st.session_state.nav_radio = st.session_state.radio_ui
         # Persistir la página en la URL para sobrevivir a F5
         st.query_params["pagina"] = st.session_state.nav_radio
 
-    _nav_idx = opciones_menu.index(st.session_state.nav_radio) \
-               if st.session_state.nav_radio in opciones_menu else 0
+    # CRÍTICO: NO usar index= en st.radio cuando la key está en session_state.
+    # Pasar index= y key= simultáneamente causa el error "conflicto de estado":
+    # Streamlit no puede reconciliar el valor externo (index) con el valor del
+    # session_state gestionado por on_change. La solución correcta es dejar que
+    # Streamlit lea directamente st.session_state["radio_ui"], que ya fue
+    # sincronizado con nav_radio justo al inicio del script (ver líneas ~61-72).
     st.radio("Menú", opciones_menu, key="radio_ui",
-             index=_nav_idx, on_change=update_nav,
+             on_change=update_nav,
              label_visibility="collapsed")
     pagina = st.session_state.nav_radio
 
@@ -1211,7 +1082,46 @@ with st.sidebar:
     )
     if st.button("⏻ Cerrar sesión", use_container_width=True, key="btn_logout"):
         _limpiar_sesion()
+        time.sleep(0.3)
         st.rerun()
+
+    # ── 🆘 Botón SOS — Ayuda contextual inteligente en sidebar ───────────────
+    st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
+    with st.expander("🆘 ¿Necesitas ayuda rápida?", expanded=False):
+        st.markdown(
+            "<div style='font-size:0.75rem;opacity:0.6;margin-bottom:8px'>"
+            "Pregunta cualquier duda sobre la app o sobre marmolería. "
+            "La IA responde en menos de 2 párrafos.</div>",
+            unsafe_allow_html=True
+        )
+        _sos_pregunta = st.text_input(
+            "Tu duda",
+            placeholder="Ej: ¿Qué es el retal? ¿Cómo funciona el AIU?",
+            label_visibility="collapsed",
+            key="sos_input"
+        )
+        if st.button("Preguntar →", use_container_width=True, key="btn_sos",
+                     type="primary"):
+            if _sos_pregunta.strip():
+                _sos_ctx = st.session_state.get("nav_radio", "Inicio")
+                with st.spinner("Consultando..."):
+                    _sos_resp = chat_sos(_sos_pregunta.strip(), _sos_ctx)
+                st.session_state["_sos_ultima_respuesta"] = _sos_resp
+                st.session_state["_sos_ultima_pregunta"]  = _sos_pregunta.strip()
+            else:
+                st.warning("Escribe tu duda primero.", icon="⚠️")
+
+        if st.session_state.get("_sos_ultima_respuesta"):
+            st.markdown(
+                f"<div style='background:var(--secondary-background-color);"
+                f"border:1px solid var(--border-color);border-radius:8px;"
+                f"padding:10px 12px;margin-top:8px;font-size:0.8rem;line-height:1.6'>"
+                f"<div style='font-size:0.65rem;font-weight:700;opacity:0.4;"
+                f"text-transform:uppercase;margin-bottom:6px'>Respuesta IA</div>"
+                f"{st.session_state['_sos_ultima_respuesta'].replace(chr(10), '<br>')}"
+                f"</div>",
+                unsafe_allow_html=True
+            )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TOUR GUIADO (ONBOARDING) — DISEÑO CORPORATIVO
@@ -2551,7 +2461,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         _btn_aiu_actualizar = False
         _btn_aiu_nueva      = False
         _btn_aiu_cancelar   = False
-        _btn_aiu_calcular   = st.button("Calcular y Guardar AIU", type="primary", use_container_width=True)
+        _btn_aiu_calcular   = st.button("Calcular cotización AIU", type="primary", use_container_width=True)
 
     _ejecutar_aiu = (
         (_editando_id_aiu and (_btn_aiu_actualizar or _btn_aiu_nueva))
@@ -2561,7 +2471,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
     if _ejecutar_aiu:
         res_aiu = calcular_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu, agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu)
 
-        # Preparación exacta para la base de datos
+        # Preparación de campos para compatibilidad con BD y PDF
         res_aiu["tipo_proyecto"] = "Licitación AIU"
         res_aiu["categoria"] = "Proyecto Constructora"
         res_aiu["referencia"] = "Múltiple"
@@ -2579,30 +2489,31 @@ no sobre el total del contrato. La app calcula esto automáticamente.
 
         st.session_state.cotizacion = res_aiu
 
-        # [PERSISTENCIA] Guardar borrador AIU en BD
+        # [PERSISTENCIA] Guardar borrador AIU en BD (solo borrador, no historial)
         try:
             _guardar_config("borrador_cotizacion_aiu", res_aiu["_estado_guardado"])
         except Exception:
             pass
 
         import random as _r
-        _num_auto = f"AIU-{_hoy().strftime('%Y%m%d')}-{_r.randint(100,999)}"
+        _num_auto_aiu = f"AIU-{_hoy().strftime('%Y%m%d')}-{_r.randint(100,999)}"
+        st.session_state["_aiu_num_sugerido"] = _num_auto_aiu
 
         if _editando_id_aiu and _btn_aiu_actualizar:
             _actualizar_cotizacion(_editando_id_aiu, _editando_num_aiu, nombre_cliente_aiu or "Sin nombre", res_aiu)
             st.session_state.pop("editando_id", None)
             st.session_state.pop("editando_num", None)
+            st.session_state["_aiu_guardada"] = True
+            st.session_state["_aiu_guardada_num"] = _editando_num_aiu
             st.success(f"✅ Cotización AIU **{_editando_num_aiu}** actualizada correctamente.")
-        else:
-            _guardar_cotizacion(_num_auto, nombre_cliente_aiu or "Sin nombre", res_aiu)
-            if _editando_id_aiu and _btn_aiu_nueva:
-                st.session_state.pop("editando_id", None)
-                st.session_state.pop("editando_num", None)
-            st.success("✅ Cotización AIU guardada en el historial.")
+        elif _editando_id_aiu and _btn_aiu_nueva:
+            st.session_state.pop("editando_id", None)
+            st.session_state.pop("editando_num", None)
+            st.session_state["_aiu_guardada"] = False   # Nueva: dejar que el usuario decida guardar
 
     if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU":
         r = st.session_state.cotizacion
-        
+
         st.markdown(f"""
         <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
           <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio total del contrato (AIU)</div>
@@ -2622,13 +2533,68 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             ], "PRECIO TOTAL", r['precio_total'])
 
         st.markdown("---")
+
+        # ── Bloque de guardado en historial (idéntico al de Cotización Directa) ─
+        _ya_guardada_aiu = st.session_state.get("_aiu_guardada", False)
+        _num_sugerido_aiu = st.session_state.get("_aiu_num_sugerido",
+                                                   f"AIU-{_hoy().strftime('%Y%m%d')}-001")
+
+        if _ya_guardada_aiu:
+            _num_g_aiu = st.session_state.get("_aiu_guardada_num", "")
+            if _num_g_aiu:
+                st.success(f"✅ Cotización AIU **{_num_g_aiu}** guardada en el historial.", icon="💾")
+            else:
+                st.info("📋 Cotización calculada como borrador. No se guardó en historial.")
+        else:
+            st.markdown(
+                """<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                border-radius:12px;padding:18px 22px;margin-bottom:4px">
+                <div style="font-size:0.75rem;font-weight:700;opacity:0.5;text-transform:uppercase;margin-bottom:4px">💾 ¿Guardar en historial?</div>
+                <div style="font-size:0.88rem;opacity:0.75;margin-bottom:12px">
+                Si esta es una oferta real para un cliente, guárdala. Si es un borrador o prueba, puedes omitirlo.
+                </div></div>""",
+                unsafe_allow_html=True
+            )
+            _gc1_aiu, _gc2_aiu, _gc3_aiu = st.columns([2, 1.5, 1])
+            with _gc1_aiu:
+                _num_guardar_aiu = st.text_input(
+                    "Número de cotización AIU",
+                    value=_num_sugerido_aiu,
+                    key="num_guardar_aiu_hist",
+                    label_visibility="collapsed",
+                    placeholder="Ej: AIU-20260301-001"
+                )
+            with _gc2_aiu:
+                if st.button("💾 Guardar en historial", type="primary",
+                             use_container_width=True, key="btn_guardar_aiu_hist"):
+                    try:
+                        _guardar_cotizacion(
+                            _num_guardar_aiu,
+                            nombre_cliente_aiu or "Sin nombre",
+                            r
+                        )
+                        st.session_state["_aiu_guardada"] = True
+                        st.session_state["_aiu_guardada_num"] = _num_guardar_aiu
+                        st.rerun()
+                    except Exception as _eg_aiu:
+                        st.error(f"Error al guardar: {_eg_aiu}")
+            with _gc3_aiu:
+                if st.button("✕ Solo borrador", use_container_width=True,
+                             key="btn_no_guardar_aiu_hist"):
+                    st.session_state["_aiu_guardada"] = True
+                    st.session_state["_aiu_guardada_num"] = ""
+                    st.toast("Cotización AIU calculada como borrador. No se guardó en historial.",
+                             icon="📋")
+                    st.rerun()
+
+        st.markdown("---")
         st.markdown("#### Exportar Documentos Institucionales")
-        from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
+        from generador_pdf import generar_pdf_cotizacion_aiu, generar_cuenta_cobro
         cp1, cp2 = st.columns(2)
         with cp1:
             num_cot_a = st.text_input("Número de Oferta", value=f"OFE-AIU-{_hoy().strftime('%Y')}-001")
             if st.button("📄 Generar Oferta AIU (PDF)", type="primary", use_container_width=True):
-                pdf_bytes = generar_pdf_cotizacion(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
+                pdf_bytes = generar_pdf_cotizacion_aiu(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
                 st.download_button("⬇ Descargar Oferta", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
         with cp2:
             num_cc_a = st.text_input("Número de Cuenta / Factura", value=f"FAC-AIU-{_hoy().strftime('%Y')}-001")
@@ -4746,11 +4712,11 @@ elif pagina == "Configuracion":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Perfil de la Empresa y Preferencias</h2>", unsafe_allow_html=True)
 
     _rol_actual = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
-if _rol_actual == "Admin":
-    tab_emp, tab_finanzas, tab_logo, tab_usuarios = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual", "👥 Gestión de Usuarios"])
-else:
-    tab_emp, tab_finanzas, tab_logo = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual"])
-    tab_usuarios = None
+    if _rol_actual == "Admin":
+        tab_emp, tab_finanzas, tab_logo, tab_usuarios = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual", "👥 Gestión de Usuarios"])
+    else:
+        tab_emp, tab_finanzas, tab_logo = st.tabs(["📄 Datos de Facturación", "💰 Finanzas y Bancos", "🎨 Identidad Visual"])
+        tab_usuarios = None
 
     with tab_emp:
         c1, c2 = st.columns(2)
@@ -4867,56 +4833,369 @@ else:
     # ── Tab de gestión de usuarios (solo Admin) ───────────────────────────────
     if tab_usuarios is not None:
         with tab_usuarios:
-            st.markdown("#### 👥 Gestión de Usuarios del Sistema")
-            st.caption("Solo los Administradores pueden crear, ver y eliminar usuarios.")
+            st.markdown("#### 👥 Gestión de Equipo")
+            st.caption("Solo los Administradores pueden registrar nuevos usuarios. La contraseña se encripta con PBKDF2-SHA256 antes de guardarse.")
 
-            with st.expander("➕ Crear nuevo usuario", expanded=False):
-                _nu_nombre  = st.text_input("Nombre completo", key="nu_nombre")
-                _nu_user    = st.text_input("Usuario (sin espacios, minúsculas)", key="nu_user",
-                                            placeholder="Ej: jcastro")
-                _nu_pwd     = st.text_input("Contraseña inicial", type="password", key="nu_pwd")
-                _nu_pin     = st.text_input("PIN de recuperación (4 dígitos)", key="nu_pin",
-                                            max_chars=4, placeholder="1234")
-                _nu_rol     = st.selectbox("Rol", ["Operario", "Admin"], key="nu_rol")
-                if st.button("✅ Crear usuario", type="primary", key="btn_crear_usr"):
-                    if not _nu_user or not _nu_pwd or not _nu_pin:
-                        st.error("Completa todos los campos obligatorios.")
-                    elif len(_nu_pin) != 4 or not _nu_pin.isdigit():
-                        st.error("El PIN debe tener exactamente 4 dígitos numéricos.")
-                    elif len(_nu_pwd) < 6:
-                        st.error("La contraseña debe tener al menos 6 caracteres.")
-                    else:
-                        _ok_usr = _crear_usuario(
-                            _nu_user.strip().lower(), _nu_pwd, _nu_pin,
-                            _nu_rol, _nu_nombre
+            # ── Formulario de registro con st.form ───────────────────────────
+            with st.form("form_nuevo_usuario", clear_on_submit=True):
+                st.markdown("**Registrar nuevo usuario**")
+                _f1, _f2 = st.columns(2)
+                _fu_nombre = _f1.text_input(
+                    "Nombre completo *",
+                    placeholder="Ej: Jorge Castro Díaz"
+                )
+                _fu_user = _f2.text_input(
+                    "Username *",
+                    placeholder="Ej: jcastro  (sin espacios)",
+                    help="Se guarda en minúsculas automáticamente."
+                )
+                _f3, _f4 = st.columns(2)
+                _fu_pwd = _f3.text_input(
+                    "Contraseña *",
+                    type="password",
+                    placeholder="Mínimo 6 caracteres"
+                )
+                _fu_pwd2 = _f4.text_input(
+                    "Confirmar contraseña *",
+                    type="password",
+                    placeholder="Repite la contraseña"
+                )
+                _f5, _f6 = st.columns(2)
+                _fu_pin = _f5.text_input(
+                    "PIN de recuperación * (4 dígitos)",
+                    placeholder="Ej: 4821",
+                    max_chars=4,
+                    help="El usuario lo usará para restablecer su contraseña si la olvida."
+                )
+                _fu_rol = _f6.selectbox(
+                    "Rol *",
+                    ["Operario", "Admin"],
+                    help="Admin: acceso total. Operario: solo sus cotizaciones."
+                )
+
+                _submit_form = st.form_submit_button(
+                    "✅ Registrar usuario",
+                    type="primary",
+                    use_container_width=True
+                )
+
+            # Validación y ejecución del INSERT (fuera del form para mostrar mensajes)
+            if _submit_form:
+                _err_form = []
+                if not _fu_nombre.strip():
+                    _err_form.append("El nombre completo es obligatorio.")
+                if not _fu_user.strip() or " " in _fu_user.strip():
+                    _err_form.append("El username no puede estar vacío ni contener espacios.")
+                if len(_fu_pwd) < 6:
+                    _err_form.append("La contraseña debe tener al menos 6 caracteres.")
+                elif _fu_pwd != _fu_pwd2:
+                    _err_form.append("Las contraseñas no coinciden.")
+                if not _fu_pin.strip() or len(_fu_pin.strip()) != 4 or not _fu_pin.strip().isdigit():
+                    _err_form.append("El PIN debe tener exactamente 4 dígitos numéricos.")
+
+                if _err_form:
+                    for _e in _err_form:
+                        st.error(_e, icon="⚠️")
+                else:
+                    # INSERT seguro y parametrizado — la contraseña ya viene hasheada
+                    # desde _crear_usuario usando PBKDF2-SHA256
+                    _ok_form = _crear_usuario(
+                        _fu_user.strip().lower(),
+                        _fu_pwd,
+                        _fu_pin.strip(),
+                        _fu_rol,
+                        _fu_nombre.strip()
+                    )
+                    if _ok_form:
+                        st.success(
+                            f"✅ Usuario **{_fu_user.strip().lower()}** registrado con rol **{_fu_rol}**.",
+                            icon="👤"
                         )
-                        if _ok_usr:
-                            st.success(f"✅ Usuario **{_nu_user}** creado correctamente.")
-                            st.rerun()
-                        else:
-                            st.error("Error al crear el usuario. ¿El nombre de usuario ya existe?")
+                        st.balloons()
+                    else:
+                        st.error(
+                            "No se pudo crear el usuario. ¿El username ya existe en el sistema?",
+                            icon="🚨"
+                        )
 
             st.markdown("---")
-            st.markdown("**Usuarios registrados:**")
+
+            # ── Listado del equipo registrado ─────────────────────────────────
+            st.markdown("**Equipo registrado:**")
             _todos_usr = _listar_usuarios()
             _uid_propio = st.session_state.get("usuario_actual", {}).get("id")
-            for _u in _todos_usr:
-                _u_id, _u_name, _u_rol, _u_nom = _u
-                _col_a, _col_b, _col_c = st.columns([3, 1.5, 1])
-                _col_a.markdown(
-                    f"**{_u_nom or _u_name}** · `{_u_name}`"
-                    f"<span style='background:{'#1B5FA8' if _u_rol=='Admin' else '#6b7280'};"
-                    f"color:white;font-size:0.62rem;font-weight:700;padding:2px 7px;"
-                    f"border-radius:4px;margin-left:8px;text-transform:uppercase'>{_u_rol}</span>",
+
+            if not _todos_usr:
+                st.info("No hay usuarios registrados aún.", icon="ℹ️")
+            else:
+                # Cabecera
+                _hc0, _hc1, _hc2, _hc3 = st.columns([0.4, 2.8, 1.4, 0.8])
+                for _hcol, _hlbl in zip([_hc0, _hc1, _hc2, _hc3], ["#", "Nombre / Username", "Rol", "Acción"]):
+                    _hcol.markdown(
+                        f"<span style='font-size:0.67rem;font-weight:700;opacity:0.4;text-transform:uppercase'>{_hlbl}</span>",
+                        unsafe_allow_html=True
+                    )
+                st.markdown("<hr style='margin:4px 0 8px'>", unsafe_allow_html=True)
+
+                for _i_u, _u in enumerate(_todos_usr):
+                    _u_id, _u_name, _u_rol, _u_nom = _u
+                    _es_yo = (_u_id == _uid_propio)
+                    _uc0, _uc1, _uc2, _uc3 = st.columns([0.4, 2.8, 1.4, 0.8])
+                    _uc0.markdown(
+                        f"<div style='padding-top:6px;font-size:0.78rem;opacity:0.35'>{_i_u+1}</div>",
+                        unsafe_allow_html=True
+                    )
+                    _uc1.markdown(
+                        f"<div style='padding-top:3px'>"
+                        f"<span style='font-size:0.87rem;font-weight:700'>{_u_nom or _u_name}</span>"
+                        f"<br><span style='font-size:0.7rem;opacity:0.45;font-family:monospace'>{_u_name}</span>"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    _uc2.markdown(
+                        f"<div style='padding-top:7px'>"
+                        f"<span style='background:{'#1B5FA8' if _u_rol=='Admin' else '#6b7280'};"
+                        f"color:white;font-size:0.63rem;font-weight:700;padding:3px 8px;"
+                        f"border-radius:4px;text-transform:uppercase'>{_u_rol}</span>"
+                        f"{'<span style="font-size:0.65rem;opacity:0.4;margin-left:5px">(tú)</span>' if _es_yo else ''}"
+                        f"</div>",
+                        unsafe_allow_html=True
+                    )
+                    with _uc3:
+                        if not _es_yo:
+                            if st.button("🗑️", key=f"del_usr_{_u_id}",
+                                         help=f"Eliminar {_u_name}"):
+                                _eliminar_usuario(_u_id)
+                                st.toast(f"Usuario {_u_name} eliminado.", icon="🗑️")
+                                st.rerun()
+                        else:
+                            st.markdown(
+                                "<div style='padding-top:6px;font-size:0.7rem;opacity:0.3'>—</div>",
+                                unsafe_allow_html=True
+                            )
+                    if _i_u < len(_todos_usr) - 1:
+                        st.markdown("<hr style='margin:3px 0;opacity:0.15'>", unsafe_allow_html=True)
+
+            st.caption("💡 No puedes eliminarte a ti mismo. Para transferir el rol Admin, crea primero otro usuario Admin.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GESTIÓN DE EQUIPO — Sección dedicada (solo Admin)
+# Accesible desde el menú lateral cuando rol == "Admin"
+# ═══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Gestion de Equipo":
+    # Guard de seguridad: doble verificación de rol
+    _ge_rol = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
+    if _ge_rol != "Admin":
+        st.error("🔒 Acceso restringido. Solo los Administradores pueden acceder a esta sección.")
+        st.stop()
+
+    st.markdown(
+        "<h2 style='font-family:Playfair Display,serif'>👥 Gestión de Equipo</h2>",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        "<p style='opacity:0.6;font-size:0.88rem;margin-bottom:20px'>"
+        "Administra quién tiene acceso al sistema. Las contraseñas se encriptan con "
+        "PBKDF2-SHA256 antes de guardarse — nunca se almacenan en texto plano.</p>",
+        unsafe_allow_html=True
+    )
+
+    _ge_tab_crear, _ge_tab_equipo = st.tabs(["➕ Registrar usuario", "📋 Equipo activo"])
+
+    # ── Tab: Registrar nuevo usuario con st.form ──────────────────────────────
+    with _ge_tab_crear:
+        st.markdown(
+            "<div style='background:rgba(27,95,168,0.06);border-left:3px solid #1B5FA8;"
+            "border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.8rem;margin-bottom:18px'>"
+            "Todos los campos marcados con <strong>*</strong> son obligatorios. "
+            "El <strong>PIN</strong> de 4 dígitos sirve para que el usuario recupere su contraseña "
+            "desde la pantalla de inicio de sesión, sin necesidad de correo electrónico.</div>",
+            unsafe_allow_html=True
+        )
+
+        with st.form("form_ge_nuevo_usuario", clear_on_submit=True):
+            _ge_c1, _ge_c2 = st.columns(2)
+            _ge_nombre = _ge_c1.text_input(
+                "Nombre completo *",
+                placeholder="Ej: Jorge Castro Díaz"
+            )
+            _ge_user = _ge_c2.text_input(
+                "Username *",
+                placeholder="Ej: jcastro  (sin espacios, minúsculas)",
+                help="Se convierte a minúsculas automáticamente al guardar."
+            )
+            _ge_c3, _ge_c4 = st.columns(2)
+            _ge_pwd = _ge_c3.text_input(
+                "Contraseña *",
+                type="password",
+                placeholder="Mínimo 6 caracteres",
+                help="Se encriptará con PBKDF2-SHA256 antes de guardarse."
+            )
+            _ge_pwd2 = _ge_c4.text_input(
+                "Confirmar contraseña *",
+                type="password",
+                placeholder="Repite la contraseña"
+            )
+            _ge_c5, _ge_c6 = st.columns(2)
+            _ge_pin = _ge_c5.text_input(
+                "PIN de recuperación * (4 dígitos)",
+                placeholder="Ej: 4821",
+                max_chars=4,
+                help="4 dígitos numéricos. El usuario lo usa para cambiar su contraseña si la olvida."
+            )
+            _ge_rol_nuevo = _ge_c6.selectbox(
+                "Rol *",
+                ["Operario", "Admin"],
+                help="Operario: solo ve sus cotizaciones. Admin: acceso total + Gestión de Equipo."
+            )
+
+            # Resumen descriptivo del rol
+            _ge_desc_rol = (
+                "Acceso total al sistema, puede ver todas las cotizaciones "
+                "y gestionar el equipo."
+            ) if _ge_rol_nuevo == "Admin" else (
+                "Solo visualiza y gestiona sus propias cotizaciones y retales. "
+                "No tiene acceso a Gestión de Equipo."
+            )
+            st.markdown(
+                f"<div style='background:var(--secondary-background-color);"
+                f"border:1px solid var(--border-color);border-radius:6px;"
+                f"padding:8px 12px;font-size:0.78rem;margin-top:4px'>"
+                f"<strong>{_ge_rol_nuevo}:</strong> {_ge_desc_rol}</div>",
+                unsafe_allow_html=True
+            )
+
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            _ge_submit = st.form_submit_button(
+                "✅ Registrar usuario en el sistema",
+                type="primary",
+                use_container_width=True
+            )
+
+        # Validación y ejecución del INSERT parametrizado
+        if _ge_submit:
+            _ge_errores = []
+            if not _ge_nombre.strip():
+                _ge_errores.append("El nombre completo es obligatorio.")
+            if not _ge_user.strip():
+                _ge_errores.append("El username es obligatorio.")
+            elif " " in _ge_user.strip():
+                _ge_errores.append("El username no puede contener espacios.")
+            if len(_ge_pwd) < 6:
+                _ge_errores.append("La contraseña debe tener al menos 6 caracteres.")
+            elif _ge_pwd != _ge_pwd2:
+                _ge_errores.append("Las contraseñas no coinciden.")
+            if not _ge_pin.strip() or len(_ge_pin.strip()) != 4 or not _ge_pin.strip().isdigit():
+                _ge_errores.append("El PIN debe tener exactamente 4 dígitos numéricos.")
+
+            if _ge_errores:
+                for _ge_e in _ge_errores:
+                    st.error(_ge_e, icon="⚠️")
+            else:
+                # _crear_usuario ejecuta INSERT parametrizado y hashea la contraseña
+                _ge_ok = _crear_usuario(
+                    _ge_user.strip().lower(),
+                    _ge_pwd,
+                    _ge_pin.strip(),
+                    _ge_rol_nuevo,
+                    _ge_nombre.strip()
+                )
+                if _ge_ok:
+                    st.success(
+                        f"✅ Usuario **{_ge_user.strip().lower()}** registrado "
+                        f"exitosamente con rol **{_ge_rol_nuevo}**.",
+                        icon="👤"
+                    )
+                    st.balloons()
+                else:
+                    st.error(
+                        "No se pudo registrar el usuario. "
+                        "¿El username ya existe en el sistema?",
+                        icon="🚨"
+                    )
+
+    # ── Tab: Listado del equipo activo ────────────────────────────────────────
+    with _ge_tab_equipo:
+        _ge_lista = _listar_usuarios()
+        _ge_uid_yo = st.session_state.get("usuario_actual", {}).get("id")
+
+        _ge_total_admin = sum(1 for u in _ge_lista if u[2] == "Admin")
+        _ge_total_op    = sum(1 for u in _ge_lista if u[2] == "Operario")
+
+        # Métricas rápidas
+        _m1, _m2, _m3 = st.columns(3)
+        _m1.metric("Total usuarios", len(_ge_lista))
+        _m2.metric("Administradores", _ge_total_admin)
+        _m3.metric("Operarios", _ge_total_op)
+
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+        if not _ge_lista:
+            st.info("No hay usuarios registrados aún.", icon="ℹ️")
+        else:
+            # Cabecera de tabla
+            _gh0, _gh1, _gh2, _gh3, _gh4 = st.columns([0.4, 2.6, 1.4, 1.2, 0.8])
+            for _gc, _gl in zip([_gh0, _gh1, _gh2, _gh3, _gh4],
+                                 ["#", "Nombre / Username", "Rol", "ID Sistema", "Acción"]):
+                _gc.markdown(
+                    f"<span style='font-size:0.67rem;font-weight:700;opacity:0.4;"
+                    f"text-transform:uppercase'>{_gl}</span>",
                     unsafe_allow_html=True
                 )
-                with _col_c:
-                    if _u_id != _uid_propio:
-                        if st.button("🗑", key=f"del_usr_{_u_id}",
-                                     help="Eliminar este usuario"):
-                            _eliminar_usuario(_u_id)
-                            st.toast(f"Usuario {_u_name} eliminado.")
-                            st.rerun()
+            st.markdown("<hr style='margin:4px 0 6px'>", unsafe_allow_html=True)
+
+            for _ge_i, _ge_u in enumerate(_ge_lista):
+                _ge_uid, _ge_uname, _ge_urol, _ge_unom = _ge_u
+                _ge_yo = (_ge_uid == _ge_uid_yo)
+                _gc0, _gc1, _gc2, _gc3, _gc4 = st.columns([0.4, 2.6, 1.4, 1.2, 0.8])
+
+                _gc0.markdown(
+                    f"<div style='padding-top:7px;font-size:0.78rem;opacity:0.3'>{_ge_i+1}</div>",
+                    unsafe_allow_html=True
+                )
+                _gc1.markdown(
+                    f"<div style='padding-top:3px'>"
+                    f"<div style='font-size:0.88rem;font-weight:700'>{_ge_unom or _ge_uname}</div>"
+                    f"<div style='font-size:0.7rem;opacity:0.45;font-family:monospace'>@{_ge_uname}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                _gc2.markdown(
+                    f"<div style='padding-top:8px'>"
+                    f"<span style='background:{'#1B5FA8' if _ge_urol=='Admin' else '#6b7280'};"
+                    f"color:white;font-size:0.63rem;font-weight:700;padding:3px 9px;"
+                    f"border-radius:4px;text-transform:uppercase'>{_ge_urol}</span>"
+                    f"{'<span style="font-size:0.65rem;opacity:0.4;margin-left:6px">(tú)</span>' if _ge_yo else ''}"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                _gc3.markdown(
+                    f"<div style='padding-top:9px;font-size:0.73rem;opacity:0.38;"
+                    f"font-family:monospace'>#{_ge_uid}</div>",
+                    unsafe_allow_html=True
+                )
+                with _gc4:
+                    if _ge_yo:
+                        st.markdown(
+                            "<div style='padding-top:8px;font-size:0.72rem;opacity:0.3'>—</div>",
+                            unsafe_allow_html=True
+                        )
                     else:
-                        st.markdown("<span style='font-size:0.72rem;opacity:0.4'>(tú)</span>",
-                                    unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"ge_del_{_ge_uid}",
+                                     help=f"Eliminar {_ge_uname}"):
+                            _eliminar_usuario(_ge_uid)
+                            st.toast(f"Usuario @{_ge_uname} eliminado del sistema.", icon="🗑️")
+                            st.rerun()
+
+                if _ge_i < len(_ge_lista) - 1:
+                    st.markdown(
+                        "<hr style='margin:3px 0;opacity:0.15'>",
+                        unsafe_allow_html=True
+                    )
+
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        st.caption(
+            "💡 No puedes eliminar tu propio usuario. "
+            "Para transferir el rol Admin, primero registra otro usuario Admin."
+        )
