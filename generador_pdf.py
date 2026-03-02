@@ -139,7 +139,11 @@ def _logo_img(logo_bytes, max_h=1.4*cm):
         return None
     try:
         buf = io.BytesIO(logo_bytes)
-        img = Image(buf)
+        # FIX-4: kind='proportional' garantiza que el logo escale dentro del
+        # bounding box sin deformarse, aunque la imagen no tenga ratio 3:1.
+        # El cálculo manual de ratio se mantiene como capa primaria; kind=
+        # 'proportional' actúa como red de seguridad de ReportLab.
+        img = Image(buf, kind='proportional')
         ratio = img.imageWidth / img.imageHeight
         img.drawWidth  = max_h * ratio
         img.drawHeight = max_h
@@ -343,14 +347,18 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
     if piezas:
         total_m2 = sum(p.get("ml",1) * p.get("ancho_custom", 0.60) for p in piezas)
         for p in piezas:
-            m2_p   = p.get("ml",1) * p.get("ancho_custom", 0.60)
+            # FIX-2: calcular m² dinámicamente si la clave 'm2' no existe en
+            # el dict de pieza (app.py no inyecta esa clave directamente).
+            # Esto evita que piezas de piso muestren cantidad 0.00 y subtotal $0.
+            _m2_calc = p.get("m2", p.get("ml", 0) * p.get("ancho_custom", 0.60))
+            m2_p   = _m2_calc if _m2_calc > 0 else p.get("ml", 1) * p.get("ancho_custom", 0.60)
             prop   = (m2_p / total_m2) if total_m2 > 0 else (1/len(piezas))
             precio_p = precio_sugerido_total * prop
             # ── Unidad dinámica: área (Fachada/Piso/Revestimiento) vs borde (ML) ──
             _tipo_pieza = p.get("ancho_tipo", "").lower()
             _es_area_p  = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
             if _es_area_p:
-                # Pieza de área: mostrar m² y precio por m²
+                # Pieza de área: mostrar m² y precio por m² (FIX-2: usar _m2_calc)
                 _cant_str  = f"{m2_p:.2f}"
                 _unid_str  = "m²"
                 _qty_base  = m2_p
@@ -361,10 +369,12 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
                 _unid_str  = "ml"
                 _qty_base  = ml_p
             pu = precio_p / _qty_base if _qty_base > 0 else 0
+            # FIX-3: alineación contable — CANT usa cell_r (TA_RIGHT),
+            # P.UNIT y SUBTOTAL ya usan cell_r/cell_br.
             filas.append([
                 Paragraph(p.get("nombre", "—"), E["cell"]),
                 Paragraph(_unid_str,             E["cell_c"]),
-                Paragraph(_cant_str,             E["cell_c"]),
+                Paragraph(_cant_str,             E["cell_r"]),   # FIX-3: cantidad alineada a la derecha
                 Paragraph(_num(round(pu/1000)*1000),       E["cell_r"]),
                 Paragraph(_num(round(precio_p/1000)*1000), E["cell_br"]),
             ])
