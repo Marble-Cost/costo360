@@ -245,20 +245,36 @@ def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, refe
     cur.close()
     conn.close()
 
-def _consultar_retal(categoria: str, referencia: str) -> list:
-    """Retorna retales disponibles para un material/referencia."""
+def _consultar_retal(categoria: str, referencia: str,
+                     usuario_id: int | None = None, rol: str = "Admin") -> list:
+    """
+    Retorna retales disponibles para un material/referencia.
+    Multi-Tenant: Operario solo ve sus propios retales; Admin ve todos.
+    """
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
-    cur.execute(
-        """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
-           FROM inventario_retales
-           WHERE material_categoria = %s
-             AND estado = 'Disponible'
-             AND m2_disponibles > 0.05
-           ORDER BY fecha_ingreso ASC""",
-        (categoria,)
-    )
+    if rol == "Operario" and usuario_id is not None:
+        cur.execute(
+            """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
+               FROM inventario_retales
+               WHERE material_categoria = %s
+                 AND estado = 'Disponible'
+                 AND m2_disponibles > 0.05
+                 AND usuario_id = %s
+               ORDER BY fecha_ingreso ASC""",
+            (categoria, usuario_id)
+        )
+    else:
+        cur.execute(
+            """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
+               FROM inventario_retales
+               WHERE material_categoria = %s
+                 AND estado = 'Disponible'
+                 AND m2_disponibles > 0.05
+               ORDER BY fecha_ingreso ASC""",
+            (categoria,)
+        )
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -1474,6 +1490,12 @@ def _cargar_en_calculadora(rid, rnum, rjson):
     else:
         destino = "Cotizacion Directa"
 
+    # Resetear punteros del wizard para que el usuario empiece desde Paso 0
+    # al cargar una cotización del historial — evita UX confusa en pasos intermedios.
+    st.session_state.cdir_paso   = 0
+    st.session_state.aiu_paso    = 0
+    st.session_state.cdir_success = False
+
     # Actualizar navegación — la sincronización al inicio del rerun (línea ~49)
     # garantiza que radio_ui quede alineado con nav_radio y el menú se vea correcto.
     st.session_state.nav_radio = destino
@@ -1596,8 +1618,79 @@ elif pagina == "Cotizacion Directa":
                 use_container_width=True,
                 key="btn_guardar_atajo_edicion",
             ):
-                _r_atajo      = st.session_state.get("cotizacion")
                 _nombre_atajo = st.session_state.pre.get("nombre_cliente", "Sin nombre")
+                _r_atajo      = st.session_state.get("cotizacion")
+
+                # ── State Fallback: recalcular desde pre si no hay resultado cacheado ──
+                # Garantiza que viáticos, logística y adicionales se preserven
+                # aunque el usuario no haya navegado todos los pasos del wizard.
+                if not _r_atajo:
+                    _pre_sb = st.session_state.pre
+                    _mats_sb = _pre_sb.get("materiales_proyecto", [])
+                    if _mats_sb:
+                        _m0 = _mats_sb[0]
+                        _cat_sb   = _m0.get("cat", "Mármol")
+                        _ref_sb   = _m0.get("ref", "")
+                        _pm2_sb   = float(_m0.get("precio_m2", 0))
+                        _area_sb  = float(_m0.get("area_placa", 1.0))
+                    else:
+                        _cat_sb   = _pre_sb.get("categoria", "Mármol")
+                        _ref_sb   = _pre_sb.get("referencia", "")
+                        _pm2_sb   = float(_pre_sb.get("precio_m2", 0))
+                        _area_sb  = float(_pre_sb.get("area_placa", 1.0))
+                    _add_sb = get_adicionales()
+                    _cant_add_sb = _pre_sb.get("cantidades_add", [0]*len(_add_sb))
+                    while len(_cant_add_sb) < len(_add_sb):
+                        _cant_add_sb.append(0)
+                    _etapa_sb = ETAPAS_OBRA.get(
+                        _pre_sb.get("etapa_label", "Casa terminada (limpia)"), "terminada"
+                    )
+                    try:
+                        _r_atajo = calcular_cotizacion_directa(
+                            categoria=_cat_sb,
+                            referencia=_ref_sb,
+                            precio_m2=_pm2_sb,
+                            area_placa_comprada=_area_sb,
+                            m2_real=float(_pre_sb.get("m2_proyecto", _area_sb)),
+                            m2_cortados=float(_pre_sb.get("m2_cortados_input", 0)),
+                            m2_usados=float(_pre_sb.get("m2_usados", _area_sb)),
+                            margen_pct=float(_pre_sb.get("margen_pct", 40)),
+                            dias=int(_pre_sb.get("dias_obra", 1)),
+                            personas=int(_pre_sb.get("personas", 2)),
+                            zocalo_activo=bool(_pre_sb.get("zocalo_activo", False)),
+                            zocalo_ml=float(_pre_sb.get("zocalo_ml", 0)),
+                            agente_externo_taller=bool(_pre_sb.get("agente_externo_taller", False)),
+                            vehiculo_entrega=_pre_sb.get("vehiculo_entrega", "frontier"),
+                            km=float(_pre_sb.get("km", 10)),
+                            num_peajes=int(_pre_sb.get("peajes", 0)),
+                            foraneo_activo=bool(_pre_sb.get("foraneo_activo", False)),
+                            viaticos_activos=bool(_pre_sb.get("viaticos_activos", True)),
+                            tipo_aloj=_pre_sb.get("tipo_aloj", "pueblo"),
+                            noches=int(_pre_sb.get("noches", 0)),
+                            adicionales_activos=bool(_pre_sb.get("adicionales_activos", False)),
+                            cantidades_add=_cant_add_sb,
+                            etapa=_etapa_sb,
+                            adicionales_lista=_add_sb,
+                            tipo_proyecto=_pre_sb.get("tipo_proyecto", ""),
+                            nombre_cliente=_nombre_atajo,
+                            piezas=_pre_sb.get("piezas", []),
+                            ml_proyecto=float(_pre_sb.get("ml_proyecto", 0)),
+                            logistica_override=st.session_state.get("logistica_custom"),
+                            vehiculos_custom={**VEHICULOS_CONFIG,
+                                              **(st.session_state.get("vehiculos_custom") or {})},
+                            tarifas_override=st.session_state.get("tarifas_custom"),
+                        )
+                        _r_atajo["_estado_guardado"] = _pre_sb
+                        _r_atajo["incluir_iva"]      = _pre_sb.get("incluir_iva", False)
+                        st.session_state.cotizacion  = _r_atajo
+                    except Exception as _e_sb:
+                        st.warning(
+                            f"No se pudo recalcular automáticamente: {_e_sb}. "
+                            "Navega al **Paso 4 (Logística)** y presiona **Calcular** primero.",
+                            icon="⚠️",
+                        )
+                        _r_atajo = None
+
                 if _r_atajo:
                     _actualizar_cotizacion(_eid, _enum, _nombre_atajo, _r_atajo)
                     st.session_state.pop("editando_id",  None)
@@ -1606,12 +1699,6 @@ elif pagina == "Cotizacion Directa":
                     st.session_state["cdir_success"] = True
                     st.success(f"✅ Cotización **{_enum}** actualizada correctamente.", icon="💾")
                     st.rerun()
-                else:
-                    st.warning(
-                        "Aún no hay un resultado calculado. Avanza al **Paso 4 (Logística)** "
-                        "y presiona **Calcular** para generar el precio antes de guardar.",
-                        icon="⚠️",
-                    )
         with _eat_c2:
             if st.button(
                 "✕ Cancelar edición",
@@ -1933,7 +2020,12 @@ elif pagina == "Cotizacion Directa":
                 # Banco de Retales
                 _mat_dict = {"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m}
                 try:
-                    _retales_disp = _consultar_retal(cat_sel_m, referencia_m)
+                    _usr_act = st.session_state.get("usuario_actual", {})
+                    _retales_disp = _consultar_retal(
+                        cat_sel_m, referencia_m,
+                        usuario_id=_usr_act.get("id"),
+                        rol=_usr_act.get("rol", "Admin"),
+                    )
                 except Exception:
                     _retales_disp = []
 
@@ -4945,28 +5037,36 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
                     "Producción / ml (COP)", min_value=0,
                     value=int(_t.get("prod_ml", 60_000)), step=1_000, format="%d",
                     key=f"tar_pml_{_mat}",
-                    help="Lo que cobra el operario por cada metro lineal cortado e instalado.")
-                tar_edit[_mat]["zocalo"] = _cb.number_input(
+                    help="Lo que cobra el operario por cada metro lineal cortado e instalado (mesones, baños, escaleras).")
+                tar_edit[_mat]["prod_m2"] = _cb.number_input(
+                    "Producción / m² — Pisos (COP)", min_value=0,
+                    value=int(_t.get("prod_m2", round(_t.get("prod_ml", 60_000) * 0.58))),
+                    step=1_000, format="%d",
+                    key=f"tar_pm2_{_mat}",
+                    help="Lo que cobra el operario por cada m² instalado en pisos, fachadas y revestimientos. "
+                         "Menor que prod_ml porque hay menos cortes de borde. "
+                         "La app usa este valor automáticamente cuando el tipo de proyecto es Piso, Fachada o Revestimiento.")
+                tar_edit[_mat]["zocalo"] = _ca.number_input(
                     "Zócalo / ml (COP)", min_value=0,
                     value=int(_t.get("zocalo", 12_000)), step=500, format="%d",
                     key=f"tar_zoc_{_mat}",
                     help="Tarifa por metro lineal de zócalo instalado.")
-                tar_edit[_mat]["disco"] = _cc.number_input(
+                tar_edit[_mat]["disco"] = _cb.number_input(
                     "Disco diamantado / m² (COP)", min_value=0,
                     value=int(_t.get("disco", 2_200)), step=100, format="%d",
                     key=f"tar_dis_{_mat}",
                     help="Desgaste del disco diamantado por m² cortado.")
-                tar_edit[_mat]["maquina"] = _cd.number_input(
+                tar_edit[_mat]["maquina"] = _cc.number_input(
                     "Máquina cortadora / día (COP)", min_value=0,
                     value=int(_t.get("maquina", 20_000)), step=1_000, format="%d",
                     key=f"tar_maq_{_mat}",
                     help="Depreciación y mantenimiento de la cortadora por día de uso.")
-                tar_edit[_mat]["consumibles"] = _ce.number_input(
+                tar_edit[_mat]["consumibles"] = _cd.number_input(
                     "Consumibles / m² (COP)", min_value=0,
                     value=int(_t.get("consumibles", 10_000)), step=500, format="%d",
                     key=f"tar_con_{_mat}",
                     help="Masilla de poliéster, lijas diamantadas (50–3000), ceras, sellador y estopa.")
-                tar_edit[_mat]["riesgo_rotura"] = _cf.number_input(
+                tar_edit[_mat]["riesgo_rotura"] = _ce.number_input(
                     "Riesgo de rotura (%)", min_value=0.0, max_value=0.50,
                     value=float(_t.get("riesgo_rotura", 0.02)), step=0.01, format="%.2f",
                     key=f"tar_rie_{_mat}",
@@ -4979,6 +5079,7 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
             for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
                 _saved_tar[_sm] = {
                     "prod_ml":       int(st.session_state.get(f"tar_pml_{_sm}", 60_000)),
+                    "prod_m2":       int(st.session_state.get(f"tar_pm2_{_sm}", 35_000)),
                     "zocalo":        int(st.session_state.get(f"tar_zoc_{_sm}", 12_000)),
                     "disco":         int(st.session_state.get(f"tar_dis_{_sm}", 2_200)),
                     "maquina":       int(st.session_state.get(f"tar_maq_{_sm}", 20_000)),
@@ -4993,7 +5094,7 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
                 pass
             # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
             for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-                for _sfx in ["pml", "zoc", "dis", "maq", "con", "rie"]:
+                for _sfx in ["pml", "pm2", "zoc", "dis", "maq", "con", "rie"]:
                     st.session_state.pop(f"tar_{_sfx}_{_sm}", None)
             st.toast("✅ Tarifas guardadas y persistidas correctamente", icon="💾")
             st.rerun()
@@ -5006,7 +5107,7 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
                 pass
             # Limpiar keys de widgets para forzar recarga con valores por defecto
             for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-                for _sfx in ["pml", "zoc", "dis", "maq", "con", "rie"]:
+                for _sfx in ["pml", "pm2", "zoc", "dis", "maq", "con", "rie"]:
                     st.session_state.pop(f"tar_{_sfx}_{_sm}", None)
             st.toast("↺ Tarifas restauradas a valores por defecto", icon="🔄")
             st.rerun()
