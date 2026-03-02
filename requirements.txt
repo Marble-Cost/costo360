@@ -5,4 +5,4 @@ pillow>=10.0.0
 psycopg2-binary>=2.9.0
 SQLAlchemy>=2.0.0
 plotly>=5.18.0
-streamlit-cookies-controller>=0.0.4
+st-cookies-manager>=0.1.5
