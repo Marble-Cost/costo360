@@ -938,6 +938,11 @@ _defaults = {
     "chat_input_key": 0,
     "params_wizard_chat": [],
     "params_cambios_aplicados": [],
+    # Wizard navigation state
+    "cdir_paso": 0,
+    "cdir_success": False,
+    "aiu_paso": 0,
+    "aiu_success": False,
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -1310,1008 +1315,1742 @@ if pagina == "Inicio":
 # ═══════════════════════════════════════════════════════════════════════════════
 # COTIZACIÓN DIRECTA
 # ═══════════════════════════════════════════════════════════════════════════════
+
 elif pagina == "Cotizacion Directa":
-    st.markdown("<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>Cotizacion Directa</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='opacity:0.7;font-size:0.88rem;margin-bottom:20px'>Para proyectos residenciales y clientes particulares</p>", unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════
+    # WIZARD COTIZACIÓN DIRECTA — 5 pasos, un bloque visible a la vez
+    # ══════════════════════════════════════════════════════════════════
+    # Estado del wizard: cdir_paso (0-4). Nunca se borra con limpiar
+    # formulario — solo se resetea cuando el usuario pide empezar de cero.
+    #
+    # PASOS:
+    #   0 — Material(es)       → qué piedra, qué precio, qué área comprada
+    #   1 — Dimensiones        → piezas ML × ancho, margen, m² usados
+    #   2 — Proyecto           → tipo, etapa, días, personas, zócalos, desperdicio
+    #   3 — Logística / Extras → vehículo, km, foráneo, adicionales, IVA
+    #   4 — Resultado          → pantalla de éxito / success screen
+    # ══════════════════════════════════════════════════════════════════
+
+    WIZARD_PASOS = [
+        {"icono": "🪨", "label": "Material"},
+        {"icono": "📐", "label": "Dimensiones"},
+        {"icono": "🏗️", "label": "Proyecto"},
+        {"icono": "🚛", "label": "Logística"},
+        {"icono": "✅", "label": "Resultado"},
+    ]
+    N_PASOS = len(WIZARD_PASOS)
+
+    # Inicializar estado wizard
+    if "cdir_paso" not in st.session_state:
+        st.session_state.cdir_paso = 0
+    if "cdir_success" not in st.session_state:
+        st.session_state.cdir_success = False   # True = pantalla de éxito
 
     pre = st.session_state.pre
 
-    # [PERSISTENCIA] Si el formulario está vacío (recién recargado con F5) y hay
-    # un borrador guardado en BD, restaurarlo automáticamente una sola vez.
+    # ── Restaurar borrador desde BD (una sola vez post-F5) ──────────────
     if not pre and not st.session_state.get("_borrador_restaurado"):
         try:
             _borrador = _leer_config("borrador_cotizacion_directa")
             if _borrador:
                 _borrador["_origen"] = "borrador"
-                st.session_state.pre  = _borrador
+                st.session_state.pre = _borrador
                 pre = _borrador
         except Exception:
             pass
         st.session_state["_borrador_restaurado"] = True
 
-    # Mostrar alerta SOLO cuando los datos vienen de Historial o IA (no del autosave propio)
     if pre and pre.get("_origen") in ("historial", "ia"):
-        alerta("Datos cargados exitosamente (desde Historial o IA). Revisa y ajusta lo que necesites.", "bueno")
-        # Limpiar el marcador de origen para que no reaparezca en cada render
+        alerta("Datos cargados desde Historial o IA. Revisa y ajusta lo que necesites.", "bueno")
         st.session_state.pre.pop("_origen", None)
     elif pre and pre.get("_origen") == "borrador":
-        alerta("📋 Se restauró tu último cálculo guardado (antes de la recarga). Puedes continuar donde lo dejaste.", "info")
+        alerta("📋 Se restauró tu último cálculo. Puedes continuar donde lo dejaste.", "info")
         st.session_state.pre.pop("_origen", None)
-    if pre and pre.get("nombre_cliente") or pre.get("piezas") or pre.get("materiales_proyecto"):
-        if st.button("🗑️ Limpiar formulario y empezar de cero"):
-            st.session_state.pre = {}
-            st.session_state.piezas = []
-            st.session_state.materiales_proyecto = []
-            # Limpiar también los keys de widgets para que vuelvan a defaults
-            for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
-                del st.session_state[_wk]
-            st.rerun()
 
     TARIFAS_ACT = get_tarifas()
-    LOG_ACT = get_logistica()
-    VIA_ACT = get_viaticos()
+    LOG_ACT     = get_logistica()
+    VIA_ACT     = get_viaticos()
 
-    # ── PASO 1: MATERIAL(ES) ─────────────────────────────────────────────────
-    seccion_titulo("Paso 1 — Material(es)", "Puedes agregar uno o más materiales si el proyecto mezcla referencias")
+    # ════════════════════════════════════════════════════════════════════
+    # PANTALLA DE ÉXITO — se muestra cuando cdir_success == True
+    # ════════════════════════════════════════════════════════════════════
+    if st.session_state.get("cdir_success") and st.session_state.cotizacion:
+        r         = st.session_state.cotizacion
+        _num_g    = st.session_state.get("_cotiz_guardada_num", "")
+        _iva_act  = r.get("incluir_iva", False)
+        _iva_monto   = r["precio_sugerido"] * 0.19 if _iva_act else 0.0
+        _precio_final = r["precio_sugerido"] + _iva_monto
 
-    with st.expander("❓ ¿Cómo lleno este paso? — Ayuda rápida", expanded=False):
-        st.markdown("""
-**Categoría:** El tipo de piedra o material que vas a instalar (Mármol, Granito, etc.).
+        # ── Header de éxito ──────────────────────────────────────────
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+                    border-radius:18px;padding:40px 44px 32px;margin-bottom:24px;color:white;
+                    box-shadow:0 8px 32px rgba(27,95,168,0.35)">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+            <div style="width:52px;height:52px;background:rgba(201,168,76,0.25);border-radius:50%;
+                        display:flex;align-items:center;justify-content:center;font-size:1.6rem">✅</div>
+            <div>
+              <div style="font-size:0.7rem;letter-spacing:0.14em;text-transform:uppercase;
+                          color:#C9A84C;font-weight:700;margin-bottom:2px">COTIZACIÓN FINALIZADA</div>
+              <div style="font-size:1.1rem;font-weight:700">{r.get("nombre_cliente","") or "Sin nombre de cliente"}</div>
+            </div>
+          </div>
+          <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.12em;
+                      color:rgba(255,255,255,0.55);font-weight:700;margin-bottom:6px">
+            {"Precio de venta (sin IVA)" if _iva_act else "Precio de venta"}
+          </div>
+          <div style="font-size:3.8rem;font-weight:900;font-family:'Playfair Display',serif;
+                      line-height:1;margin-bottom:8px">{numero_completo(r["precio_sugerido"])}</div>
+          <div style="opacity:0.75;font-size:0.9rem">
+            Margen: {r["margen_pct"]:.0f}% &nbsp;·&nbsp; Utilidad: {numero_completo(r["utilidad"])}
+            &nbsp;·&nbsp; {r.get("tipo_proyecto","Proyecto")} — {r.get("categoria","")}
+          </div>
+          {f'<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.2);font-size:1.05rem;font-weight:700;color:#C9A84C">+ IVA 19%: {numero_completo(_iva_monto)} &nbsp;→&nbsp; <span style="color:white">Total: {numero_completo(_precio_final)}</span></div>' if _iva_act else ""}
+        </div>""", unsafe_allow_html=True)
 
-**Referencia:** El nombre específico de la lámina que compraste, por ejemplo "Crema Marfil" o "Calacatta Gold". Si no sabes el nombre exacto, deja "Otra referencia" y escríbelo.
+        # ── Desglose compacto ────────────────────────────────────────
+        with st.expander("📊 Ver desglose de costos", expanded=False):
+            _items = [
+                ("Material",    r["c1_material"]),
+                ("Producción",  r["c2_mano_obra"]),
+                ("Zócalos",     r["c3_zocalos"]),
+                ("Insumos",     r["c4_insumos"]),
+                ("Logística",   r["c5_logistica"]),
+                ("Viáticos",    r["c6_viaticos"]),
+                ("Adicionales", r["c7_adicionales"]),
+            ]
+            if _iva_act:
+                _items += [("IVA 19% s/total", _iva_monto)]
+            bloque_costos(_items, "TOTAL CON IVA" if _iva_act else "PRECIO TOTAL", _precio_final)
 
-**Precio por m² (COP):** Exactamente lo que te cobró el proveedor por cada metro cuadrado del material. 
-Está en la factura de compra. **No lo inventes — usa el valor real de lo que pagaste.**
+            c1s, c2s = st.columns(2)
+            c1s.metric("Aprovechamiento lámina", f"{r['aprovechamiento']:.1f}%", f"Retal: {fmt_m2(r['retal'])}")
+            c2s.metric("Costo/m² instalado", numero_completo(r["costo_total"] / max(r["m2_real"], 0.001)))
 
-**Área comprada (m²):** Los metros cuadrados totales de material que compraste. 
-Está en la factura. Ejemplo: si compraste una lámina de 1,20 m × 2,60 m = **3,12 m²**.
+        # ── Simulador de margen ──────────────────────────────────────
+        with st.expander("🎛️ Simular otro margen", expanded=False):
+            _sim_m = st.slider("Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
+            _sim_p = r["costo_total"] / (1 - _sim_m / 100)
+            _sim_ut = _sim_p - r["costo_total"]
+            _sim_iva = _sim_p * 0.19 if _iva_act else 0.0
+            st.markdown(
+                f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                border-radius:10px;padding:14px 18px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                  <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">{"Sin IVA" if _iva_act else "Precio total"}</span>
+                  <span style="font-size:1.15rem;font-weight:900;color:#1B5FA8">{numero_completo(_sim_p)}</span>
+                </div>
+                {"" if not _iva_act else f'<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px;margin-bottom:4px"><span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span><span style="font-size:1.15rem;font-weight:900;color:#C9A84C">{numero_completo(_sim_p + _sim_iva)}</span></div>'}
+                <div style="font-size:0.72rem;opacity:0.5">Utilidad: {numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
 
-> 💡 Si tienes sobrante de un proyecto anterior, la app te avisará aquí con un aviso azul y podrás usarlo gratis.
-        """)
+        st.markdown("---")
 
-    # Inicializar lista de materiales si no existe
-    if "materiales_proyecto" not in st.session_state or not st.session_state.materiales_proyecto:
-        st.session_state.materiales_proyecto = pre.get("materiales_proyecto", [
-            {"cat": pre.get("categoria", "Mármol"), "ref": pre.get("referencia", ""), "precio_m2": pre.get("precio_m2", 220_000), "area_placa": pre.get("area_placa_comprada", 5.94)}
-        ])
+        # ── Exportar PDFs ────────────────────────────────────────────
+        st.markdown("### 📄 Documentos para el cliente")
+        from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
 
-    mats = st.session_state.materiales_proyecto
-    mats_nuevos = []
+        _num_pre = st.session_state.get("_cotiz_guardada_num") or f"COT-{_hoy().strftime('%Y')}-001"
 
-    for midx, mat_item in enumerate(mats):
         with st.container(border=True):
-            lbl = f"Material {midx + 1}" if len(mats) > 1 else "Material del proyecto"
-            cola, colb, colc, cold = st.columns([1.8, 1.5, 1.5, 0.4])
-            with cola:
-                cats_opts = CATEGORIAS_MATERIAL
-                cat_i = cats_opts.index(mat_item.get("cat", "Mármol")) if mat_item.get("cat") in cats_opts else 0
-                cat_sel_m = st.selectbox("Categoría", cats_opts, index=cat_i, key=f"mcat_{midx}", label_visibility="collapsed" if midx > 0 else "visible")
-            with colb:
-                refs_m = ["Otra referencia..."] + [m["nombre"] for m in MATERIALES_CATALOGO if m["categoria"] == cat_sel_m]
-                pre_ref_m = mat_item.get("ref", "")
-                idx_ref_m = refs_m.index(pre_ref_m) if pre_ref_m in refs_m else 0
-                ref_sel_m = st.selectbox("Referencia", refs_m, index=idx_ref_m, key=f"mref_{midx}", label_visibility="visible" if midx == 0 else "collapsed")
-                if ref_sel_m == "Otra referencia...":
-                    referencia_m = st.text_input("Nombre", value=pre_ref_m if pre_ref_m not in refs_m else "", key=f"mrefcust_{midx}", placeholder="Ej: Calacatta Gold")
-                else:
-                    referencia_m = ref_sel_m
-                    m_cat_data = next((m for m in MATERIALES_CATALOGO if m["nombre"] == ref_sel_m), None)
-            with colc:
-                precio_m2_m = st.number_input("Precio/m² (COP)", min_value=10_000, max_value=5_000_000,
-                    value=int(mat_item.get("precio_m2", 220_000)), step=1_000, key=f"mpm2_{midx}",
-                    label_visibility="visible" if midx == 0 else "collapsed")
-                area_placa_m = st.number_input("Área comprada (m²)", min_value=0.01, max_value=200.0,
-                    value=float(mat_item.get("area_placa", 5.94)), step=0.1, key=f"maplaca_{midx}", format="%.3f",
-                    label_visibility="visible" if midx == 0 else "collapsed")
-            with cold:
+            st.markdown("**Cotización comercial**")
+            _cp1, _cp2 = st.columns([1.5, 1])
+            with _cp1:
+                num_cot = st.text_input("Número de cotización", value=_num_pre, key="num_cot_success")
+            with _cp2:
                 st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                if len(mats) > 1 and st.button("✕", key=f"mdel_{midx}"):
-                    st.session_state.materiales_proyecto.pop(midx)
-                    st.rerun()
+                if st.button("📄 Generar PDF Cotización", type="primary", use_container_width=True, key="btn_pdf_cot"):
+                    pdf_bytes = generar_pdf_cotizacion(
+                        r, numero=num_cot,
+                        empresa_info=st.session_state.empresa_info,
+                        logo_bytes=st.session_state.logo_bytes,
+                        incluir_iva=_iva_act,
+                    )
+                    st.download_button(
+                        "⬇ Descargar Cotización PDF", pdf_bytes,
+                        file_name=f"{num_cot}_Cotizacion.pdf", mime="application/pdf",
+                        use_container_width=True, key="dl_pdf_cot"
+                    )
 
-            costo_m = precio_m2_m * area_placa_m
-            st.caption(f"Costo: {numero_completo(precio_m2_m)}/m² × {area_placa_m} m² = **{numero_completo(costo_m)}**")
+        with st.container(border=True):
+            st.markdown("**Cuenta de cobro**")
+            _cc1, _cc2 = st.columns(2)
+            with _cc1:
+                num_cc  = st.text_input("Número de cuenta", value=f"CC-{_hoy().strftime('%Y')}-001", key="num_cc_success")
+                nom_pag = st.text_input("Facturar a:", value=r.get("nombre_cliente", ""), key="nom_pag_success")
+            with _cc2:
+                nit_pag = st.text_input("NIT / CC", value="", key="nit_pag_success")
+                dir_pag = st.text_input("Dirección", value="", key="dir_pag_success")
+            if st.button("📄 Generar PDF Cuenta de Cobro", type="primary", use_container_width=True, key="btn_pdf_cc"):
+                datos_pag = {"nombre": nom_pag, "nit": nit_pag, "direccion": dir_pag}
+                cc_bytes = generar_cuenta_cobro(
+                    r, st.session_state.empresa_info.copy(), datos_pag,
+                    numero=num_cc, logo_bytes=st.session_state.logo_bytes, incluir_iva=_iva_act,
+                )
+                st.download_button(
+                    "⬇ Descargar Cuenta de Cobro PDF", cc_bytes,
+                    file_name=f"{num_cc}_CuentaCobro.pdf", mime="application/pdf",
+                    use_container_width=True, key="dl_pdf_cc"
+                )
 
-            # ── Banco de Retales: detectar disponibilidad ─────────────────────
-            _mat_dict = {"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m}
-            try:
-                _retales_disp = _consultar_retal(cat_sel_m, referencia_m)
-            except Exception:
-                _retales_disp = []
+        st.markdown("---")
+        _col_nueva, _col_editar = st.columns(2)
+        with _col_nueva:
+            if st.button("🆕 Nueva cotización", use_container_width=True, type="primary"):
+                for k in ["cotizacion", "pre", "piezas", "materiales_proyecto",
+                          "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
+                          "_borrador_restaurado"]:
+                    st.session_state.pop(k, None)
+                for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
+                    del st.session_state[_wk]
+                st.session_state.cdir_paso    = 0
+                st.session_state.cdir_success = False
+                st.rerun()
+        with _col_editar:
+            if st.button("✏️ Editar esta cotización", use_container_width=True):
+                st.session_state.cdir_success = False
+                st.session_state.cdir_paso    = 0
+                st.rerun()
 
-            if _retales_disp:
-                _m2_total_retal = sum(r[2] for r in _retales_disp)
-                _retal_key = f"usar_retal_{midx}"
-                _usando_retal = st.session_state.get(_retal_key, False)
+        # FIN pantalla de éxito — no renderizar nada más
+        st.stop()
 
-                if not _usando_retal:
-                    # Aviso visual elegante
-                    _num_piezas = len(_retales_disp)
-                    _orig_txt = _retales_disp[0][3] if _num_piezas == 1 else f"{_num_piezas} proyectos anteriores"
+    # ════════════════════════════════════════════════════════════════════
+    # WIZARD — Barra de progreso + navegación
+    # ════════════════════════════════════════════════════════════════════
+    paso = st.session_state.cdir_paso
+
+    # Botón limpiar (solo si no estamos en el resultado)
+    if pre and (pre.get("nombre_cliente") or pre.get("piezas") or pre.get("materiales_proyecto")):
+        if st.button("🗑️ Limpiar y empezar de cero", key="btn_limpiar_wizard"):
+            for k in ["pre", "piezas", "materiales_proyecto", "cotizacion",
+                      "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
+                      "_borrador_restaurado"]:
+                st.session_state.pop(k, None)
+            for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
+                del st.session_state[_wk]
+            st.session_state.cdir_paso    = 0
+            st.session_state.cdir_success = False
+            st.rerun()
+
+    # Barra de progreso visual
+    _pct_progreso = int((paso / (N_PASOS - 1)) * 100)
+    _pasos_html = ""
+    for _i, _p in enumerate(WIZARD_PASOS):
+        if _i < paso:
+            _dot_style = "background:#1B5FA8;color:white;border:2px solid #1B5FA8"
+            _lbl_style = "color:#1B5FA8;font-weight:700"
+            _dot_char  = "✓"
+        elif _i == paso:
+            _dot_style = "background:#1B5FA8;color:white;border:2px solid #1B5FA8;box-shadow:0 0 0 4px rgba(27,95,168,0.18)"
+            _lbl_style = "color:#1B5FA8;font-weight:900"
+            _dot_char  = str(_i + 1)
+        else:
+            _dot_style = "background:transparent;color:var(--text-color);border:2px solid var(--border-color);opacity:0.4"
+            _lbl_style = "opacity:0.4"
+            _dot_char  = str(_i + 1)
+
+        _connector = f"<div style='flex:1;height:2px;background:{"#1B5FA8" if _i < paso else "var(--border-color)"};opacity:{"1" if _i < paso else "0.25"};margin:0 4px;align-self:center'></div>" if _i < N_PASOS - 1 else ""
+        _pasos_html += f"""
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">
+          <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+                      justify-content:center;font-size:0.78rem;font-weight:800;{_dot_style}">{_dot_char}</div>
+          <div style="font-size:0.65rem;text-align:center;{_lbl_style}">{_p["label"]}</div>
+        </div>
+        {"" if _i == N_PASOS - 1 else f'<div style="flex:1;height:2px;background:{"#1B5FA8" if _i < paso else "var(--border-color)"};opacity:{"1" if _i < paso else "0.25"};margin-bottom:14px;align-self:flex-start;margin-top:16px"></div>'}
+        """
+
+    st.markdown(f"""
+    <div style="display:flex;align-items:flex-start;margin-bottom:24px;
+                padding:16px 20px;background:var(--secondary-background-color);
+                border-radius:12px;border:1px solid var(--border-color)">
+      {_pasos_html}
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown(
+        f"<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>"
+        f"{WIZARD_PASOS[paso]['icono']} {WIZARD_PASOS[paso]['label']}</h2>"
+        f"<p style='opacity:0.6;font-size:0.85rem;margin-bottom:20px'>Paso {paso+1} de {N_PASOS}</p>",
+        unsafe_allow_html=True
+    )
+
+    # ════════════════════════════════════════════════════════════════════
+    # PASO 0 — MATERIAL(ES)
+    # ════════════════════════════════════════════════════════════════════
+    if paso == 0:
+        seccion_titulo("¿Qué material vas a instalar?",
+                       "Puedes agregar varios materiales si el proyecto mezcla referencias")
+
+        with st.expander("❓ ¿Cómo lleno este paso?", expanded=False):
+            st.markdown("""
+**Categoría:** El tipo de piedra (Mármol, Granito, Sinterizado, etc.)
+
+**Referencia:** El nombre de la lámina que compraste. Está en la factura del proveedor.
+
+**Precio/m²:** Exactamente lo que te cobró el proveedor por m². No lo inventes — usa la factura.
+
+**Área comprada:** Los m² totales de la lámina. Ejemplo: 1,20 m × 2,60 m = **3,12 m²**.
+            """)
+
+        if "materiales_proyecto" not in st.session_state or not st.session_state.materiales_proyecto:
+            st.session_state.materiales_proyecto = pre.get("materiales_proyecto", [
+                {"cat": pre.get("categoria", "Mármol"), "ref": pre.get("referencia", ""),
+                 "precio_m2": pre.get("precio_m2", 220_000), "area_placa": pre.get("area_placa_comprada", 5.94)}
+            ])
+
+        mats       = st.session_state.materiales_proyecto
+        mats_nuevos = []
+
+        for midx, mat_item in enumerate(mats):
+            with st.container(border=True):
+                lbl = f"Material {midx + 1}" if len(mats) > 1 else "Material del proyecto"
+                if len(mats) > 1:
+                    st.markdown(f"<div style='font-size:0.78rem;font-weight:700;opacity:0.55;margin-bottom:8px'>{lbl}</div>", unsafe_allow_html=True)
+
+                cola, colb = st.columns(2)
+                with cola:
+                    cats_opts = CATEGORIAS_MATERIAL
+                    cat_i     = cats_opts.index(mat_item.get("cat","Mármol")) if mat_item.get("cat") in cats_opts else 0
+                    cat_sel_m = st.selectbox("Categoría de material", cats_opts, index=cat_i, key=f"mcat_{midx}")
+
+                    # Badge visual de categoría
+                    from parametros import BADGE_COLORS, DESCRIPCIONES_CATEGORIA
+                    _bc = BADGE_COLORS.get(cat_sel_m, ("#f0f0f0","#333"))
                     st.markdown(
-                        f'<div style="border:1px solid #1B5FA8;border-left:4px solid #1B5FA8;'
-                        f'border-radius:8px;padding:10px 16px;margin:8px 0;'
-                        f'background:rgba(27,95,168,0.06);">'
-                        f'<div style="font-size:0.8rem;font-weight:700;color:#1B5FA8;margin-bottom:4px">'
-                        f'Tienes {fmt_m2(_m2_total_retal, 2)} de este material en tu Banco de Retales'
-                        f'</div>'
-                        f'<div style="font-size:0.75rem;opacity:0.65">'
-                        f'Origen: {_orig_txt} · Usar retal fija el precio en $0 y dispara el margen</div>'
-                        f'</div>',
+                        f'<div style="background:{_bc[0]};color:{_bc[1]};border-radius:6px;'
+                        f'padding:6px 12px;font-size:0.78rem;font-weight:700;display:inline-block">'
+                        f'{DESCRIPCIONES_CATEGORIA.get(cat_sel_m,"")}</div>',
                         unsafe_allow_html=True
                     )
-                    _col_rb, _ = st.columns([1.4, 2.6])
-                    with _col_rb:
-                        if st.button("Usar retal existente →", key=f"btn_retal_{midx}", type="primary", use_container_width=True):
-                            st.session_state[_retal_key] = True
-                            # Seleccionar el retal con más m²
-                            _retal_sel = max(_retales_disp, key=lambda r: r[2])
-                            st.session_state[f"retal_id_{midx}"]  = _retal_sel[0]
-                            st.session_state[f"retal_m2_{midx}"]  = _retal_sel[2]
-                            st.rerun()
-                else:
-                    # Estado activo: retal en uso — sobreescribir valores del dict
-                    _rid_activo = st.session_state.get(f"retal_id_{midx}")
-                    _rm2_activo = st.session_state.get(f"retal_m2_{midx}", _m2_total_retal)
 
-                    # Leer precio de recuperación configurado para este retal
-                    _precio_rec = 0.0
-                    try:
-                        _conn_rec = _get_db_connection()
-                        _cur_rec  = _conn_rec.cursor()
-                        _cur_rec.execute(
-                            "SELECT precio_recuperacion FROM inventario_retales WHERE id=%s",
-                            (_rid_activo,)
+                with colb:
+                    refs_m     = ["Otra referencia..."] + [m["nombre"] for m in MATERIALES_CATALOGO if m["categoria"] == cat_sel_m]
+                    pre_ref_m  = mat_item.get("ref","")
+                    idx_ref_m  = refs_m.index(pre_ref_m) if pre_ref_m in refs_m else 0
+                    ref_sel_m  = st.selectbox("Referencia del material", refs_m, index=idx_ref_m, key=f"mref_{midx}")
+                    if ref_sel_m == "Otra referencia...":
+                        referencia_m = st.text_input("Nombre de la referencia", value=pre_ref_m if pre_ref_m not in refs_m else "",
+                                                     key=f"mrefcust_{midx}", placeholder="Ej: Calacatta Gold")
+                    else:
+                        referencia_m = ref_sel_m
+                        m_cat_data   = next((m for m in MATERIALES_CATALOGO if m["nombre"] == ref_sel_m), None)
+
+                colc, cold = st.columns(2)
+                with colc:
+                    precio_m2_m = st.number_input(
+                        "Precio por m² (COP)", min_value=10_000, max_value=5_000_000,
+                        value=int(mat_item.get("precio_m2", 220_000)), step=1_000,
+                        key=f"mpm2_{midx}",
+                        help="Este valor está en la factura del proveedor"
+                    )
+                with cold:
+                    area_placa_m = st.number_input(
+                        "Área de la lámina comprada (m²)", min_value=0.01, max_value=200.0,
+                        value=float(mat_item.get("area_placa", 5.94)), step=0.1,
+                        key=f"maplaca_{midx}", format="%.3f",
+                        help="m² totales del material que compraste"
+                    )
+
+                costo_m = precio_m2_m * area_placa_m
+                st.markdown(
+                    f'<div style="background:var(--secondary-background-color);border-radius:8px;'
+                    f'padding:8px 14px;margin-top:4px;font-size:0.85rem">'
+                    f'<span style="opacity:0.6">{numero_completo(precio_m2_m)}/m² × {area_placa_m} m² = </span>'
+                    f'<strong style="color:#1B5FA8">{numero_completo(costo_m)}</strong></div>',
+                    unsafe_allow_html=True
+                )
+
+                # Banco de Retales
+                _mat_dict = {"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m}
+                try:
+                    _retales_disp = _consultar_retal(cat_sel_m, referencia_m)
+                except Exception:
+                    _retales_disp = []
+
+                if _retales_disp:
+                    _m2_total_retal = sum(r[2] for r in _retales_disp)
+                    _retal_key      = f"usar_retal_{midx}"
+                    _usando_retal   = st.session_state.get(_retal_key, False)
+                    if not _usando_retal:
+                        _num_piezas = len(_retales_disp)
+                        _orig_txt   = _retales_disp[0][3] if _num_piezas == 1 else f"{_num_piezas} proyectos anteriores"
+                        st.markdown(
+                            f'<div style="border:1px solid #1B5FA8;border-left:4px solid #1B5FA8;'
+                            f'border-radius:8px;padding:10px 16px;margin:8px 0;background:rgba(27,95,168,0.06);">'
+                            f'<div style="font-size:0.8rem;font-weight:700;color:#1B5FA8;margin-bottom:4px">'
+                            f'Tienes {fmt_m2(_m2_total_retal, 2)} de sobrante de este material</div>'
+                            f'<div style="font-size:0.75rem;opacity:0.65">Origen: {_orig_txt}</div></div>',
+                            unsafe_allow_html=True
                         )
-                        _row_rec = _cur_rec.fetchone()
-                        _precio_rec = float(_row_rec[0] or 0) if _row_rec else 0.0
-                        _cur_rec.close()
-                        _conn_rec.close()
-                    except Exception:
+                        _col_rb, _ = st.columns([1.4, 2.6])
+                        with _col_rb:
+                            if st.button("Usar sobrante →", key=f"btn_retal_{midx}", type="primary", use_container_width=True):
+                                st.session_state[_retal_key] = True
+                                _retal_sel = max(_retales_disp, key=lambda r: r[2])
+                                st.session_state[f"retal_id_{midx}"]  = _retal_sel[0]
+                                st.session_state[f"retal_m2_{midx}"]  = _retal_sel[2]
+                                st.rerun()
+                    else:
+                        _rid_activo = st.session_state.get(f"retal_id_{midx}")
+                        _rm2_activo = st.session_state.get(f"retal_m2_{midx}", _m2_total_retal)
                         _precio_rec = 0.0
+                        try:
+                            _conn_rec = _get_db_connection()
+                            _cur_rec  = _conn_rec.cursor()
+                            _cur_rec.execute("SELECT precio_recuperacion FROM inventario_retales WHERE id=%s", (_rid_activo,))
+                            _row_rec  = _cur_rec.fetchone()
+                            _precio_rec = float(_row_rec[0] or 0) if _row_rec else 0.0
+                            _cur_rec.close(); _conn_rec.close()
+                        except Exception:
+                            pass
+                        _mat_dict["precio_m2"]  = _precio_rec
+                        _mat_dict["area_placa"] = _rm2_activo
+                        _mat_dict["es_retal"]   = True
+                        _mat_dict["retal_id"]   = _rid_activo
+                        _prec_txt = f"Precio/m²: {numero_completo(_precio_rec)}" if _precio_rec > 0 else "Precio fijado en $0"
+                        st.markdown(
+                            f'<div style="border:1px solid #15803d;border-left:4px solid #15803d;border-radius:8px;'
+                            f'padding:10px 16px;margin:8px 0;background:rgba(21,128,61,0.06);">'
+                            f'<div style="font-size:0.8rem;font-weight:700;color:#15803d;margin-bottom:3px">'
+                            f'Sobrante activo — {_prec_txt} · Área: {fmt_m2(_rm2_activo,3)}</div>'
+                            f'<div style="font-size:0.75rem;opacity:0.65">El margen subirá al 80-90%+</div></div>',
+                            unsafe_allow_html=True
+                        )
+                        if st.button("Cancelar sobrante", key=f"btn_cancel_retal_{midx}"):
+                            st.session_state.pop(_retal_key, None)
+                            st.session_state.pop(f"retal_id_{midx}", None)
+                            st.session_state.pop(f"retal_m2_{midx}", None)
+                            st.rerun()
 
-                    _mat_dict["precio_m2"]  = _precio_rec   # precio_recuperacion (0 si no configurado)
-                    _mat_dict["area_placa"] = _rm2_activo
-                    _mat_dict["es_retal"]   = True
-                    _mat_dict["retal_id"]   = _rid_activo
-
-                    _prec_txt = f"Precio/m² de recuperación: {numero_completo(_precio_rec)}" if _precio_rec > 0 else "Precio/m² fijado en $0"
-                    st.markdown(
-                        f'<div style="border:1px solid #15803d;border-left:4px solid #15803d;'
-                        f'border-radius:8px;padding:10px 16px;margin:8px 0;'
-                        f'background:rgba(21,128,61,0.06);">'
-                        f'<div style="font-size:0.8rem;font-weight:700;color:#15803d;margin-bottom:3px">'
-                        f'Retal activo — {_prec_txt} · Área disponible: {fmt_m2(_rm2_activo, 3)}'
-                        f'</div>'
-                        f'<div style="font-size:0.75rem;opacity:0.65">'
-                        f'El margen sube al 80-90%+ según los demás costos. Configura el precio de recuperación en Banco de Retales.</div>'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
-                    if st.button("Cancelar — usar material nuevo", key=f"btn_cancel_retal_{midx}"):
-                        st.session_state.pop(_retal_key, None)
-                        st.session_state.pop(f"retal_id_{midx}", None)
-                        st.session_state.pop(f"retal_m2_{midx}", None)
+                if len(mats) > 1:
+                    if st.button("🗑️ Quitar este material", key=f"mdel_{midx}"):
+                        st.session_state.materiales_proyecto.pop(midx)
                         st.rerun()
 
-            mats_nuevos.append(_mat_dict)
+                mats_nuevos.append(_mat_dict)
 
-    st.session_state.materiales_proyecto = mats_nuevos
+        st.session_state.materiales_proyecto = mats_nuevos
 
-    col_addmat, _ = st.columns([1, 3])
-    with col_addmat:
-        if st.button("+ Agregar otro material", use_container_width=True):
+        if st.button("＋ Agregar otro material", use_container_width=True):
             st.session_state.materiales_proyecto.append({"cat": "Mármol", "ref": "", "precio_m2": 220_000, "area_placa": 5.94})
             st.rerun()
 
-    # Para el cálculo usamos el primer material como principal (categoría determina tarifas de MO)
-    # El costo total de material suma todos
-    cat_sel = mats_nuevos[0]["cat"] if mats_nuevos else "Mármol"
-    referencia = " + ".join([m["ref"] or m["cat"] for m in mats_nuevos]) if len(mats_nuevos) > 1 else (mats_nuevos[0]["ref"] if mats_nuevos else "")
-    precio_m2 = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
-    # Área total y costo total de todos los materiales
-    area_placa = sum(m["area_placa"] for m in mats_nuevos)
-    costo_mat_total = sum(m["precio_m2"] * m["area_placa"] for m in mats_nuevos)
-    # Precio_m2 efectivo para que calcular_cotizacion_directa compute correctamente c1
-    precio_m2_efectivo = costo_mat_total / area_placa if area_placa > 0 else precio_m2
+        # Derivar valores de materiales para pasos siguientes
+        cat_sel     = mats_nuevos[0]["cat"]    if mats_nuevos else "Mármol"
+        referencia  = " + ".join([m["ref"] or m["cat"] for m in mats_nuevos]) if len(mats_nuevos) > 1 else (mats_nuevos[0]["ref"] if mats_nuevos else "")
+        precio_m2   = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
+        area_placa  = sum(m["area_placa"] for m in mats_nuevos)
+        precio_m2_efectivo = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
+        costo_material_total = sum(m["precio_m2"] * m["area_placa"] for m in mats_nuevos)
 
-    alerta(f"Total material: **{numero_completo(costo_mat_total)}** en {fmt_m2(area_placa, 2)} comprados", "info")
+    # ════════════════════════════════════════════════════════════════════
+    # PASO 1 — DIMENSIONES
+    # ════════════════════════════════════════════════════════════════════
+    elif paso == 1:
+        # Recuperar materiales del paso anterior
+        _mats_p1    = st.session_state.get("materiales_proyecto", [])
+        cat_sel     = _mats_p1[0]["cat"]    if _mats_p1 else pre.get("categoria","Mármol")
+        area_placa  = sum(m["area_placa"] for m in _mats_p1) if _mats_p1 else pre.get("area_placa_comprada", 5.94)
 
-    st.markdown("---")
+        seccion_titulo("¿Cuántas piezas tiene el proyecto?",
+                       "Cada tramo o elemento de piedra es una pieza. Ingresa el largo en metros.")
 
-    # ── PASO 2: DIMENSIONES ──────────────────────────────────────────────────
-    seccion_titulo("Paso 2 — Dimensiones del proyecto", "Ingresa cada pieza por metros lineales — la app convierte a m² automaticamente")
+        with st.expander("❓ ¿Qué es un metro lineal (ML)?", expanded=False):
+            st.markdown("""
+**ML = la longitud** de la pieza. La app calcula los m² sola.
 
-    with st.expander("❓ ¿Cómo mido las piezas? — Ayuda con metros lineales", expanded=False):
-        st.markdown("""
-**¿Qué es un metro lineal (ML)?**
+| Pieza | Largo que ingresas | Ancho estándar | m² resultado |
+|---|---|---|---|
+| Mesón de 3 m | **3 ML** | 0,60 m | 1,80 m² |
+| Baño de 1,2 m | **1,2 ML** | 0,45 m | 0,54 m² |
+| Escalón | **0,9 ML** | 0,30 m | 0,27 m² |
 
-En marmolería, se habla de **metros lineales de largo**, no de metros cuadrados. 
-La app necesita el **largo** de cada pieza, y el ancho ya está preconfigurado según el tipo de elemento.
+Si el ancho es diferente, elige **Personalizado** y ajusta.
+            """)
 
-**Ejemplo práctico:**
-- Mesón de cocina de 3 metros de largo → ingresas **3 ML** en "Largo"
-- El ancho estándar de un mesón es 0,60 m → la app calcula 3 × 0,60 = **1,80 m²** automáticamente
-
-**¿Qué es una "pieza"?**
-
-Cada elemento de piedra es una pieza. Si un mesón en L tiene dos tramos, son dos piezas separadas.
-
-**Tipos más comunes y su ancho estándar:**
-- Mesón de cocina: 0,60 m de ancho
-- Baño / lavamanos: 0,45 m de ancho  
-- Zócalo: 0,10 m de ancho
-- Escalón (huella): 0,30 m de ancho
-- Piso / revestimiento: se mide en m² directamente
-
-> 💡 Si el ancho de tu pieza es diferente al estándar, selecciona **"Personalizado"** e ingresa el valor real.
-        """)
-
-    if "piezas" not in st.session_state or not st.session_state.piezas:
-        st.session_state.piezas = pre.get("piezas", [{"nombre": "Meson de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}])
-
-    _mostrar_avanzado = st.session_state.get("modo_avanzado_medidas", False)
-    if not _mostrar_avanzado:
-        modo_medida = "Por piezas (ML × Ancho) — recomendado"
-        if st.button("Opciones avanzadas (ingresar m² directamente)"):
-            st.session_state.modo_avanzado_medidas = True
-            st.rerun()
-    else:
-        modo_medida = st.radio("Modo de ingreso", ["Por piezas (ML × Ancho) — recomendado", "Ingresar m² directamente"], horizontal=True, key="cdir_modo_medida")
-        if st.button("Volver al modo simplificado"):
-            st.session_state.modo_avanzado_medidas = False
-            st.rerun()
-
-    m2_real = 0.0
-    m2_cortados_total = 0.0
-
-    if "Por piezas" in modo_medida:
-        alerta("Agrega cada pieza del proyecto. Largo en ML × ancho estandar = m² calculados.", "info")
-        hdr = st.columns([3, 1.2, 2.5, 1.5, 1.6, 0.6])
-        for col, lbl in zip(hdr, ["Pieza / Descripcion", "ML largo", "Elemento / Pieza", "Ancho (m)", "m² calculados", ""]):
-            col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
+        if "piezas" not in st.session_state or not st.session_state.piezas:
+            st.session_state.piezas = pre.get("piezas", [
+                {"nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}
+            ])
 
         tipos_superficie = list(ANCHOS_ESTANDAR.keys())
-        piezas_nuevas = []
-        total_m2_piezas = 0.0
+        piezas_nuevas    = []
+        total_m2_piezas  = 0.0
+
+        # Cabecera de tabla
+        _hdr = st.columns([2.8, 1.3, 2.4, 1.4, 1.5, 0.5])
+        for _col, _lbl in zip(_hdr, ["Nombre / Descripción", "Largo (ML)", "Tipo de pieza", "Ancho (m)", "m² calculados", ""]):
+            _col.markdown(f"<div style='font-size:0.68rem;font-weight:700;opacity:0.55;text-transform:uppercase'>{_lbl}</div>", unsafe_allow_html=True)
 
         for idx, pieza in enumerate(st.session_state.piezas):
-            c0, c1, c2, c3, c4, c5 = st.columns([3, 1.2, 2.5, 1.5, 1.6, 0.6])
-            with c0:
-                nombre_p = st.text_input("Nombre", value=pieza.get("nombre", ""), key=f"pnom_{idx}", label_visibility="collapsed")
-            with c1:
-                ml_p = st.number_input("ML", value=float(pieza.get("ml", 1.0)), min_value=0.01, step=0.1, key=f"pml_{idx}", label_visibility="collapsed")
-            with c2:
-                tipo_idx = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
-                ancho_tipo_p = st.selectbox("Elemento", tipos_superficie, index=tipo_idx, key=f"ptip_{idx}", label_visibility="collapsed")
-            with c3:
-                ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
-                ancho_p = st.number_input("Ancho", value=float(ancho_def), min_value=0.01, step=0.01, key=f"panc_{idx}", label_visibility="collapsed")
-            m2_p = ml_a_m2(ml_p, ancho_p)
-            total_m2_piezas += m2_p
-            with c4:
-                st.markdown(f"<div style='padding:8px 4px;font-weight:700;'>{fmt_m2(m2_p)}</div>", unsafe_allow_html=True)
-            with c5:
-                if st.button("X", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
-                    st.session_state.piezas.pop(idx)
-                    st.rerun()
+            with st.container():
+                c0, c1, c2, c3, c4, c5 = st.columns([2.8, 1.3, 2.4, 1.4, 1.5, 0.5])
+                with c0:
+                    nombre_p = st.text_input("Nombre", value=pieza.get("nombre",""), key=f"pnom_{idx}", label_visibility="collapsed", placeholder=f"Pieza {idx+1}")
+                with c1:
+                    ml_p = st.number_input("ML", value=float(pieza.get("ml",1.0)), min_value=0.01, step=0.1, key=f"pml_{idx}", label_visibility="collapsed")
+                with c2:
+                    tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
+                    ancho_tipo_p = st.selectbox("Tipo", tipos_superficie, index=tipo_idx, key=f"ptip_{idx}", label_visibility="collapsed")
+                with c3:
+                    ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
+                    ancho_p   = st.number_input("Ancho", value=float(ancho_def), min_value=0.01, step=0.01, key=f"panc_{idx}", label_visibility="collapsed")
+                m2_p = ml_a_m2(ml_p, ancho_p)
+                total_m2_piezas += m2_p
+                with c4:
+                    st.markdown(f"<div style='padding:8px 4px;font-weight:700;color:#1B5FA8'>{fmt_m2(m2_p)}</div>", unsafe_allow_html=True)
+                with c5:
+                    if st.button("✕", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
+                        st.session_state.piezas.pop(idx)
+                        st.rerun()
 
-            # ── Input dinámico para tipo "Personalizado" ──────────────────────
-            nombre_personalizado_p = pieza.get("nombre_personalizado", "")
-            if ancho_tipo_p == "Personalizado":
-                nombre_personalizado_p = st.text_input(
-                    "Descripción del elemento",
-                    value=nombre_personalizado_p,
-                    key=f"pcustom_{idx}",
-                    placeholder='Ej: "Mesón de lavamanos", "Pantry", "Repisa"',
-                    help="Este nombre aparecerá en el PDF de cotización.",
-                )
+                if ancho_tipo_p == "Personalizado":
+                    st.text_input("Descripción del elemento", value=pieza.get("nombre_personalizado",""),
+                                  key=f"pcustom_{idx}", placeholder='Ej: "Mesón de lavamanos", "Pantry"',
+                                  help="Nombre que aparecerá en el PDF")
 
-            piezas_nuevas.append({
-                "nombre": nombre_p,
-                "ml": ml_p,
-                "ancho_tipo": ancho_tipo_p,
-                "ancho_custom": ancho_p,
-                "nombre_personalizado": nombre_personalizado_p,
-            })
+                piezas_nuevas.append({"nombre": nombre_p, "ml": ml_p, "ancho_tipo": ancho_tipo_p,
+                                      "ancho_custom": ancho_p, "nombre_personalizado": pieza.get("nombre_personalizado","")})
 
         st.session_state.piezas = piezas_nuevas
-        m2_real = total_m2_piezas
+        m2_real         = total_m2_piezas
         m2_cortados_total = total_m2_piezas
 
-        col_add, col_sum = st.columns([1, 2])
-        with col_add:
-            if st.button("+ Agregar pieza", use_container_width=True):
-                st.session_state.piezas.append({"nombre": f"Pieza {len(st.session_state.piezas)+1}", "ml": 1.0, "ancho_tipo": tipos_superficie[0], "ancho_custom": 0.60})
+        _col_add, _col_tot = st.columns([1, 2])
+        with _col_add:
+            if st.button("＋ Agregar pieza", use_container_width=True):
+                st.session_state.piezas.append({"nombre": f"Pieza {len(st.session_state.piezas)+1}",
+                                                 "ml": 1.0, "ancho_tipo": tipos_superficie[0], "ancho_custom": 0.60})
                 st.rerun()
-        with col_sum:
+        with _col_tot:
             if m2_real > 0:
-                _ml_total = sum(p.get("ml", 0) for p in st.session_state.piezas)
+                _ml_total = sum(p.get("ml",0) for p in st.session_state.piezas)
                 st.markdown(
-                    f'''<div style="background:var(--secondary-background-color); border:1px solid var(--border-color); border-radius:10px;padding:12px 18px;text-align:center">
-                  <div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total del proyecto</div>
-                  <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{fmt_ml(_ml_total)}</div>
-                  <div style="font-size:0.85rem;opacity:0.7;margin-top:2px">{fmt_m2(m2_real)} de material</div>
-                </div>''', unsafe_allow_html=True)
-        # Desperdicio: gestionado en la sección de Gestión de Desperdicio más abajo
-        # (extra_corte se suma a m2_cortados_total en la sección de Gestión de Desperdicio)
+                    f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                    border-radius:10px;padding:12px 18px;text-align:center">
+                    <div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total</div>
+                    <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{fmt_ml(_ml_total)}</div>
+                    <div style="font-size:0.85rem;opacity:0.7">{fmt_m2(m2_real)} de material</div>
+                    </div>''', unsafe_allow_html=True)
 
-    else:
+        st.markdown("---")
+
+        # ── Margen y m² usados ────────────────────────────────────────
+        st.markdown("**Margen de ganancia y uso del material**")
+        _cm1, _cm2, _cm3 = st.columns([1.5, 1.5, 1])
+
+        with _cm1:
+            # Segmented control para margen — rango típico en 5 opciones rápidas
+            _margen_opciones = ["20%", "30%", "35%", "40%", "45%", "50%", "Otro"]
+            _margen_pre      = int(pre.get("margen_pct", 40))
+            _margen_pre_str  = f"{_margen_pre}%" if f"{_margen_pre}%" in _margen_opciones else "Otro"
+            _margen_sel = st.pills("Margen rápido", _margen_opciones,
+                                   default=_margen_pre_str, key="p1_margen_pills",
+                                   help="Porcentaje de ganancia sobre el precio de venta")
+            if _margen_sel == "Otro" or _margen_sel is None:
+                margen_pct = st.number_input("Margen personalizado (%)", min_value=5, max_value=80,
+                                             value=_margen_pre, step=1, key="p1_margen_custom")
+            else:
+                margen_pct = int(_margen_sel.replace("%",""))
+
+        with _cm2:
+            # Sincronizar m² usados automáticamente cuando cambia m2_real
+            _m2_real_prev = st.session_state.get("_cdir_m2_real_prev", None)
+            if _m2_real_prev is None or abs(_m2_real_prev - m2_real) > 0.001:
+                st.session_state["cdir_m2_usados"] = round(m2_real, 3)
+                st.session_state["_cdir_m2_real_prev"] = m2_real
+            m2_usados = st.number_input("m² finalmente instalados", min_value=0.0,
+                                        value=float(pre.get("m2_usados", m2_real)), step=0.05,
+                                        key="cdir_m2_usados",
+                                        help="Normalmente igual a los m² del proyecto. Solo cambia si instalaste menos.")
+
+        with _cm3:
+            if area_placa > 0 and m2_usados > 0:
+                aprv   = min(100, m2_usados / area_placa * 100)
+                retal_ = max(0, area_placa - m2_usados)
+                estado_a = "bueno" if aprv >= 80 else "acepta" if aprv >= 50 else "bajo"
+                alerta(f"Uso del material: **{aprv:.1f}%**  Sobra: {fmt_m2(retal_)}", estado_a)
+
+        # Guardar en pre para uso en pasos siguientes
+        st.session_state.pre = {**pre, "margen_pct": margen_pct, "m2_usados": m2_usados, "piezas": st.session_state.piezas}
+
+    # ════════════════════════════════════════════════════════════════════
+    # PASO 2 — PROYECTO (tipo, etapa, días, personas, zócalos, desperdicio)
+    # ════════════════════════════════════════════════════════════════════
+    elif paso == 2:
+        _mats_p2    = st.session_state.get("materiales_proyecto", [])
+        cat_sel     = _mats_p2[0]["cat"] if _mats_p2 else pre.get("categoria","Mármol")
+        area_placa  = sum(m["area_placa"] for m in _mats_p2) if _mats_p2 else pre.get("area_placa_comprada", 5.94)
+        _piezas_p2  = st.session_state.get("piezas", pre.get("piezas",[]))
+        m2_real     = sum(ml_a_m2(float(p.get("ml",0)), float(p.get("ancho_custom",0.60))) for p in _piezas_p2) or pre.get("m2_proyecto", 4.0)
+
+        seccion_titulo("Datos del proyecto", "Tipo de obra, cuántos días y quiénes van")
+
         c1, c2 = st.columns(2)
         with c1:
-            m2_real = st.number_input("m² reales del proyecto", min_value=0.01, value=float(pre.get("m2_proyecto", 4.0)), step=0.05, key="cdir_m2_real")
+            tipo_opts  = ["Mesón", "Cocina", "Baño", "Piso", "Escalera", "Fachada", "Mueble de cocina", "Otro"]
+            pre_tipos  = pre.get("tipos_proyecto", [pre.get("tipo_proyecto","Mesón")] if pre.get("tipo_proyecto") else ["Mesón"])
+            tipos_sel  = st.multiselect("Tipo(s) de proyecto", tipo_opts,
+                                        default=[t for t in pre_tipos if t in tipo_opts] or ["Mesón"],
+                                        key="cdir_tipos_proyecto")
+            tipo = " + ".join(tipos_sel) if tipos_sel else "Otro"
+
         with c2:
-            m2_cortados_input = st.number_input("m² cortados de la placa (mayor por desperdicios)", min_value=0.0, value=float(pre.get("m2_cortados_input", m2_real)), step=0.05, key="cdir_m2_cortados")
-            m2_cortados_total = m2_cortados_input if m2_cortados_input > 0 else m2_real
+            etapa = ETAPAS_OBRA[st.selectbox(
+                "Etapa de la obra", list(ETAPAS_OBRA.keys()),
+                index=list(ETAPAS_OBRA.keys()).index(pre.get("etapa_label", list(ETAPAS_OBRA.keys())[0]))
+                      if pre.get("etapa_label") in ETAPAS_OBRA else 0,
+                key="cdir_etapa"
+            )]
 
-    st.markdown("---")
-    # ── Sincronización automática de m² finalmente instalados ─────────────────
-    # Cuando el usuario modifica ML o ancho de una pieza, m2_real cambia pero el
-    # widget "cdir_m2_usados" conserva el valor anterior porque Streamlit lo
-    # almacena en session_state por key. Detectamos el cambio y reseteamos el
-    # widget para que refleje siempre los m² actuales del proyecto.
-    _m2_real_prev = st.session_state.get("_cdir_m2_real_prev", None)
-    if _m2_real_prev is None or abs(_m2_real_prev - m2_real) > 0.001:
-        # m2_real cambió (o es la primera vez) → forzar actualización del widget
-        st.session_state["cdir_m2_usados"] = round(m2_real, 3)
-        st.session_state["_cdir_m2_real_prev"] = m2_real
+        nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente",""),
+                                       placeholder="Ej: Juan García / Constructora XYZ",
+                                       key="cdir_nombre_cliente")
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        m2_usados = st.number_input("m² finalmente instalados", min_value=0.0, value=float(pre.get("m2_usados", m2_real)), step=0.05, key="cdir_m2_usados")
-    with c2:
-        margen_pct = st.slider(
-            "Margen de ganancia (%)",
-            min_value=5, max_value=80,
-            value=int(pre.get("margen_pct", 40)),
-            step=1, key="cdir_margen",
-            help=(
-                "El margen es la ganancia que quieres llevarte sobre el precio de venta.\n\n"
-                "Ejemplo con margen 40%: si tus costos son $600.000, el precio de venta será $1.000.000 "
-                "y tu ganancia son $400.000.\n\n"
-                "✅ Saludable: 30-45% | ⚠️ Aceptable: 20-30% | 🚨 Riesgo: menos del 20%"
-            )
-        )
-    with c3:
-        if area_placa > 0 and m2_usados > 0:
-            aprv = min(100, m2_usados / area_placa * 100)
-            retal = max(0, area_placa - m2_usados)
-            estado_a = "bueno" if aprv >= 80 else "acepta" if aprv >= 50 else "bajo"
-            alerta(
-                f"Uso del material: **{aprv:.1f}%** — Sobra: {fmt_m2(retal)}",
-                estado_a
-            )
-            if retal > 0.1:
-                st.caption(
-                    f"💡 Sobran **{fmt_m2(retal)}** de material. Si guardas ese pedazo, "
-                    f"el sistema lo registrará como sobrante aprovechable para el próximo proyecto."
-                )
+        st.markdown("---")
 
-    st.markdown("---")
+        # ── Días y personas — segmented controls ─────────────────────
+        st.markdown("**¿Cuántos días dura la instalación y cuántas personas van?**")
+        _dc1, _dc2 = st.columns(2)
 
-    # ── PASO 3: PROYECTO ─────────────────────────────────────────────────────
-    seccion_titulo("Paso 3 — Tipo de proyecto y obra")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        tipo_opts = ["Mesón", "Cocina", "Baño", "Piso", "Escalera", "Fachada", "Mueble de cocina", "Otro"]
-        # Multi-select para tipo de proyecto
-        pre_tipos = pre.get("tipos_proyecto", [pre.get("tipo_proyecto", "Mesón")] if pre.get("tipo_proyecto") else ["Mesón"])
-        tipos_sel = st.multiselect(
-            "Tipo(s) de proyecto",
-            tipo_opts,
-            default=[t for t in pre_tipos if t in tipo_opts] or ["Mesón"],
-            help="Selecciona uno o varios si el proyecto combina espacios (ej: Cocina + Baño)",
-            key="cdir_tipos_proyecto"
-        )
-        tipo = " + ".join(tipos_sel) if tipos_sel else "Otro"
-    with c2:
-        etapa = ETAPAS_OBRA[st.selectbox("Etapa de la obra", list(ETAPAS_OBRA.keys()), index=list(ETAPAS_OBRA.keys()).index(pre.get("etapa_label", list(ETAPAS_OBRA.keys())[0])) if pre.get("etapa_label") in ETAPAS_OBRA else 0, key="cdir_etapa")]
-    with c3:
-        dias = st.number_input("Dias en obra", min_value=1, value=int(pre.get("dias_obra", 2)), step=1, key="cdir_dias")
-    with c4:
-        personas = st.number_input("Num. de personas", min_value=1, value=int(pre.get("personas", 2)), step=1, key="cdir_personas")
-
-    nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente", ""), placeholder="Ej: Juan Garcia / Constructora XYZ", key="cdir_nombre_cliente")
-
-    st.markdown("**Zocalos**")
-    zocalo_activo = st.checkbox("Este proyecto lleva zocalos", value=pre.get("zocalo_activo", False), key="cdir_zocalo_activo")
-    zocalo_ml = 0.0
-    if zocalo_activo:
-        zocalo_ml = st.number_input("Metros lineales de zocalo (ml)", min_value=0.0, value=float(pre.get("zocalo_ml", 2.0)), step=0.5, key="cdir_zocalo_ml")
-
-    # ── GESTIÓN DE DESPERDICIO — SECCIÓN INNOVADORA ────────────────────────
-    # Reemplaza el campo críptico "m² adicionales cortados no aprovechados"
-    # por una experiencia educativa, visual e interactiva.
-    #
-    # CONCEPTO: El usuario elige el perfil de su corte (simple/complejo),
-    # la app calcula el desperdicio técnico sugerido Y muestra en tiempo real
-    # cómo impacta en el costo. El botón de ayuda explica TODO con imágenes.
-
-    desperdicio_sugerido_15 = round(m2_real * 0.15, 2)
-    desperdicio_sugerido_20 = round(m2_real * 0.20, 2)
-    desperdicio_sugerido_10 = round(m2_real * 0.10, 2)
-
-    # Título de sección con badge explicativo
-    st.markdown("""
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-      <span style="font-weight:700;font-size:1rem">Desperdicio de material en cortes</span>
-      <span style="background:#1B5FA8;color:white;font-size:0.65rem;font-weight:700;
-                   padding:3px 8px;border-radius:20px;letter-spacing:0.05em">RETAL</span>
-    </div>
-    <p style="font-size:0.82rem;opacity:0.65;margin:0 0 10px">
-      Toda instalación genera retales — piezas que se cortan y no se usan.
-      Este valor afecta directamente el costo del disco y el consumo de insumos.
-    </p>
-    """, unsafe_allow_html=True)
-
-    # ── Widget educativo principal ───────────────────────────────────────────
-    with st.container(border=True):
-
-        # Selector visual de perfil de corte
-        st.markdown("""
-        <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
-                    letter-spacing:0.08em;opacity:0.6;margin-bottom:8px">
-          1. ¿Qué tan complejo es el corte de este proyecto?
-        </div>""", unsafe_allow_html=True)
-
-        perfil_opciones = {
-            "🟢 Simple — cortes rectos, sin curvas":        ("simple",   0.10),
-            "🟡 Normal — algunos ángulos o esquinas":        ("normal",   0.15),
-            "🔴 Complejo — curvas, biselados, figuras":      ("complejo", 0.22),
-            "✏️ Personalizado — quiero ingresar el valor":   ("custom",   None),
-        }
-        perfil_key = f"perfil_desperdicio_{st.session_state.get('_piezas_hash', 0)}"
-        perfil_sel = st.radio(
-            "Perfil de corte",
-            list(perfil_opciones.keys()),
-            index=1,  # Normal por defecto
-            horizontal=False,
-            key="perfil_desperdicio_radio",
-            label_visibility="collapsed"
-        )
-
-        perfil_id, pct_auto = perfil_opciones[perfil_sel]
-        pct_auto = pct_auto or 0.15
-
-        # Mostrar el valor resultante (o input si es custom)
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-
-        col_val, col_imp = st.columns([1.2, 1])
-
-        with col_val:
-            st.markdown("""
-            <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
-                        letter-spacing:0.08em;opacity:0.6;margin-bottom:6px">
-              2. Metros cuadrados de retal estimados
-            </div>""", unsafe_allow_html=True)
-
-            if perfil_id == "custom":
-                extra_corte = st.number_input(
-                    "m² de retal (ingresa tu valor)",
-                    min_value=0.0,
-                    max_value=float(area_placa) if area_placa > 0 else 50.0,
-                    value=float(pre.get("extra_corte", round(m2_real * 0.15, 2))),
-                    step=0.05,
-                    format="%.2f",
-                    label_visibility="collapsed",
-                    help="Ingresa los metros cuadrados exactos que esperas perder en cortes.",
-                    key="cdir_extra_corte"
-                )
-                pct_real = (extra_corte / m2_real * 100) if m2_real > 0 else 0
-                st.caption(f"Equivale al **{pct_real:.1f}%** del proyecto")
+        with _dc1:
+            _dias_opts = ["1", "2", "3", "4", "5", "6+"]
+            _dias_pre  = int(pre.get("dias_obra", 2))
+            _dias_pre_s = str(_dias_pre) if _dias_pre <= 5 else "6+"
+            _dias_sel   = st.pills("Días en obra", _dias_opts, default=_dias_pre_s, key="p2_dias_pills")
+            if _dias_sel == "6+" or _dias_sel is None:
+                dias = st.number_input("Días (exacto)", min_value=1, value=_dias_pre, step=1, key="p2_dias_custom")
             else:
-                extra_corte = round(m2_real * pct_auto, 2)
-                pct_real = pct_auto * 100
-                # Mostrar el valor calculado en un badge visual, NO editable
-                color_pct = "#16a34a" if pct_auto <= 0.12 else "#d97706" if pct_auto <= 0.17 else "#dc2626"
+                dias = int(_dias_sel)
+
+        with _dc2:
+            _pers_opts = ["1", "2", "3", "4", "5+"]
+            _pers_pre  = int(pre.get("personas", 2))
+            _pers_pre_s = str(_pers_pre) if _pers_pre <= 4 else "5+"
+            _pers_sel   = st.pills("Personas en obra", _pers_opts, default=_pers_pre_s, key="p2_pers_pills")
+            if _pers_sel == "5+" or _pers_sel is None:
+                personas = st.number_input("Personas (exacto)", min_value=1, value=_pers_pre, step=1, key="p2_pers_custom")
+            else:
+                personas = int(_pers_sel)
+
+        st.markdown("---")
+
+        # ── Zócalos ──────────────────────────────────────────────────
+        st.markdown("**¿El proyecto lleva zócalos?**")
+        zocalo_activo = st.toggle("Sí, incluir zócalos", value=pre.get("zocalo_activo", False), key="cdir_zocalo_activo")
+        zocalo_ml = 0.0
+        if zocalo_activo:
+            _zoc_opts = ["1 ml", "2 ml", "3 ml", "4 ml", "5 ml", "Otro"]
+            _zoc_pre  = float(pre.get("zocalo_ml", 2.0))
+            _zoc_pre_s = f"{int(_zoc_pre)} ml" if f"{int(_zoc_pre)} ml" in _zoc_opts else "Otro"
+            _zoc_sel  = st.pills("Metros de zócalo", _zoc_opts, default=_zoc_pre_s, key="p2_zocalo_pills")
+            if _zoc_sel == "Otro" or _zoc_sel is None:
+                zocalo_ml = st.number_input("Metros lineales de zócalo", min_value=0.0,
+                                             value=_zoc_pre, step=0.5, key="cdir_zocalo_ml")
+            else:
+                zocalo_ml = float(_zoc_sel.replace(" ml",""))
+
+        st.markdown("---")
+
+        # ── Desperdicio visual (conservado del original) ──────────────
+        desperdicio_sugerido_15 = round(m2_real * 0.15, 2)
+        st.markdown("""
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <span style="font-weight:700;font-size:1rem">Desperdicio en cortes</span>
+          <span style="background:#1B5FA8;color:white;font-size:0.65rem;font-weight:700;
+                       padding:3px 8px;border-radius:20px;letter-spacing:0.05em">RETAL</span>
+        </div>
+        <p style="font-size:0.82rem;opacity:0.65;margin:0 0 10px">
+          Todo corte genera sobrante. Elige el perfil de tu proyecto.
+        </p>""", unsafe_allow_html=True)
+
+        with st.container(border=True):
+            perfil_opciones = {
+                "🟢 Simple — cortes rectos, sin curvas":     ("simple",   0.10),
+                "🟡 Normal — algunos ángulos o esquinas":    ("normal",   0.15),
+                "🔴 Complejo — curvas, biselados, figuras":  ("complejo", 0.22),
+                "✏️ Personalizado":                          ("custom",   None),
+            }
+            perfil_sel = st.radio(
+                "Perfil de corte", list(perfil_opciones.keys()), index=1,
+                key="perfil_desperdicio_radio", label_visibility="collapsed"
+            )
+            perfil_id, pct_auto = perfil_opciones[perfil_sel]
+            pct_auto = pct_auto or 0.15
+
+            _cv1, _cv2 = st.columns([1.2, 1])
+            with _cv1:
+                st.markdown("<div style='font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;opacity:0.6;margin-bottom:6px'>m² de retal estimados</div>", unsafe_allow_html=True)
+                if perfil_id == "custom":
+                    extra_corte = st.number_input(
+                        "m² de retal", min_value=0.0, max_value=float(area_placa) if area_placa > 0 else 50.0,
+                        value=float(pre.get("extra_corte", round(m2_real * 0.15, 2))),
+                        step=0.05, format="%.2f", label_visibility="collapsed", key="cdir_extra_corte"
+                    )
+                    pct_real = (extra_corte / m2_real * 100) if m2_real > 0 else 0
+                    st.caption(f"Equivale al **{pct_real:.1f}%** del proyecto")
+                else:
+                    extra_corte = round(m2_real * pct_auto, 2)
+                    color_pct   = "#16a34a" if pct_auto <= 0.12 else "#d97706" if pct_auto <= 0.17 else "#dc2626"
+                    st.markdown(f"""
+                    <div style="background:var(--secondary-background-color);border:2px solid {color_pct};
+                                border-radius:8px;padding:10px 14px;display:inline-flex;align-items:baseline;gap:8px">
+                      <span style="font-size:1.8rem;font-weight:900;color:{color_pct}">{fmt_m2(extra_corte)}</span>
+                      <span style="font-size:0.8rem;color:{color_pct};font-weight:700">({pct_auto*100:.0f}%)</span>
+                    </div>""", unsafe_allow_html=True)
+                    st.caption(f"Calculado automáticamente ({pct_auto*100:.0f}% de {fmt_m2(m2_real)})")
+
+            with _cv2:
+                _tar_actual      = get_tarifas().get(cat_sel, TARIFAS.get(cat_sel, TARIFAS["Mármol"]))
+                _costo_disco_ret = extra_corte * _tar_actual.get("disco", 2_200)
+                _costo_disco_base = m2_real * _tar_actual.get("disco", 2_200)
                 st.markdown(f"""
-                <div style="background:var(--secondary-background-color);
-                            border:2px solid {color_pct};border-radius:8px;
-                            padding:10px 14px;display:inline-flex;align-items:baseline;gap:8px">
-                  <span style="font-size:1.8rem;font-weight:900;color:{color_pct}">{fmt_m2(extra_corte)}</span>
-                  <span style="font-size:0.8rem;color:{color_pct};font-weight:700">({pct_real:.0f}%)</span>
-                </div>
-                """, unsafe_allow_html=True)
-                st.caption(f"Calculado automáticamente como el {pct_real:.0f}% de {fmt_m2(m2_real)}")
+                <div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                            border-radius:8px;padding:10px 14px;font-size:0.82rem">
+                  <div style="font-size:0.72rem;font-weight:700;opacity:0.5;margin-bottom:6px;text-transform:uppercase">Impacto en costo disco</div>
+                  <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border-color)">
+                    <span style="opacity:0.7">Proyecto</span><span style="font-weight:600">{numero_completo(_costo_disco_base)}</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border-color)">
+                    <span style="opacity:0.7">Retal</span><span style="font-weight:600;color:#d97706">+{numero_completo(_costo_disco_ret)}</span>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;padding:4px 0 0">
+                    <span style="font-weight:700">Total disco</span>
+                    <span style="font-weight:800;color:#1B5FA8">{numero_completo(_costo_disco_base+_costo_disco_ret)}</span>
+                  </div>
+                </div>""", unsafe_allow_html=True)
 
-        with col_imp:
-            # Impacto en costos en tiempo real
-            st.markdown("""
-            <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
-                        letter-spacing:0.08em;opacity:0.6;margin-bottom:6px">
-              Impacto en el costo del disco
-            </div>""", unsafe_allow_html=True)
+        m2_cortados_total = m2_real + extra_corte
 
-            _tar_actual = get_tarifas().get(cat_sel, TARIFAS.get(cat_sel, TARIFAS["Mármol"]))
-            _costo_disco_retal = extra_corte * _tar_actual.get("disco", 2_200)
-            _costo_disco_base  = m2_real     * _tar_actual.get("disco", 2_200)
-            _total_disco       = _costo_disco_base + _costo_disco_retal
-
-            st.markdown(f"""
-            <div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
-                        border-radius:8px;padding:10px 14px;font-size:0.82rem">
-              <div style="display:flex;justify-content:space-between;padding:3px 0;
-                          border-bottom:1px solid var(--border-color)">
-                <span style="opacity:0.7">Proyecto ({fmt_m2(m2_real)})</span>
-                <span style="font-weight:600">{numero_completo(_costo_disco_base)}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;padding:3px 0;
-                          border-bottom:1px solid var(--border-color)">
-                <span style="opacity:0.7">Retal ({fmt_m2(extra_corte)})</span>
-                <span style="font-weight:600;color:#d97706">+{numero_completo(_costo_disco_retal)}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;padding:4px 0 0">
-                <span style="font-weight:700">Total disco</span>
-                <span style="font-weight:800;color:#1B5FA8">{numero_completo(_total_disco)}</span>
-              </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-        # ── Ayuda expandible — EL CORAZÓN DE LA INNOVACIÓN ──────────────────
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-        with st.expander("❓ ¿Qué es el retal y por qué me afecta económicamente?", expanded=False):
-            st.markdown("""
-<div style="font-size:0.88rem;line-height:1.7">
-
-### 🪨 Qué es el retal
-Cuando cortas una placa de mármol para hacer un mesón, **nunca usas el 100% de la placa**.
-Los recortes que quedan y no se pueden reutilizar se llaman **retal** (o desperdicio de corte).
-
----
-
-### 📐 Ejemplo visual
-
-Imagina que compraste una placa de **5,94 m²** para un mesón de **3 ml × 0,60 m = 1,80 m²**:
-
-| | m² |
-|---|---|
-| Material comprado | 5,94 m² |
-| Mesón instalado | 1,80 m² |
-| **Retal sobrante** | **4,14 m²** |
-
-Ese retal ya fue pagado, ya fue cortado con el disco, y ya consumió insumos.
-Por eso **el costo del disco se aplica TAMBIÉN sobre el retal**, no solo sobre el proyecto.
-
----
-
-### 🔴 Por qué es importante
-El campo de "retal estimado" le dice a la app cuántos m² **adicionales** cortaste
-**más allá de las piezas del proyecto** — por ejemplo, al ajustar un borde o corregir un empate.
-
-| Perfil | % típico | Cuándo aplica |
-|---|---|---|
-| 🟢 Simple | ~10% | Mesones rectos, sin curvas ni empates |
-| 🟡 Normal | ~15% | Instalación estándar con 2–3 esquinas |
-| 🔴 Complejo | ~22% | Figuras curvas, biselados, escaleras con curvas |
-
----
-
-### 💡 Consejo práctico
-Si ya terminaste la instalación y sabes exactamente cuánto retal quedó,
-usa **"✏️ Personalizado"** e ingresa el valor real. Eso da el costo más preciso.
-
-Si estás cotizando ANTES de instalar, usa el perfil que mejor describe el proyecto.
-
-</div>
-            """, unsafe_allow_html=True)
-
-    m2_cortados_total += extra_corte
-
-    st.markdown("---")
-
-    # ── PASO 4: LOGÍSTICA ────────────────────────────────────────────────────
-    seccion_titulo("Paso 4 — Logistica")
-
-    col_agt, col_veh = st.columns(2)
-    with col_agt:
-        agente_ext_taller = st.checkbox("Agente externo trajo el material al taller", value=bool(pre.get("agente_externo_taller", False)), key="cdir_agente_ext")
-    with col_veh:
-        _veh_dict = get_vehiculos_dict()
-        _veh_keys = list(_veh_dict.keys())
-        _v_idx = 0
-        if pre.get("vehiculo_entrega") in list(_veh_dict.values()):
-            _v_idx = list(_veh_dict.values()).index(pre.get("vehiculo_entrega"))
-        veh_lbl = st.selectbox("Vehiculo de entrega", _veh_keys, index=_v_idx, key="cdir_vehiculo")
-        vehiculo = _veh_dict[veh_lbl]
-
-    c1, c2 = st.columns(2)
-    with c1: km = st.number_input("Distancia (km, un trayecto)", min_value=0.0, value=float(pre.get("km", 5.0)), step=0.5, key="cdir_km")
-    with c2: peajes = st.number_input("Num. de peajes (ida+vuelta)", min_value=0, value=int(pre.get("peajes", 0)), step=1, key="cdir_peajes")
-
-    st.markdown("---")
-
-    # ── PASO 5: FORÁNEO ──────────────────────────────────────────────────────
-    seccion_titulo("Paso 5 — Proyecto fuera de Barranquilla?")
-    foraneo_activo = st.checkbox("Si, proyecto en otra ciudad", value=pre.get("foraneo_activo", False), key="cdir_foraneo")
-    viaticos_activos = False; tipo_aloj = "pueblo"; noches = 0
-    if foraneo_activo:
-        c1, c2, c3 = st.columns(3)
-        with c1: viaticos_activos = st.checkbox("Agregar viaticos", value=pre.get("viaticos_activos", False), key="cdir_viaticos")
-        with c2: tipo_aloj = ALOJAMIENTO[st.selectbox("Destino", list(ALOJAMIENTO.keys()), index=list(ALOJAMIENTO.keys()).index(next((k for k,v in ALOJAMIENTO.items() if v==pre.get("tipo_aloj","pueblo")), list(ALOJAMIENTO.keys())[0])), key="cdir_tipo_aloj")]
-        with c3: noches = st.number_input("Noches", min_value=0, value=int(pre.get("noches", 1)), key="cdir_noches")
-
-    st.markdown("---")
-
-    # ── PASO 6: ADICIONALES ──────────────────────────────────────────────────
-    seccion_titulo("Paso 6 — Costos adicionales")
-    _ADICIONALES_ACT = get_adicionales()
-    adicionales_activos = st.checkbox("Agregar costos adicionales (silicona, impermeabilizante)", value=pre.get("adicionales_activos", False), key="cdir_adicionales")
-    cantidades_add = pre.get("cantidades_add", [0.0] * len(_ADICIONALES_ACT)) if pre.get("adicionales_activos") else [0.0] * len(_ADICIONALES_ACT)
-    # Ajustar longitud si la lista cambió
-    while len(cantidades_add) < len(_ADICIONALES_ACT):
-        cantidades_add.append(0.0)
-    if adicionales_activos:
-        for i, a in enumerate(_ADICIONALES_ACT):
-            c1, c2 = st.columns([3, 1])
-            c1.markdown(f"<div style='font-size:0.85rem;'>{a['concepto']} — {numero_completo(a.get(etapa, 0))}/{a['unidad']}</div>", unsafe_allow_html=True)
-            cantidades_add[i] = c2.number_input("Cant.", min_value=0.0, value=float(cantidades_add[i]), step=1.0, key=f"add_{i}", label_visibility="collapsed")
-
-    st.markdown("---")
-
-    # ── PASO 7: IVA ──────────────────────────────────────────────────────────
-    seccion_titulo("Paso 7 — IVA en la cotización")
-
-    _col_iva1, _col_iva2 = st.columns([1.4, 2])
-    with _col_iva1:
-        incluir_iva = st.toggle(
-            "Incluir IVA 19% en la cotización",
-            value=pre.get("incluir_iva", True),
-            key="cdir_incluir_iva",
-            help="Activa si tu empresa es responsable del régimen común (ventas > 3.500 UVT ≈ $166 M/año). Desactiva si eres régimen simplificado.",
-        )
-    with _col_iva2:
-        if incluir_iva:
-            st.info(
-                "**IVA activo.** Se calculará el 19% sobre el **total de la cotización** (precio sugerido). "
-                "El precio final y el PDF incluirán el IVA desglosado.",
-                icon="🧾"
-            )
-        else:
-            st.warning(
-                "**IVA desactivado.** La cotización y el PDF se entregarán sin IVA. "
-                "Aplica si eres **régimen simplificado** o si el cliente es no responsable de IVA. "
-                "Confirma con tu contador.",
-                icon="⚠️"
-            )
-
-    st.markdown("---")
-
-    # ── AUTOSAVE: persistir estado del formulario en session_state.pre ─────────
-    # Cada vez que Streamlit re-ejecuta este bloque (al navegar a otra sección
-    # y volver, al cambiar un widget, etc.) guardamos el snapshot actual de todos
-    # los campos en st.session_state.pre. Así, cuando el usuario regresa desde
-    # Parámetros u otra sección, los widgets se inicializan con los valores que
-    # el usuario había ingresado, no con los defaults vacíos.
-    _etapa_labels = {v: k for k, v in ETAPAS_OBRA.items()}  # invertir dict
-    st.session_state.pre = {
-        # Material(es)
-        "materiales_proyecto":  st.session_state.get("materiales_proyecto", []),
-        # Paso 3 — Proyecto
-        "tipos_proyecto":       st.session_state.get("cdir_tipos_proyecto", tipos_sel) if "cdir_tipos_proyecto" in st.session_state else tipos_sel,
-        "tipo_proyecto":        tipo,
-        "etapa_label":          _etapa_labels.get(etapa, list(ETAPAS_OBRA.keys())[0]),
-        "dias_obra":            dias,
-        "personas":             personas,
-        "nombre_cliente":       nombre_cliente,
-        # Zócalos
-        "zocalo_activo":        zocalo_activo,
-        "zocalo_ml":            zocalo_ml,
-        # Desperdicio
-        "perfil_desperdicio":   perfil_sel,
-        "extra_corte":          extra_corte,
-        # m² (modo avanzado)
-        "m2_proyecto":          m2_real,
-        "m2_cortados_input":    m2_cortados_total,
-        "m2_usados":            m2_usados,
-        "margen_pct":           margen_pct,
-        # Logística
-        "agente_externo_taller": agente_ext_taller,
-        "vehiculo_entrega":     vehiculo,
-        "km":                   km,
-        "peajes":               peajes,
-        # Foráneo
-        "foraneo_activo":       foraneo_activo,
-        "viaticos_activos":     viaticos_activos,
-        "tipo_aloj":            tipo_aloj,
-        "noches":               noches,
-        # Adicionales
-        "adicionales_activos":  adicionales_activos,
-        "cantidades_add":       cantidades_add,
-        # IVA
-        "incluir_iva":          incluir_iva,
-        # Piezas (ya en session_state pero duplicar en pre para reload desde historial)
-        "piezas":               st.session_state.get("piezas", []),
-    }
-
-    # ── CALCULAR / ACTUALIZAR ─────────────────────────────────────────────────
-    _editando_id  = st.session_state.get("editando_id")
-    _editando_num = st.session_state.get("editando_num", "")
-
-    if _editando_id:
-        st.info(
-            f"**Modo edición** — estás modificando la cotización **{_editando_num}**. "
-            "Al presionar *Actualizar* se sobreescribirá el registro existente.",
-            icon="✏️",
-        )
-        _col_upd, _col_new, _col_can = st.columns([2, 1.5, 1])
-        _btn_actualizar = _col_upd.button("✏️ Actualizar cotización", type="primary", use_container_width=True)
-        _btn_guardar_nuevo = _col_new.button("💾 Guardar como nueva", use_container_width=True)
-        _btn_cancelar = _col_can.button("✕ Cancelar edición", use_container_width=True)
-
-        if _btn_cancelar:
-            st.session_state.pop("editando_id", None)
-            st.session_state.pop("editando_num", None)
-            st.session_state.pop("pre", None)
-            st.session_state.pop("cotizacion", None)
-            st.rerun()
-    else:
-        _btn_actualizar    = False
-        _btn_guardar_nuevo = False
-        _btn_cancelar      = False
-        _col_calc, _ = st.columns([2, 1])
-        _btn_calcular = _col_calc.button("Calcular cotizacion", type="primary", use_container_width=True)
-
-    _ejecutar_calculo = _editando_id and (_btn_actualizar or _btn_guardar_nuevo) or (not _editando_id and _btn_calcular)
-
-    if _ejecutar_calculo:
-        _ml_tot = sum(p.get("ml", 0) for p in st.session_state.get("piezas", [])) if "Por piezas" in modo_medida else (m2_real/0.60)
-        resultado = calcular_cotizacion_directa(
-            categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo, area_placa_comprada=area_placa,
-            m2_real=m2_real, m2_cortados=m2_cortados_total, m2_usados=m2_usados, margen_pct=margen_pct,
-            dias=dias, personas=personas, zocalo_activo=zocalo_activo, zocalo_ml=zocalo_ml,
-            agente_externo_taller=agente_ext_taller, vehiculo_entrega=vehiculo, km=km, num_peajes=peajes,
-            foraneo_activo=foraneo_activo, viaticos_activos=viaticos_activos, tipo_aloj=tipo_aloj, noches=noches,
-            adicionales_activos=adicionales_activos, cantidades_add=cantidades_add, etapa=etapa,
-            adicionales_lista=_ADICIONALES_ACT, tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
-            ml_proyecto=_ml_tot, logistica_override=st.session_state.get("logistica_custom"),
-            vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
-            tarifas_override=st.session_state.get("tarifas_custom"),
-        )
-
-        # Guardar estado completo para re-edición
-        resultado["_estado_guardado"] = {
-            "categoria": cat_sel, "referencia": referencia, "precio_m2": precio_m2, "area_placa_comprada": area_placa,
-            "piezas": st.session_state.piezas, "m2_proyecto": m2_real, "m2_usados": m2_usados, "margen_pct": margen_pct,
-            "tipos_proyecto": tipos_sel, "tipo_proyecto": tipo, "dias_obra": dias, "personas": personas, "nombre_cliente": nombre_cliente,
-            "zocalo_activo": zocalo_activo, "zocalo_ml": zocalo_ml, "agente_externo_taller": agente_ext_taller,
-            "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes, "foraneo_activo": foraneo_activo,
-            "viaticos_activos": viaticos_activos, "noches": noches, "adicionales_activos": adicionales_activos,
-            "cantidades_add": cantidades_add, "incluir_iva": incluir_iva,
+        # Guardar en pre
+        _etapa_labels = {v: k for k, v in ETAPAS_OBRA.items()}
+        st.session_state.pre = {
+            **pre,
+            "tipos_proyecto": tipos_sel, "tipo_proyecto": tipo,
+            "etapa_label": _etapa_labels.get(etapa, list(ETAPAS_OBRA.keys())[0]),
+            "dias_obra": dias, "personas": personas, "nombre_cliente": nombre_cliente,
+            "zocalo_activo": zocalo_activo, "zocalo_ml": zocalo_ml,
+            "perfil_desperdicio": perfil_sel, "extra_corte": extra_corte,
+            "m2_proyecto": m2_real, "m2_cortados_input": m2_cortados_total,
         }
 
-        st.session_state.cotizacion = resultado
-        resultado["incluir_iva"] = incluir_iva
+    # ════════════════════════════════════════════════════════════════════
+    # PASO 3 — LOGÍSTICA + ADICIONALES + IVA
+    # ════════════════════════════════════════════════════════════════════
+    elif paso == 3:
+        _mats_p3    = st.session_state.get("materiales_proyecto", [])
+        cat_sel     = _mats_p3[0]["cat"] if _mats_p3 else pre.get("categoria","Mármol")
+        area_placa  = sum(m["area_placa"] for m in _mats_p3) if _mats_p3 else pre.get("area_placa_comprada", 5.94)
+        precio_m2_efectivo = _mats_p3[0]["precio_m2"] if _mats_p3 else pre.get("precio_m2", 220_000)
+        _piezas_p3  = st.session_state.get("piezas", pre.get("piezas",[]))
+        m2_real     = sum(ml_a_m2(float(p.get("ml",0)), float(p.get("ancho_custom",0.60))) for p in _piezas_p3) or pre.get("m2_proyecto", 4.0)
+        m2_cortados_total = pre.get("m2_cortados_input", m2_real)
+        extra_corte       = pre.get("extra_corte", round(m2_real * 0.15, 2))
+        margen_pct        = pre.get("margen_pct", 40)
+        m2_usados         = pre.get("m2_usados", m2_real)
+        dias              = pre.get("dias_obra", 2)
+        personas          = pre.get("personas", 2)
+        tipo              = pre.get("tipo_proyecto", "Mesón")
+        etapa             = pre.get("etapa_label","")
+        etapa             = ETAPAS_OBRA.get(etapa, list(ETAPAS_OBRA.values())[0])
+        nombre_cliente    = pre.get("nombre_cliente","")
+        zocalo_activo     = pre.get("zocalo_activo", False)
+        zocalo_ml         = pre.get("zocalo_ml", 0.0)
+        tipos_sel         = pre.get("tipos_proyecto", ["Mesón"])
 
-        # [PERSISTENCIA] Guardar borrador del formulario en BD
-        # Permite restaurar el último cálculo tras un F5 o cierre accidental.
-        try:
-            _guardar_config("borrador_cotizacion_directa", resultado["_estado_guardado"])
-        except Exception:
-            pass
+        seccion_titulo("Logística y extras", "Transporte, viáticos, servicios adicionales e IVA")
+
+        # ── Logística ─────────────────────────────────────────────────
+        with st.container(border=True):
+            st.markdown("**🚛 Transporte y entrega**")
+            _lag1, _lag2 = st.columns(2)
+            with _lag1:
+                agente_ext_taller = st.toggle(
+                    "Agente externo trajo el material al taller",
+                    value=bool(pre.get("agente_externo_taller", False)), key="cdir_agente_ext"
+                )
+            with _lag2:
+                _veh_dict = get_vehiculos_dict()
+                _veh_keys = list(_veh_dict.keys())
+                _v_idx    = 0
+                if pre.get("vehiculo_entrega") in list(_veh_dict.values()):
+                    _v_idx = list(_veh_dict.values()).index(pre.get("vehiculo_entrega"))
+
+                # Selector visual de vehículo con st.pills
+                _veh_sel = st.pills("Vehículo de entrega", _veh_keys,
+                                    default=_veh_keys[_v_idx], key="p3_veh_pills")
+                veh_lbl  = _veh_sel if _veh_sel else _veh_keys[0]
+                vehiculo = _veh_dict[veh_lbl]
+
+            _lk1, _lk2 = st.columns(2)
+            with _lk1:
+                # Distancia — opciones comunes + personalizado
+                _km_opts = ["0-5 km", "5-15 km", "15-30 km", "30-60 km", "60+ km"]
+                _km_pre  = float(pre.get("km", 5.0))
+                _km_pre_s = (
+                    "0-5 km"   if _km_pre <= 5 else
+                    "5-15 km"  if _km_pre <= 15 else
+                    "15-30 km" if _km_pre <= 30 else
+                    "30-60 km" if _km_pre <= 60 else "60+ km"
+                )
+                _km_rango = st.pills("Distancia al destino", _km_opts, default=_km_pre_s, key="p3_km_pills")
+                _km_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
+                km = st.number_input("Km exactos (un trayecto)", min_value=0.0,
+                                     value=float(_km_defaults.get(_km_rango or "5-15 km", _km_pre)), step=1.0, key="cdir_km")
+
+            with _lk2:
+                # Peajes — segmented control 0-4+
+                _pj_opts = ["0", "1", "2", "3", "4+"]
+                _pj_pre  = int(pre.get("peajes", 0))
+                _pj_pre_s = str(_pj_pre) if _pj_pre <= 3 else "4+"
+                _pj_sel  = st.pills("Peajes ida+vuelta", _pj_opts, default=_pj_pre_s, key="p3_peajes_pills")
+                if _pj_sel == "4+" or _pj_sel is None:
+                    peajes = st.number_input("Peajes (exacto)", min_value=0, value=_pj_pre, step=1, key="p3_peajes_custom")
+                else:
+                    peajes = int(_pj_sel)
+
+        # ── Foráneo ──────────────────────────────────────────────────
+        with st.container(border=True):
+            st.markdown("**✈️ ¿El proyecto es fuera de Barranquilla?**")
+            foraneo_activo = st.toggle("Sí, proyecto en otra ciudad", value=pre.get("foraneo_activo", False), key="cdir_foraneo")
+            viaticos_activos = False; tipo_aloj = "pueblo"; noches = 0
+            if foraneo_activo:
+                _fa1, _fa2, _fa3 = st.columns(3)
+                with _fa1:
+                    viaticos_activos = st.toggle("Incluir viáticos", value=pre.get("viaticos_activos", False), key="cdir_viaticos")
+                with _fa2:
+                    tipo_aloj = ALOJAMIENTO[st.selectbox(
+                        "Destino", list(ALOJAMIENTO.keys()),
+                        index=list(ALOJAMIENTO.keys()).index(next((k for k, v in ALOJAMIENTO.items() if v == pre.get("tipo_aloj","pueblo")), list(ALOJAMIENTO.keys())[0])),
+                        key="cdir_tipo_aloj"
+                    )]
+                with _fa3:
+                    _nc_opts  = ["1", "2", "3", "4", "5+"]
+                    _nc_pre   = int(pre.get("noches", 1))
+                    _nc_pre_s = str(_nc_pre) if _nc_pre <= 4 else "5+"
+                    _nc_sel   = st.pills("Noches", _nc_opts, default=_nc_pre_s, key="p3_noches_pills")
+                    if _nc_sel == "5+" or _nc_sel is None:
+                        noches = st.number_input("Noches (exacto)", min_value=0, value=_nc_pre, step=1, key="p3_noches_custom")
+                    else:
+                        noches = int(_nc_sel)
+
+        # ── Adicionales ──────────────────────────────────────────────
+        with st.container(border=True):
+            st.markdown("**🔧 Costos adicionales** *(silicona, impermeabilizante, etc.)*")
+            _ADICIONALES_ACT = get_adicionales()
+            adicionales_activos = st.toggle(
+                "Agregar costos adicionales", value=pre.get("adicionales_activos", False), key="cdir_adicionales"
+            )
+            cantidades_add = pre.get("cantidades_add", [0.0]*len(_ADICIONALES_ACT)) if pre.get("adicionales_activos") else [0.0]*len(_ADICIONALES_ACT)
+            while len(cantidades_add) < len(_ADICIONALES_ACT):
+                cantidades_add.append(0.0)
+
+            if adicionales_activos:
+                for i, a in enumerate(_ADICIONALES_ACT):
+                    _ac1, _ac2 = st.columns([3.5, 0.5])
+                    _ac1.markdown(f"<div style='font-size:0.85rem;padding:8px 0'>{a['concepto']} — <strong>{numero_completo(a.get(etapa,0))}/{a['unidad']}</strong></div>", unsafe_allow_html=True)
+                    cantidades_add[i] = _ac2.number_input("Cant.", min_value=0.0, value=float(cantidades_add[i]),
+                                                           step=1.0, key=f"add_{i}", label_visibility="collapsed")
+
+        # ── IVA ──────────────────────────────────────────────────────
+        with st.container(border=True):
+            st.markdown("**🧾 IVA en la cotización**")
+            _iv1, _iv2 = st.columns([1, 1.5])
+            with _iv1:
+                incluir_iva = st.toggle(
+                    "Incluir IVA 19%", value=pre.get("incluir_iva", True), key="cdir_incluir_iva",
+                    help="Activa si tu empresa es responsable del régimen común."
+                )
+            with _iv2:
+                if incluir_iva:
+                    st.info("IVA 19% sobre el total de la cotización.", icon="🧾")
+                else:
+                    st.warning("Sin IVA — aplica régimen simplificado.", icon="⚠️")
+
+        # Guardar en pre
+        _etapa_labels = {v: k for k, v in ETAPAS_OBRA.items()}
+        st.session_state.pre = {
+            **st.session_state.pre,
+            "agente_externo_taller": agente_ext_taller,
+            "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes,
+            "foraneo_activo": foraneo_activo, "viaticos_activos": viaticos_activos,
+            "tipo_aloj": tipo_aloj, "noches": noches,
+            "adicionales_activos": adicionales_activos, "cantidades_add": cantidades_add,
+            "incluir_iva": incluir_iva,
+        }
+
+    # ════════════════════════════════════════════════════════════════════
+    # PASO 4 — CALCULAR (trigger automático al llegar a este paso)
+    # ════════════════════════════════════════════════════════════════════
+    elif paso == 4:
+        # Reconstruir todos los valores desde session_state.pre y materiales/piezas
+        _mats   = st.session_state.get("materiales_proyecto", [])
+        _piezas = st.session_state.get("piezas", pre.get("piezas", []))
+
+        cat_sel            = _mats[0]["cat"]    if _mats else pre.get("categoria","Mármol")
+        referencia         = " + ".join([m["ref"] or m["cat"] for m in _mats]) if len(_mats) > 1 else (_mats[0]["ref"] if _mats else "")
+        precio_m2          = _mats[0]["precio_m2"] if _mats else pre.get("precio_m2", 220_000)
+        precio_m2_efectivo = precio_m2
+        area_placa         = sum(m["area_placa"] for m in _mats) if _mats else pre.get("area_placa_comprada", 5.94)
+
+        m2_real           = sum(ml_a_m2(float(p.get("ml",0)), float(p.get("ancho_custom",0.60))) for p in _piezas) or pre.get("m2_proyecto", 4.0)
+        m2_cortados_total = pre.get("m2_cortados_input", m2_real)
+        m2_usados         = pre.get("m2_usados", m2_real)
+        margen_pct        = pre.get("margen_pct", 40)
+
+        _etapa_label = pre.get("etapa_label", list(ETAPAS_OBRA.keys())[0])
+        etapa        = ETAPAS_OBRA.get(_etapa_label, list(ETAPAS_OBRA.values())[0])
+        dias         = pre.get("dias_obra", 2)
+        personas     = pre.get("personas", 2)
+        tipo         = pre.get("tipo_proyecto","Mesón")
+        nombre_cliente = pre.get("nombre_cliente","")
+        zocalo_activo  = pre.get("zocalo_activo", False)
+        zocalo_ml      = pre.get("zocalo_ml", 0.0)
+        agente_ext_taller = pre.get("agente_externo_taller", False)
+        vehiculo          = pre.get("vehiculo_entrega","frontier")
+        km                = pre.get("km", 5.0)
+        peajes            = pre.get("peajes", 0)
+        foraneo_activo    = pre.get("foraneo_activo", False)
+        viaticos_activos  = pre.get("viaticos_activos", False)
+        tipo_aloj         = pre.get("tipo_aloj","pueblo")
+        noches            = pre.get("noches", 0)
+        adicionales_activos = pre.get("adicionales_activos", False)
+        cantidades_add    = pre.get("cantidades_add", [])
+        incluir_iva       = pre.get("incluir_iva", True)
+        tipos_sel         = pre.get("tipos_proyecto", ["Mesón"])
+        _ADICIONALES_ACT  = get_adicionales()
+
+        # Guardar snapshot completo en pre (autosave)
+        _etapa_labels = {v: k for k, v in ETAPAS_OBRA.items()}
+        _pre_snapshot = {
+            "materiales_proyecto": st.session_state.get("materiales_proyecto",[]),
+            "tipos_proyecto": tipos_sel, "tipo_proyecto": tipo,
+            "etapa_label": _etapa_labels.get(etapa, list(ETAPAS_OBRA.keys())[0]),
+            "dias_obra": dias, "personas": personas, "nombre_cliente": nombre_cliente,
+            "zocalo_activo": zocalo_activo, "zocalo_ml": zocalo_ml,
+            "perfil_desperdicio": pre.get("perfil_desperdicio",""),
+            "extra_corte": pre.get("extra_corte", round(m2_real*0.15,2)),
+            "m2_proyecto": m2_real, "m2_cortados_input": m2_cortados_total,
+            "m2_usados": m2_usados, "margen_pct": margen_pct,
+            "agente_externo_taller": agente_ext_taller,
+            "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes,
+            "foraneo_activo": foraneo_activo, "viaticos_activos": viaticos_activos,
+            "tipo_aloj": tipo_aloj, "noches": noches,
+            "adicionales_activos": adicionales_activos, "cantidades_add": cantidades_add,
+            "incluir_iva": incluir_iva,
+            "piezas": _piezas,
+        }
+        st.session_state.pre = _pre_snapshot
+
+        # ── Spinner de cálculo ────────────────────────────────────────
+        if not st.session_state.cotizacion or st.session_state.get("_recalcular_paso4"):
+            with st.spinner("Calculando costos..."):
+                _ml_tot = sum(p.get("ml",0) for p in _piezas)
+                resultado = calcular_cotizacion_directa(
+                    categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo,
+                    area_placa_comprada=area_placa, m2_real=m2_real, m2_cortados=m2_cortados_total,
+                    m2_usados=m2_usados, margen_pct=margen_pct, dias=dias, personas=personas,
+                    zocalo_activo=zocalo_activo, zocalo_ml=zocalo_ml,
+                    agente_externo_taller=agente_ext_taller, vehiculo_entrega=vehiculo,
+                    km=km, num_peajes=peajes, foraneo_activo=foraneo_activo,
+                    viaticos_activos=viaticos_activos, tipo_aloj=tipo_aloj, noches=noches,
+                    adicionales_activos=adicionales_activos, cantidades_add=cantidades_add,
+                    etapa=etapa, adicionales_lista=_ADICIONALES_ACT,
+                    tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
+                    ml_proyecto=_ml_tot,
+                    logistica_override=st.session_state.get("logistica_custom"),
+                    vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+                    tarifas_override=st.session_state.get("tarifas_custom"),
+                )
+                resultado["_estado_guardado"] = _pre_snapshot
+                resultado["incluir_iva"]      = incluir_iva
+                st.session_state.cotizacion   = resultado
+                st.session_state["_recalcular_paso4"] = False
+                try:
+                    _guardar_config("borrador_cotizacion_directa", _pre_snapshot)
+                except Exception:
+                    pass
+
+        r         = st.session_state.cotizacion
+        _iva_act  = r.get("incluir_iva", incluir_iva)
+        _iva_mont = r["precio_sugerido"] * 0.19 if _iva_act else 0.0
+        _pf       = r["precio_sugerido"] + _iva_mont
 
         import random as _rand
         _num_auto = f"COT-{_hoy().strftime('%Y%m%d')}-{_rand.randint(100,999)}"
+        if "cdir_num_auto" not in st.session_state:
+            st.session_state.cdir_num_auto = _num_auto
 
-        if _editando_id and _btn_actualizar:
-            # MODO EDICIÓN: sobreescribir el registro existente
-            _actualizar_cotizacion(_editando_id, _editando_num, nombre_cliente, resultado)
-            st.session_state.pop("editando_id", None)
-            st.session_state.pop("editando_num", None)
-            st.session_state["_cotiz_guardada_num"] = _editando_num
-            st.session_state["_cotiz_guardada"] = True
-            st.success(f"✅ Cotización **{_editando_num}** actualizada correctamente.")
-        elif _editando_id and _btn_guardar_nuevo:
-            # Guardar como nueva desde modo edición
-            _guardar_cotizacion(_num_auto, nombre_cliente, resultado)
-            st.session_state.pop("editando_id", None)
-            st.session_state.pop("editando_num", None)
-            st.session_state["_cotiz_guardada_num"] = _num_auto
-            st.session_state["_cotiz_guardada"] = True
-            st.success("✅ Cotización guardada exitosamente en el Historial.")
-        else:
-            # NUEVA cotización — NO guardar automáticamente. El usuario decide al final.
-            st.session_state["_cotiz_guardada"] = False
-            st.session_state["_num_auto_sugerido"] = _num_auto
-
-    if st.session_state.cotizacion and st.session_state.cotizacion.get("tipo_proyecto") != "Licitación AIU":
-        r = st.session_state.cotizacion
-        st.markdown("---")
-        st.markdown("<h3 style='font-family:Playfair Display,serif'>Resultado</h3>", unsafe_allow_html=True)
-
-        # ── IVA: condicional según elección del usuario ───────────────────────
-        # IVA se calcula sobre el TOTAL de la cotización (precio_sugerido), no sobre utilidad
-        _iva_activo   = r.get("incluir_iva", incluir_iva)
-        _iva_monto    = r['precio_sugerido'] * 0.19 if _iva_activo else 0.0
-        _precio_final = r['precio_sugerido'] + _iva_monto
-
-        # ── Hero card ─────────────────────────────────────────────────────────
-        if _iva_activo:
-            _iva_line = (
-                f'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)">'
-                f'<span style="color:#C9A84C;font-weight:700">+ IVA 19% sobre total: {numero_completo(_iva_monto)}</span>'
-                f'&nbsp;&nbsp;→&nbsp;&nbsp;'
-                f'<span style="font-size:1.15rem;font-weight:900">Total con IVA: {numero_completo(_precio_final)}</span>'
-                f'</div>'
-            )
-        else:
-            _iva_line = (
-                f'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.25)'
-                f';font-size:0.8rem;opacity:0.7">Sin IVA — cotización entregada en régimen simplificado</div>'
-            )
-
+        # ── Hero card resultado ───────────────────────────────────────
         st.markdown(f"""
-        <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
-          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">
-            Precio de venta sugerido {'(sin IVA)' if _iva_activo else '— Sin IVA'}
+        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+                    border-radius:14px;padding:28px 36px;margin-bottom:20px;color:white;">
+          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:8px">
+            Precio de venta sugerido {"(sin IVA)" if _iva_act else ""}
           </div>
-          <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
-            {numero_completo(r['precio_sugerido'])}
+          <div style="font-size:3.2rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
+            {numero_completo(r["precio_sugerido"])}
           </div>
           <div style="opacity:0.8;font-size:0.85rem">
-            Margen: {r['margen_pct']:.0f}%   ·   Utilidad: {numero_completo(r['utilidad'])}
+            Margen: {r["margen_pct"]:.0f}% &nbsp;·&nbsp; Utilidad: {numero_completo(r["utilidad"])}
           </div>
-          {_iva_line}
+          {"" if not _iva_act else f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.2)"><span style="color:#C9A84C;font-weight:700">+ IVA 19%: {numero_completo(_iva_mont)}</span> &nbsp;→&nbsp; <span style="font-weight:900">Total: {numero_completo(_pf)}</span></div>'}
         </div>""", unsafe_allow_html=True)
 
-        # ── Nota contextual ───────────────────────────────────────────────────
-        if _iva_activo:
-            alerta(
-                "**¿Cuándo cobrar IVA?** El IVA (19%) aplica cuando tu empresa es **responsable del régimen común** "
-                "(ventas anuales > 3.500 UVT ≈ $166 M en 2026). Se aplica sobre el total de la cotización. "
-                "Consulta a tu contador para confirmar.",
-                "info"
-            )
-        else:
-            alerta(
-                "**Cotización sin IVA.** Si en algún momento cambias de régimen o el cliente lo requiere, "
-                "activa el IVA en el Paso 7 y recalcula.",
-                "info"
-            )
-
-        # ── Desglose de costos ────────────────────────────────────────────────
-        col_res, col_det = st.columns([1, 1])
-        with col_res:
-            _items_desglose = [
-                ("Material",    r['c1_material']),
-                ("Producción",  r['c2_mano_obra']),
-                ("Zócalos",     r['c3_zocalos']),
-                ("Insumos",     r['c4_insumos']),
-                ("Logística",   r['c5_logistica']),
-                ("Viáticos",    r['c6_viaticos']),
-                ("Adicionales", r['c7_adicionales']),
+        # Desglose rápido
+        _col_d, _col_m = st.columns([1, 1])
+        with _col_d:
+            _items_d = [
+                ("Material",    r["c1_material"]),
+                ("Producción",  r["c2_mano_obra"]),
+                ("Zócalos",     r["c3_zocalos"]),
+                ("Insumos",     r["c4_insumos"]),
+                ("Logística",   r["c5_logistica"]),
+                ("Viáticos",    r["c6_viaticos"]),
+                ("Adicionales", r["c7_adicionales"]),
             ]
-            if _iva_activo:
-                _items_desglose.append(("Subtotal antes de IVA", r['precio_sugerido']))
-                _items_desglose.append((f"IVA 19% s/total cotización", _iva_monto))
-                _total_label = "TOTAL CON IVA"
-            else:
-                _total_label = "PRECIO TOTAL (SIN IVA)"
-            bloque_costos(_items_desglose, _total_label, _precio_final)
-
-        with col_det:
-            c1a, c2a = st.columns(2)
-            c1a.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {fmt_m2(r['retal'])}")
-            c2a.metric("Costo/m² instalado", numero_completo(r['costo_total']/max(r['m2_real'],0.001)))
-            st.markdown(f"<div style='font-weight:700;margin:14px 0 8px'>Simulador en tiempo real</div>", unsafe_allow_html=True)
-            _sim_m = st.slider("Juega con tu Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
+            if _iva_act:
+                _items_d.append(("IVA 19%", _iva_mont))
+            bloque_costos(_items_d, "TOTAL CON IVA" if _iva_act else "PRECIO TOTAL", _pf)
+        with _col_m:
+            c1m, c2m = st.columns(2)
+            c1m.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {fmt_m2(r['retal'])}")
+            c2m.metric("Costo/m²", numero_completo(r["costo_total"] / max(r["m2_real"], 0.001)))
+            st.markdown("<div style='font-weight:700;margin:14px 0 8px'>Simulador de margen</div>", unsafe_allow_html=True)
+            _sim_m = st.slider("Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
             _sim_ut = _sim_p - r["costo_total"]
-            _sim_iva = _sim_p * 0.19 if _iva_activo else 0.0
-            if _iva_activo:
-                st.markdown(
-                    f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
-                    border-radius:10px;padding:12px 16px;margin-top:4px">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-                      <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Sin IVA</span>
-                      <span style="font-size:1.05rem;font-weight:900;color:#1B5FA8">{numero_completo(_sim_p)}</span>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px">
-                      <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span>
-                      <span style="font-size:1.05rem;font-weight:900;color:#C9A84C">{numero_completo(_sim_p + _sim_iva)}</span>
-                    </div>
-                    <div style="font-size:0.72rem;opacity:0.5;margin-top:6px">Utilidad: {numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
-                    </div>""",
-                    unsafe_allow_html=True
-                )
-            else:
-                st.markdown(
-                    f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
-                    border-radius:10px;padding:12px 16px;margin-top:4px">
-                    <div style="display:flex;justify-content:space-between;align-items:center">
-                      <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Precio total (sin IVA)</span>
-                      <span style="font-size:1.1rem;font-weight:900;color:#1B5FA8">{numero_completo(_sim_p)}</span>
-                    </div>
-                    <div style="font-size:0.72rem;opacity:0.5;margin-top:6px">Utilidad: {numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
-                    </div>""",
-                    unsafe_allow_html=True
-                )
+            _sim_iva = _sim_p * 0.19 if _iva_act else 0.0
+            st.markdown(
+                f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+                border-radius:10px;padding:12px 16px">
+                <div style="display:flex;justify-content:space-between;align-items:center{";margin-bottom:6px" if _iva_act else ""}">
+                  <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">{"Sin IVA" if _iva_act else "Precio total"}</span>
+                  <span style="font-size:1.1rem;font-weight:900;color:#1B5FA8">{numero_completo(_sim_p)}</span>
+                </div>
+                {"" if not _iva_act else f'<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px;margin-bottom:4px"><span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span><span style="font-size:1.1rem;font-weight:900;color:#C9A84C">{numero_completo(_sim_p + _sim_iva)}</span></div>'}
+                <div style="font-size:0.72rem;opacity:0.5">Utilidad: {numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
+                </div>""",
+                unsafe_allow_html=True
+            )
 
         st.markdown("---")
 
-        # ── Bloque de guardado en historial ───────────────────────────────────
+        # ── Guardar en historial ───────────────────────────────────────
         _ya_guardada = st.session_state.get("_cotiz_guardada", False)
-        _num_sugerido = st.session_state.get("_num_auto_sugerido", f"COT-{_hoy().strftime('%Y%m%d')}-001")
+        _editando_id  = st.session_state.get("editando_id")
+        _editando_num = st.session_state.get("editando_num","")
 
-        if _ya_guardada:
-            _num_g = st.session_state.get("_cotiz_guardada_num", "")
-            st.success(f"✅ Cotización **{_num_g}** guardada en el historial.", icon="💾")
-        else:
-            st.markdown(
-                """<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
-                border-radius:12px;padding:18px 22px;margin-bottom:4px">
-                <div style="font-size:0.75rem;font-weight:700;opacity:0.5;text-transform:uppercase;margin-bottom:4px">💾 ¿Guardar en historial?</div>
-                <div style="font-size:0.88rem;opacity:0.75;margin-bottom:12px">
-                Si esta es una cotización real para un cliente, guárdala. Si es un borrador o prueba, puedes omitirlo.
-                </div></div>""",
-                unsafe_allow_html=True
-            )
+        if _editando_id:
+            alerta(f"**Modo edición** — modificando cotización **{_editando_num}**.", "info")
+            _cu, _cn, _cc = st.columns([2, 1.5, 1])
+            _btn_act   = _cu.button("✏️ Actualizar cotización", type="primary", use_container_width=True)
+            _btn_nueva = _cn.button("💾 Guardar como nueva", use_container_width=True)
+            _btn_can   = _cc.button("✕ Cancelar", use_container_width=True)
+            if _btn_can:
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+                st.session_state.pop("pre", None)
+                st.session_state.pop("cotizacion", None)
+                st.session_state.cdir_paso = 0
+                st.rerun()
+            if _btn_act:
+                _actualizar_cotizacion(_editando_id, _editando_num, nombre_cliente, r)
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+                st.session_state["_cotiz_guardada_num"] = _editando_num
+                st.session_state["_cotiz_guardada"] = True
+                st.session_state.cdir_success = True
+                st.rerun()
+            if _btn_nueva:
+                _guardar_cotizacion(st.session_state.cdir_num_auto, nombre_cliente, r)
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+                st.session_state["_cotiz_guardada_num"] = st.session_state.cdir_num_auto
+                st.session_state["_cotiz_guardada"] = True
+                st.session_state.cdir_success = True
+                st.rerun()
+
+        elif not _ya_guardada:
+            st.markdown("""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+            border-radius:12px;padding:18px 22px;margin-bottom:4px">
+            <div style="font-size:0.75rem;font-weight:700;opacity:0.5;text-transform:uppercase;margin-bottom:4px">💾 ¿Guardar en historial?</div>
+            <div style="font-size:0.88rem;opacity:0.75;margin-bottom:12px">
+            Si es una cotización real para un cliente, guárdala. Si es una prueba, puedes omitirlo.
+            </div></div>""", unsafe_allow_html=True)
+
             _gc1, _gc2, _gc3 = st.columns([2, 1.5, 1])
             with _gc1:
                 _num_guardar = st.text_input(
-                    "Número de cotización",
-                    value=_num_sugerido,
-                    key="num_guardar_hist",
-                    label_visibility="collapsed",
-                    placeholder="Ej: COT-20260301-001"
+                    "Número de cotización", value=st.session_state.get("cdir_num_auto", _num_auto),
+                    key="num_guardar_hist", label_visibility="collapsed"
                 )
             with _gc2:
                 if st.button("💾 Guardar en historial", type="primary", use_container_width=True, key="btn_guardar_hist"):
                     try:
-                        _guardar_cotizacion(_num_guardar, r.get("nombre_cliente", "Sin nombre"), r)
-                        # Descontar retales si aplica
-                        for _mi, _md in enumerate(st.session_state.get("materiales_proyecto", [])):
+                        _guardar_cotizacion(_num_guardar, r.get("nombre_cliente","Sin nombre"), r)
+                        for _mi, _md in enumerate(st.session_state.get("materiales_proyecto",[])):
                             if _md.get("es_retal") and _md.get("retal_id"):
                                 try:
-                                    _marcar_retal_usado(_md["retal_id"], _md.get("area_placa", 0))
+                                    _marcar_retal_usado(_md["retal_id"], _md.get("area_placa",0))
                                     st.session_state.pop(f"usar_retal_{_mi}", None)
                                 except Exception:
                                     pass
-                        st.session_state["_cotiz_guardada"] = True
+                        st.session_state["_cotiz_guardada"]     = True
                         st.session_state["_cotiz_guardada_num"] = _num_guardar
+                        st.session_state.cdir_success = True
                         st.rerun()
                     except Exception as _eg:
                         st.error(f"Error al guardar: {_eg}")
             with _gc3:
                 if st.button("✕ Solo borrador", use_container_width=True, key="btn_no_guardar_hist"):
-                    st.session_state["_cotiz_guardada"] = True   # marcar como "ya decidido"
+                    st.session_state["_cotiz_guardada"]     = True
                     st.session_state["_cotiz_guardada_num"] = ""
-                    st.toast("Cotización calculada como borrador. No se guardó en historial.", icon="📋")
+                    st.session_state.cdir_success = True
+                    st.toast("Cotización calculada como borrador.", icon="📋")
                     st.rerun()
 
+        else:
+            # Ya guardada — ir directo a success screen
+            st.session_state.cdir_success = True
+            st.rerun()
+
+    # ════════════════════════════════════════════════════════════════════
+    # NAVEGACIÓN — botones Atrás / Siguiente (solo pasos 0-3)
+    # ════════════════════════════════════════════════════════════════════
+    if not st.session_state.get("cdir_success") and paso < N_PASOS - 1:
         st.markdown("---")
-        st.markdown("#### Exportar documentos comerciales")
-        from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
-        colp1, colp2 = st.columns(2)
-        with colp1:
-            num_cot = st.text_input("Número de Cotización", value=f"COT-{_hoy().strftime('%Y')}-001", key="num_cot")
-            if st.button("📄 Generar Cotización PDF", type="primary", use_container_width=True):
-                pdf_bytes = generar_pdf_cotizacion(
-                    r, numero=num_cot,
-                    empresa_info=st.session_state.empresa_info,
-                    logo_bytes=st.session_state.logo_bytes,
-                    incluir_iva=_iva_activo,
-                )
-                st.download_button("⬇ Descargar PDF", pdf_bytes, file_name=f"{num_cot}_Cotizacion.pdf", mime="application/pdf", use_container_width=True)
-        with colp2:
-            num_cc = st.text_input("Número de Cuenta", value=f"CC-{_hoy().strftime('%Y')}-001", key="num_cc")
-            nom_pag = st.text_input("Facturar a:", value=r.get("nombre_cliente",""), key="nom_pag")
-            nit_pag = st.text_input("NIT / CC", value="", key="nit_pag")
-            dir_pag = st.text_input("Dirección", value="", key="dir_pag")
-            if st.button("📄 Generar Cuenta de Cobro PDF", type="primary", use_container_width=True):
-                datos_prest = st.session_state.empresa_info.copy()
-                datos_pag = {"nombre": nom_pag, "nit": nit_pag, "direccion": dir_pag}
-                cc_bytes = generar_cuenta_cobro(
-                    r, datos_prest, datos_pag,
-                    numero=num_cc,
-                    logo_bytes=st.session_state.logo_bytes,
-                    incluir_iva=_iva_activo,
-                )
-                st.download_button("⬇ Descargar PDF", cc_bytes, file_name=f"{num_cc}_CuentaCobro.pdf", mime="application/pdf", use_container_width=True)
+        _nav_l, _nav_r = st.columns([1, 1])
+
+        # Validaciones mínimas por paso
+        _puede_continuar = True
+        _msg_validacion  = ""
+
+        if paso == 0:
+            _mats_v = st.session_state.get("materiales_proyecto", [])
+            if not _mats_v or all(m.get("area_placa", 0) <= 0 for m in _mats_v):
+                _puede_continuar = False
+                _msg_validacion  = "Agrega al menos un material con área válida para continuar."
+
+        elif paso == 1:
+            _piezas_v = st.session_state.get("piezas", [])
+            _m2_v = sum(ml_a_m2(float(p.get("ml",0)), float(p.get("ancho_custom",0.60))) for p in _piezas_v)
+            if _m2_v <= 0:
+                _puede_continuar = False
+                _msg_validacion  = "Agrega al menos una pieza con dimensiones válidas."
+
+        with _nav_l:
+            if paso > 0:
+                if st.button("← Atrás", use_container_width=True, key="btn_wizard_back"):
+                    st.session_state.cdir_paso -= 1
+                    st.rerun()
+
+        with _nav_r:
+            if not _puede_continuar:
+                st.warning(_msg_validacion)
+            else:
+                _lbl_sig = "Calcular cotización →" if paso == N_PASOS - 2 else "Siguiente →"
+                if st.button(_lbl_sig, type="primary", use_container_width=True, key="btn_wizard_next"):
+                    st.session_state.cdir_paso += 1
+                    if st.session_state.cdir_paso == N_PASOS - 1:
+                        # Forzar recálculo al llegar al paso de resultado
+                        st.session_state["_recalcular_paso4"] = True
+                    st.rerun()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# COTIZACIÓN AIU
-# ═══════════════════════════════════════════════════════════════════════════════
+elif pagina == "Cotizacion AIU":
+
+    # ══════════════════════════════════════════════════════════════════
+    # WIZARD COTIZACIÓN AIU — 3 pasos
+    # PASOS:
+    #   0 — Items del contrato (tabla de ítems + Costo Directo)
+    #   1 — Porcentajes AIU + Logística + Foráneo
+    #   2 — Resultado / Success Screen
+    # ══════════════════════════════════════════════════════════════════
+
+    WIZARD_AIU_PASOS = [
+        {"icono": "📋", "label": "Ítems"},
+        {"icono": "📊", "label": "AIU + Logística"},
+        {"icono": "✅", "label": "Resultado"},
+    ]
+    N_AIU = len(WIZARD_AIU_PASOS)
+
+    if "aiu_paso" not in st.session_state:
+        st.session_state.aiu_paso = 0
+    if "aiu_success" not in st.session_state:
+        st.session_state.aiu_success = False
+
+    # Restaurar borrador AIU
+    if not st.session_state.pre and not st.session_state.get("_borrador_aiu_restaurado"):
+        try:
+            _borrador_aiu = _leer_config("borrador_cotizacion_aiu")
+            if _borrador_aiu:
+                st.session_state.pre = _borrador_aiu
+                if _borrador_aiu.get("aiu_items"):
+                    st.session_state.aiu_items = _borrador_aiu["aiu_items"]
+                alerta("📋 Se restauró tu último cálculo AIU.", "info")
+        except Exception:
+            pass
+        st.session_state["_borrador_aiu_restaurado"] = True
+
+    # ════════════════════════════════════════════════════════════════════
+    # PANTALLA DE ÉXITO AIU
+    # ════════════════════════════════════════════════════════════════════
+    if st.session_state.get("aiu_success") and st.session_state.cotizacion and \
+       st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU":
+
+        r_aiu     = st.session_state.cotizacion
+        _num_g_aiu = st.session_state.get("_aiu_guardada_num", "")
+        nombre_cliente_aiu = st.session_state.pre.get("nombre_cliente","")
+        pct_a = r_aiu.get("pct_a", 2.0)
+        pct_i = r_aiu.get("pct_i", 2.0)
+        pct_u = r_aiu.get("pct_u", 5.0)
+
+        # Hero card
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+                    border-radius:18px;padding:40px 44px 32px;margin-bottom:24px;color:white;
+                    box-shadow:0 8px 32px rgba(27,95,168,0.35)">
+          <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+            <div style="width:52px;height:52px;background:rgba(201,168,76,0.25);border-radius:50%;
+                        display:flex;align-items:center;justify-content:center;font-size:1.6rem">✅</div>
+            <div>
+              <div style="font-size:0.7rem;letter-spacing:0.14em;text-transform:uppercase;
+                          color:#C9A84C;font-weight:700;margin-bottom:2px">OFERTA AIU FINALIZADA</div>
+              <div style="font-size:1.1rem;font-weight:700">{nombre_cliente_aiu or "Sin nombre de proyecto"}</div>
+            </div>
+          </div>
+          <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.12em;color:rgba(255,255,255,0.55);font-weight:700;margin-bottom:6px">Precio total del contrato (A+I+U+IVA)</div>
+          <div style="font-size:3.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
+            {numero_completo(r_aiu["precio_total"])}
+          </div>
+          <div style="opacity:0.75;font-size:0.9rem">
+            Margen efectivo: {r_aiu["margen_pct"]:.1f}% &nbsp;·&nbsp;
+            A({pct_a}%) + I({pct_i}%) + U({pct_u}%) + IVA
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        with st.expander("📊 Ver desglose AIU", expanded=False):
+            bloque_costos([
+                ("Costo Directo (CD)",        r_aiu["cd"]),
+                (f"A — Administración ({pct_a}%)", r_aiu["val_a"]),
+                (f"I — Imprevistos ({pct_i}%)",    r_aiu["val_i"]),
+                (f"U — Utilidad ({pct_u}%)",        r_aiu["val_u"]),
+                ("IVA 19% (solo sobre Utilidad)", r_aiu["val_iva"]),
+                ("Logística",                  r_aiu["logistica"]),
+                ("Viáticos",                   r_aiu.get("viaticos", 0)),
+            ], "PRECIO TOTAL CONTRATO", r_aiu["precio_total"])
+
+        st.markdown("---")
+        st.markdown("### 📄 Documentos institucionales")
+        from generador_pdf import generar_pdf_cotizacion_aiu, generar_cuenta_cobro
+
+        _num_pre_aiu = st.session_state.get("_aiu_guardada_num") or f"AIU-{_hoy().strftime('%Y')}-001"
+
+        with st.container(border=True):
+            st.markdown("**Oferta AIU**")
+            _ap1, _ap2 = st.columns([1.5, 1])
+            with _ap1:
+                num_cot_aiu = st.text_input("Número de oferta", value=f"OFE-AIU-{_hoy().strftime('%Y')}-001", key="num_cot_aiu_success")
+            with _ap2:
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                if st.button("📄 Generar Oferta AIU PDF", type="primary", use_container_width=True, key="btn_pdf_aiu"):
+                    pdf_bytes = generar_pdf_cotizacion_aiu(
+                        r_aiu, numero=num_cot_aiu,
+                        empresa_info=st.session_state.empresa_info,
+                        logo_bytes=st.session_state.logo_bytes
+                    )
+                    st.download_button("⬇ Descargar Oferta AIU", pdf_bytes,
+                                       file_name=f"{num_cot_aiu}.pdf", mime="application/pdf",
+                                       use_container_width=True, key="dl_pdf_aiu")
+
+        with st.container(border=True):
+            st.markdown("**Cuenta de cobro / Factura**")
+            _ac1, _ac2 = st.columns(2)
+            with _ac1:
+                num_cc_aiu  = st.text_input("Número de cuenta", value=f"FAC-AIU-{_hoy().strftime('%Y')}-001", key="num_cc_aiu_success")
+                nom_pag_aiu = st.text_input("Facturar a:", value=nombre_cliente_aiu, key="nom_pag_aiu_success")
+            with _ac2:
+                nit_pag_aiu = st.text_input("NIT / Rut", value="", key="nit_pag_aiu_success")
+            if st.button("📄 Generar Cobro AIU PDF", type="primary", use_container_width=True, key="btn_pdf_cc_aiu"):
+                datos_pag = {"nombre": nom_pag_aiu, "nit": nit_pag_aiu, "direccion": ""}
+                cc_bytes  = generar_cuenta_cobro(r_aiu, st.session_state.empresa_info.copy(), datos_pag,
+                                                  numero=num_cc_aiu, logo_bytes=st.session_state.logo_bytes)
+                st.download_button("⬇ Descargar Cobro AIU", cc_bytes,
+                                   file_name=f"{num_cc_aiu}.pdf", mime="application/pdf",
+                                   use_container_width=True, key="dl_pdf_cc_aiu")
+
+        st.markdown("---")
+        _an1, _an2 = st.columns(2)
+        with _an1:
+            if st.button("🆕 Nueva cotización AIU", use_container_width=True, type="primary"):
+                for k in ["cotizacion", "pre", "aiu_items", "_aiu_guardada", "_aiu_guardada_num",
+                          "_aiu_num_sugerido", "_borrador_aiu_restaurado"]:
+                    st.session_state.pop(k, None)
+                st.session_state.aiu_paso    = 0
+                st.session_state.aiu_success = False
+                # Reiniciar ítems a defaults
+                st.session_state.aiu_items = [
+                    {"desc": "Material pétreo (suministro)",       "und": "m²",  "cant": 10.0, "punit": 250_000},
+                    {"desc": "Mano de obra corte y elaboración",   "und": "m²",  "cant": 10.0, "punit": 100_000},
+                    {"desc": "Instalación y nivelación",           "und": "m²",  "cant": 10.0, "punit":  50_000},
+                    {"desc": "Insumos (disco, adhesivo, silicona)","und": "glb", "cant":  1.0, "punit": 150_000},
+                ]
+                st.rerun()
+        with _an2:
+            if st.button("✏️ Editar esta cotización AIU", use_container_width=True):
+                st.session_state.aiu_success = False
+                st.session_state.aiu_paso    = 0
+                st.rerun()
+
+        st.stop()
+
+    # ════════════════════════════════════════════════════════════════════
+    # BARRA DE PROGRESO AIU
+    # ════════════════════════════════════════════════════════════════════
+    paso_aiu = st.session_state.aiu_paso
+
+    _pasos_aiu_html = ""
+    for _i, _p in enumerate(WIZARD_AIU_PASOS):
+        if _i < paso_aiu:
+            _ds = "background:#1B5FA8;color:white;border:2px solid #1B5FA8"
+            _ls = "color:#1B5FA8;font-weight:700"
+            _dc = "✓"
+        elif _i == paso_aiu:
+            _ds = "background:#1B5FA8;color:white;border:2px solid #1B5FA8;box-shadow:0 0 0 4px rgba(27,95,168,0.18)"
+            _ls = "color:#1B5FA8;font-weight:900"
+            _dc = str(_i + 1)
+        else:
+            _ds = "background:transparent;color:var(--text-color);border:2px solid var(--border-color);opacity:0.4"
+            _ls = "opacity:0.4"
+            _dc = str(_i + 1)
+        _connector_aiu = "" if _i == N_AIU - 1 else f'<div style="flex:1;height:2px;background:{"#1B5FA8" if _i < paso_aiu else "var(--border-color)"};opacity:{"1" if _i < paso_aiu else "0.25"};margin-bottom:14px;align-self:flex-start;margin-top:16px"></div>'
+        _pasos_aiu_html += f"""
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">
+          <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+                      justify-content:center;font-size:0.78rem;font-weight:800;{_ds}">{_dc}</div>
+          <div style="font-size:0.65rem;text-align:center;{_ls}">{_p["label"]}</div>
+        </div>
+        {_connector_aiu}"""
+
+    st.markdown(f"""
+    <div style="display:flex;align-items:flex-start;margin-bottom:24px;
+                padding:16px 20px;background:var(--secondary-background-color);
+                border-radius:12px;border:1px solid var(--border-color)">
+      {_pasos_aiu_html}
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown(
+        f"<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>"
+        f"{WIZARD_AIU_PASOS[paso_aiu]['icono']} {WIZARD_AIU_PASOS[paso_aiu]['label']}</h2>"
+        f"<p style='opacity:0.6;font-size:0.85rem;margin-bottom:20px'>Paso {paso_aiu+1} de {N_AIU}</p>",
+        unsafe_allow_html=True
+    )
+
+    # ════════════════════════════════════════════════════════════════════
+    # PASO AIU 0 — ÍTEMS DEL CONTRATO
+    # ════════════════════════════════════════════════════════════════════
+    if paso_aiu == 0:
+        seccion_titulo("Ítems del contrato", "Lista los trabajos y materiales que incluye la obra")
+        nombre_cliente_aiu = st.text_input(
+            "Nombre de la constructora o proyecto",
+            placeholder="Ej: Constructora ABC S.A.S.",
+            value=st.session_state.pre.get("nombre_cliente",""),
+            key="aiu_nombre_cliente"
+        )
+
+        with st.expander("❓ ¿Cómo funciona la tabla de ítems?", expanded=False):
+            st.markdown("""
+Cada fila es un ítem del contrato. La app suma todos los ítems para calcular el **Costo Directo (CD)**, 
+que es la base sobre la que se aplican los porcentajes A, I y U.
+
+| Campo | Qué ingresar |
+|---|---|
+| Descripción | Nombre del trabajo o material |
+| Unidad | m², ml, glb (global), und |
+| Cantidad | Cuántas unidades |
+| Precio unitario | Costo por unidad (COP) |
+            """)
+
+        # Cabecera tabla
+        hdr = st.columns([4, 1, 1, 2, 0.5])
+        for col, lbl in zip(hdr, ["Descripción", "Unidad", "Cantidad", "Precio unitario (COP)", ""]):
+            col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
+
+        nuevos_items = []
+        cd_total     = 0.0
+        for idx, it in enumerate(st.session_state.aiu_items):
+            c0, c1, c2, c3, c4 = st.columns([4, 1, 1, 2, 0.5])
+            desc  = c0.text_input("Desc",  value=it["desc"],            key=f"aiu_d_{idx}", label_visibility="collapsed")
+            und   = c1.text_input("Und",   value=it["und"],             key=f"aiu_u_{idx}", label_visibility="collapsed")
+            cant  = c2.number_input("Cant", value=float(it["cant"]),    min_value=0.0, step=1.0, key=f"aiu_c_{idx}", label_visibility="collapsed")
+            punit = c3.number_input("PU",   value=float(it["punit"]),   min_value=0.0, step=5_000.0, key=f"aiu_p_{idx}", label_visibility="collapsed")
+            sub   = cant * punit
+            cd_total += sub
+            c0.caption(f"Subtotal: {numero_completo(sub)}")
+            if c4.button("✕", key=f"aiu_del_{idx}") and len(st.session_state.aiu_items) > 1:
+                st.session_state.aiu_items.pop(idx)
+                st.rerun()
+            nuevos_items.append({"desc": desc, "und": und, "cant": cant, "punit": punit})
+        st.session_state.aiu_items = nuevos_items
+
+        if st.button("＋ Agregar ítem", use_container_width=True):
+            st.session_state.aiu_items.append({"desc": "Nuevo ítem", "und": "glb", "cant": 1.0, "punit": 100_000})
+            st.rerun()
+
+        st.markdown(
+            f"<div style='background:var(--secondary-background-color);border:1px solid #1B5FA8;"
+            f"border-left:4px solid #1B5FA8;border-radius:8px;padding:12px 18px;margin-top:16px;"
+            f"font-size:1.1rem;font-weight:900;color:#1B5FA8'>Costo Directo total: {numero_completo(cd_total)}</div>",
+            unsafe_allow_html=True
+        )
+
+        # Guardar CD
+        st.session_state.pre = {**st.session_state.pre, "nombre_cliente": nombre_cliente_aiu, "cd_total": cd_total}
+
+    # ════════════════════════════════════════════════════════════════════
+    # PASO AIU 1 — PORCENTAJES AIU + LOGÍSTICA
+    # ════════════════════════════════════════════════════════════════════
+    elif paso_aiu == 1:
+        cd_total = st.session_state.pre.get("cd_total", sum(it["cant"]*it["punit"] for it in st.session_state.aiu_items))
+        nombre_cliente_aiu = st.session_state.pre.get("nombre_cliente","")
+
+        seccion_titulo("Porcentajes AIU y logística",
+                       "Define administración, imprevistos y utilidad sobre el Costo Directo")
+
+        with st.expander("📖 ¿Qué es AIU?", expanded=False):
+            st.markdown("""
+**AIU = Administración + Imprevistos + Utilidad** — estructura para contratos de construcción en Colombia.
+
+| Componente | ¿Qué incluye? | Valor típico |
+|---|---|---|
+| **A** | Gastos de oficina, seguros, permisos | 1.5% – 3% |
+| **I** | Colchón para imprevistos | 1% – 3% |
+| **U** | Tu ganancia | 5% – 10% |
+
+El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colombia.
+            """)
+
+        # ── Porcentajes con segmented controls ───────────────────────
+        st.markdown("**Porcentajes sobre el Costo Directo**")
+        _pa1, _pa2, _pa3 = st.columns(3)
+
+        with _pa1:
+            _a_opts = ["1%", "1.5%", "2%", "2.5%", "3%", "Otro"]
+            _a_pre  = float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"]))
+            _a_pre_s = f"{int(_a_pre) if _a_pre == int(_a_pre) else _a_pre}%" if f"{int(_a_pre) if _a_pre == int(_a_pre) else _a_pre}%" in _a_opts else "Otro"
+            _a_sel  = st.pills("A — Administración", _a_opts, default=_a_pre_s, key="aiu_pills_a",
+                               help="Cubre gastos administrativos del proyecto")
+            if _a_sel == "Otro" or _a_sel is None:
+                pct_a = st.number_input("A% exacto", min_value=0.0, max_value=20.0, value=_a_pre, step=0.5, key="aiu_pct_a_custom")
+            else:
+                pct_a = float(_a_sel.replace("%",""))
+
+        with _pa2:
+            _i_opts = ["1%", "1.5%", "2%", "2.5%", "3%", "Otro"]
+            _i_pre  = float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"]))
+            _i_pre_s = f"{int(_i_pre) if _i_pre == int(_i_pre) else _i_pre}%" if f"{int(_i_pre) if _i_pre == int(_i_pre) else _i_pre}%" in _i_opts else "Otro"
+            _i_sel  = st.pills("I — Imprevistos", _i_opts, default=_i_pre_s, key="aiu_pills_i",
+                               help="Reserva para lo inesperado")
+            if _i_sel == "Otro" or _i_sel is None:
+                pct_i = st.number_input("I% exacto", min_value=0.0, max_value=20.0, value=_i_pre, step=0.5, key="aiu_pct_i_custom")
+            else:
+                pct_i = float(_i_sel.replace("%",""))
+
+        with _pa3:
+            _u_opts = ["3%", "5%", "7%", "8%", "10%", "Otro"]
+            _u_pre  = float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"]))
+            _u_pre_s = f"{int(_u_pre) if _u_pre == int(_u_pre) else _u_pre}%" if f"{int(_u_pre) if _u_pre == int(_u_pre) else _u_pre}%" in _u_opts else "Otro"
+            _u_sel  = st.pills("U — Utilidad", _u_opts, default=_u_pre_s, key="aiu_pills_u",
+                               help="Tu margen de ganancia. El IVA aplica SOLO sobre este valor")
+            if _u_sel == "Otro" or _u_sel is None:
+                pct_u = st.number_input("U% exacto", min_value=0.0, max_value=30.0, value=_u_pre, step=0.5, key="aiu_pct_u_custom")
+            else:
+                pct_u = float(_u_sel.replace("%",""))
+
+        # Preview cálculo en tiempo real
+        _val_a_prev = cd_total * (pct_a / 100)
+        _val_i_prev = cd_total * (pct_i / 100)
+        _val_u_prev = cd_total * (pct_u / 100)
+        _val_iva_prev = _val_u_prev * 0.19
+        _total_prev  = cd_total + _val_a_prev + _val_i_prev + _val_u_prev + _val_iva_prev
+        st.markdown(
+            f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+            border-radius:10px;padding:12px 18px;margin-top:8px;font-size:0.85rem">
+            <div style="display:flex;gap:24px;flex-wrap:wrap">
+              <span>CD: <strong>{numero_completo(cd_total)}</strong></span>
+              <span>A: <strong>{numero_completo(_val_a_prev)}</strong></span>
+              <span>I: <strong>{numero_completo(_val_i_prev)}</strong></span>
+              <span>U: <strong>{numero_completo(_val_u_prev)}</strong></span>
+              <span>IVA: <strong>{numero_completo(_val_iva_prev)}</strong></span>
+              <span style="color:#1B5FA8;font-weight:900">Total: {numero_completo(_total_prev)}</span>
+            </div></div>""",
+            unsafe_allow_html=True
+        )
+
+        st.markdown("---")
+
+        # ── Logística ─────────────────────────────────────────────────
+        with st.container(border=True):
+            st.markdown("**🚛 Logística**")
+            _al1, _al2 = st.columns(2)
+            with _al1:
+                _veh_aiu_keys = list(VEHICULOS.keys())
+                _veh_aiu_pre  = st.session_state.pre.get("vehiculo_entrega","frontier")
+                _veh_aiu_lbl_pre = next((k for k, v in VEHICULOS.items() if v == _veh_aiu_pre), _veh_aiu_keys[0])
+                _veh_aiu_sel  = st.pills("Vehículo", _veh_aiu_keys, default=_veh_aiu_lbl_pre, key="aiu_veh_pills")
+                vehiculo_aiu  = VEHICULOS.get(_veh_aiu_sel or _veh_aiu_lbl_pre, "frontier")
+                agente_aiu    = st.toggle("Agente externo trae material", value=bool(st.session_state.pre.get("agente_externo_taller",False)), key="aiu_agente")
+
+            with _al2:
+                _km_aiu_opts = ["0-5 km", "5-15 km", "15-30 km", "30-60 km", "60+ km"]
+                _km_aiu_pre  = float(st.session_state.pre.get("km", 10.0))
+                _km_aiu_sel  = st.pills("Distancia", _km_aiu_opts,
+                                        default="5-15 km" if _km_aiu_pre <= 15 else "15-30 km" if _km_aiu_pre <= 30 else "30-60 km",
+                                        key="aiu_km_pills")
+                _km_aiu_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
+                km_aiu  = st.number_input("Km exactos (Ida)", min_value=0.0,
+                                           value=float(_km_aiu_defaults.get(_km_aiu_sel or "5-15 km", _km_aiu_pre)),
+                                           step=1.0, key="aiu_km")
+                _pj_aiu_opts = ["0", "1", "2", "3", "4+"]
+                _pj_aiu_pre  = int(st.session_state.pre.get("peajes", 0))
+                _pj_aiu_sel  = st.pills("Peajes ida+vuelta", _pj_aiu_opts,
+                                        default=str(_pj_aiu_pre) if _pj_aiu_pre <= 3 else "4+",
+                                        key="aiu_pj_pills")
+                peajes_aiu   = int(_pj_aiu_sel) if (_pj_aiu_sel and _pj_aiu_sel != "4+") else st.number_input("Peajes (exacto)", min_value=0, value=_pj_aiu_pre, step=1, key="aiu_pj_custom")
+
+        # ── Foráneo ──────────────────────────────────────────────────
+        with st.container(border=True):
+            st.markdown("**✈️ ¿Proyecto fuera de Barranquilla?**")
+            foraneo_aiu = st.toggle("Sí, fuera de la ciudad", value=bool(st.session_state.pre.get("foraneo_activo",False)), key="aiu_foraneo")
+            tipo_aloj_aiu = "pueblo"; noches_aiu = 0; pers_aiu = 2
+            if foraneo_aiu:
+                _ff1, _ff2, _ff3 = st.columns(3)
+                with _ff1:
+                    tipo_aloj_aiu = ALOJAMIENTO[st.selectbox(
+                        "Destino", list(ALOJAMIENTO.keys()),
+                        index=list(ALOJAMIENTO.keys()).index(next((k for k, v in ALOJAMIENTO.items() if v == st.session_state.pre.get("tipo_aloj","pueblo")), list(ALOJAMIENTO.keys())[0])),
+                        key="aiu_tipo_aloj"
+                    )]
+                with _ff2:
+                    _nc_aiu_opts = ["1", "2", "3", "4", "5+"]
+                    _nc_aiu_pre  = int(st.session_state.pre.get("noches",1))
+                    _nc_aiu_sel  = st.pills("Noches", _nc_aiu_opts,
+                                            default=str(_nc_aiu_pre) if _nc_aiu_pre <= 4 else "5+",
+                                            key="aiu_noches_pills")
+                    noches_aiu = int(_nc_aiu_sel) if (_nc_aiu_sel and _nc_aiu_sel != "5+") else st.number_input("Noches (exacto)", min_value=0, value=_nc_aiu_pre, step=1, key="aiu_nc_custom")
+                with _ff3:
+                    _ps_aiu_opts = ["1", "2", "3", "4", "5+"]
+                    _ps_aiu_pre  = int(st.session_state.pre.get("personas",2))
+                    _ps_aiu_sel  = st.pills("Personas", _ps_aiu_opts,
+                                            default=str(_ps_aiu_pre) if _ps_aiu_pre <= 4 else "5+",
+                                            key="aiu_pers_pills")
+                    pers_aiu = int(_ps_aiu_sel) if (_ps_aiu_sel and _ps_aiu_sel != "5+") else st.number_input("Personas (exacto)", min_value=1, value=_ps_aiu_pre, step=1, key="aiu_ps_custom")
+
+        # Guardar en pre
+        st.session_state.pre = {
+            **st.session_state.pre,
+            "nombre_cliente":        nombre_cliente_aiu,
+            "pct_a":                 pct_a,
+            "pct_i":                 pct_i,
+            "pct_u":                 pct_u,
+            "vehiculo_entrega":      vehiculo_aiu,
+            "km":                    km_aiu,
+            "peajes":                peajes_aiu,
+            "agente_externo_taller": agente_aiu,
+            "foraneo_activo":        foraneo_aiu,
+            "tipo_aloj":             tipo_aloj_aiu,
+            "noches":                noches_aiu,
+            "personas":              pers_aiu,
+            "aiu_items":             st.session_state.get("aiu_items",[]),
+            "tipo_proyecto":         "Licitación AIU",
+        }
+
+    # ════════════════════════════════════════════════════════════════════
+    # PASO AIU 2 — CÁLCULO Y RESULTADO
+    # ════════════════════════════════════════════════════════════════════
+    elif paso_aiu == 2:
+        nombre_cliente_aiu = st.session_state.pre.get("nombre_cliente","")
+        cd_total     = st.session_state.pre.get("cd_total", sum(it["cant"]*it["punit"] for it in st.session_state.aiu_items))
+        pct_a        = st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])
+        pct_i        = st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])
+        pct_u        = st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])
+        vehiculo_aiu = st.session_state.pre.get("vehiculo_entrega","frontier")
+        km_aiu       = st.session_state.pre.get("km", 10.0)
+        peajes_aiu   = st.session_state.pre.get("peajes", 0)
+        agente_aiu   = st.session_state.pre.get("agente_externo_taller", False)
+        foraneo_aiu  = st.session_state.pre.get("foraneo_activo", False)
+        tipo_aloj_aiu = st.session_state.pre.get("tipo_aloj","pueblo")
+        noches_aiu   = st.session_state.pre.get("noches", 0)
+        pers_aiu     = st.session_state.pre.get("personas", 2)
+
+        # Calcular
+        if not st.session_state.cotizacion or st.session_state.get("_recalcular_aiu"):
+            with st.spinner("Calculando AIU..."):
+                res_aiu = calcular_aiu(
+                    cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu,
+                    agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu
+                )
+                res_aiu["tipo_proyecto"]   = "Licitación AIU"
+                res_aiu["categoria"]       = "Proyecto Constructora"
+                res_aiu["referencia"]      = "Múltiple"
+                res_aiu["m2_real"]         = 0
+                res_aiu["ml_proyecto"]     = 0
+                res_aiu["costo_total"]     = cd_total
+                res_aiu["precio_sugerido"] = res_aiu["precio_total"]
+                res_aiu["_estado_guardado"] = {
+                    "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
+                    "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
+                    "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu,
+                    "agente_externo_taller": agente_aiu, "foraneo_activo": foraneo_aiu,
+                    "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu,
+                }
+                st.session_state.cotizacion = res_aiu
+                st.session_state["_recalcular_aiu"] = False
+                try:
+                    _guardar_config("borrador_cotizacion_aiu", res_aiu["_estado_guardado"])
+                except Exception:
+                    pass
+
+        r = st.session_state.cotizacion
+
+        import random as _rr
+        _num_auto_aiu = f"AIU-{_hoy().strftime('%Y%m%d')}-{_rr.randint(100,999)}"
+        if "aiu_num_auto" not in st.session_state:
+            st.session_state.aiu_num_auto = _num_auto_aiu
+
+        # Hero card
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+                    border-radius:14px;padding:28px 36px;margin-bottom:20px;color:white;">
+          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:8px">
+            Precio total del contrato (AIU)
+          </div>
+          <div style="font-size:3.2rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
+            {numero_completo(r["precio_total"])}
+          </div>
+          <div style="opacity:0.8;font-size:0.85rem">
+            Margen efectivo: {r["margen_pct"]:.1f}% &nbsp;·&nbsp; Utilidad: {numero_completo(r["val_u"])}
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+        _cres, _ = st.columns([1.5, 1])
+        with _cres:
+            bloque_costos([
+                ("Costo Directo Base (CD)",        r["cd"]),
+                (f"A — Administración ({pct_a}%)", r["val_a"]),
+                (f"I — Imprevistos ({pct_i}%)",    r["val_i"]),
+                (f"U — Utilidad ({pct_u}%)",        r["val_u"]),
+                ("IVA 19% exclusivo sobre Utilidad", r["val_iva"]),
+                ("Gastos logísticos",               r["logistica"]),
+            ], "PRECIO TOTAL CONTRATO", r["precio_total"])
+
+        st.markdown("---")
+
+        # Guardar
+        _ya_g_aiu = st.session_state.get("_aiu_guardada", False)
+        _editando_id_aiu  = st.session_state.get("editando_id")
+        _editando_num_aiu = st.session_state.get("editando_num","")
+
+        if _editando_id_aiu:
+            alerta(f"**Modo edición** — modificando **{_editando_num_aiu}**.", "info")
+            _au, _an_, _ac_ = st.columns([2, 1.5, 1])
+            _btn_au = _au.button("✏️ Actualizar AIU", type="primary", use_container_width=True)
+            _btn_an = _an_.button("💾 Guardar como nueva", use_container_width=True, key="aiu_nueva")
+            _btn_ac = _ac_.button("✕ Cancelar", use_container_width=True, key="aiu_can")
+            if _btn_ac:
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+                st.session_state.aiu_paso = 0
+                st.rerun()
+            if _btn_au:
+                _actualizar_cotizacion(_editando_id_aiu, _editando_num_aiu, nombre_cliente_aiu, r)
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+                st.session_state["_aiu_guardada"]     = True
+                st.session_state["_aiu_guardada_num"] = _editando_num_aiu
+                st.session_state.aiu_success = True
+                st.rerun()
+            if _btn_an:
+                _guardar_cotizacion(st.session_state.aiu_num_auto, nombre_cliente_aiu, r)
+                st.session_state.pop("editando_id", None)
+                st.session_state.pop("editando_num", None)
+                st.session_state["_aiu_guardada"]     = True
+                st.session_state["_aiu_guardada_num"] = st.session_state.aiu_num_auto
+                st.session_state.aiu_success = True
+                st.rerun()
+
+        elif not _ya_g_aiu:
+            st.markdown("""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
+            border-radius:12px;padding:18px 22px;margin-bottom:4px">
+            <div style="font-size:0.75rem;font-weight:700;opacity:0.5;text-transform:uppercase;margin-bottom:4px">💾 ¿Guardar en historial?</div>
+            <div style="font-size:0.88rem;opacity:0.75;margin-bottom:12px">Si es una oferta real, guárdala. Si es una prueba, puedes omitirlo.</div>
+            </div>""", unsafe_allow_html=True)
+
+            _ag1, _ag2, _ag3 = st.columns([2, 1.5, 1])
+            with _ag1:
+                _num_g_aiu_inp = st.text_input(
+                    "Número de cotización AIU",
+                    value=st.session_state.get("aiu_num_auto", _num_auto_aiu),
+                    key="num_guardar_aiu_hist", label_visibility="collapsed"
+                )
+            with _ag2:
+                if st.button("💾 Guardar en historial", type="primary", use_container_width=True, key="btn_guardar_aiu_hist"):
+                    try:
+                        _guardar_cotizacion(_num_g_aiu_inp, nombre_cliente_aiu or "Sin nombre", r)
+                        st.session_state["_aiu_guardada"]     = True
+                        st.session_state["_aiu_guardada_num"] = _num_g_aiu_inp
+                        st.session_state.aiu_success = True
+                        st.rerun()
+                    except Exception as _eg_aiu:
+                        st.error(f"Error al guardar: {_eg_aiu}")
+            with _ag3:
+                if st.button("✕ Solo borrador", use_container_width=True, key="btn_no_guardar_aiu_hist"):
+                    st.session_state["_aiu_guardada"]     = True
+                    st.session_state["_aiu_guardada_num"] = ""
+                    st.session_state.aiu_success = True
+                    st.toast("Cotización AIU calculada como borrador.", icon="📋")
+                    st.rerun()
+        else:
+            st.session_state.aiu_success = True
+            st.rerun()
+
+    # ════════════════════════════════════════════════════════════════════
+    # NAVEGACIÓN AIU
+    # ════════════════════════════════════════════════════════════════════
+    if not st.session_state.get("aiu_success") and paso_aiu < N_AIU - 1:
+        st.markdown("---")
+        _an_l, _an_r = st.columns(2)
+
+        _puede_continuar_aiu = True
+        _msg_val_aiu = ""
+
+        if paso_aiu == 0:
+            _cd_v = st.session_state.pre.get("cd_total", 0)
+            if _cd_v <= 0:
+                _puede_continuar_aiu = False
+                _msg_val_aiu = "El Costo Directo es $0. Agrega al menos un ítem con precio y cantidad."
+
+        with _an_l:
+            if paso_aiu > 0:
+                if st.button("← Atrás", use_container_width=True, key="btn_aiu_back"):
+                    st.session_state.aiu_paso -= 1
+                    st.rerun()
+
+        with _an_r:
+            if not _puede_continuar_aiu:
+                st.warning(_msg_val_aiu)
+            else:
+                _lbl_aiu = "Calcular AIU →" if paso_aiu == N_AIU - 2 else "Siguiente →"
+                if st.button(_lbl_aiu, type="primary", use_container_width=True, key="btn_aiu_next"):
+                    st.session_state.aiu_paso += 1
+                    if st.session_state.aiu_paso == N_AIU - 1:
+                        st.session_state["_recalcular_aiu"] = True
+                    st.rerun()
+
 elif pagina == "Cotizacion AIU":
     st.markdown("<h2 style='font-family:Playfair Display,serif'>Cotizacion AIU</h2>", unsafe_allow_html=True)
     st.markdown("<p style='opacity:0.7;font-size:0.88rem'>Estructura formal colombiana A+I+U+IVA</p>", unsafe_allow_html=True)
