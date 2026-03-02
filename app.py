@@ -2345,7 +2345,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         with _dc1:
             _dias_opts = ["1", "2", "3", "4", "5", "6+"]
             _dias_pre  = int(pre.get("dias_obra", 2))
-            _dias_pre_s = str(_dias_pre) if _dias_pre <= 5 else "6+"
+            # FIX-1: garantizar que el default exista en la lista de opciones
+            _dias_pre_s = str(_dias_pre) if str(_dias_pre) in _dias_opts else ("6+" if _dias_pre > 5 else _dias_opts[0])
             _dias_sel   = st.pills("Días en obra", _dias_opts, default=_dias_pre_s, key="p2_dias_pills")
             if _dias_sel == "6+" or _dias_sel is None:
                 dias = st.number_input("Días (exacto)", min_value=1, value=_dias_pre, step=1, key="p2_dias_custom")
@@ -2355,7 +2356,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         with _dc2:
             _pers_opts = ["1", "2", "3", "4", "5+"]
             _pers_pre  = int(pre.get("personas", 2))
-            _pers_pre_s = str(_pers_pre) if _pers_pre <= 4 else "5+"
+            # FIX-1: garantizar que el default exista en la lista de opciones
+            _pers_pre_s = str(_pers_pre) if str(_pers_pre) in _pers_opts else ("5+" if _pers_pre > 4 else _pers_opts[0])
             _pers_sel   = st.pills("Personas en obra", _pers_opts, default=_pers_pre_s, key="p2_pers_pills")
             if _pers_sel == "5+" or _pers_sel is None:
                 personas = st.number_input("Personas (exacto)", min_value=1, value=_pers_pre, step=1, key="p2_pers_custom")
@@ -2531,7 +2533,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 # Peajes — segmented control 0-4+
                 _pj_opts = ["0", "1", "2", "3", "4+"]
                 _pj_pre  = int(pre.get("peajes", 0))
-                _pj_pre_s = str(_pj_pre) if _pj_pre <= 3 else "4+"
+                # FIX-1: garantizar que el default exista en la lista de opciones
+                _pj_pre_s = str(_pj_pre) if str(_pj_pre) in _pj_opts else ("4+" if _pj_pre > 3 else _pj_opts[0])
                 _pj_sel  = st.pills("Peajes ida+vuelta", _pj_opts, default=_pj_pre_s, key="p3_peajes_pills")
                 if _pj_sel == "4+" or _pj_sel is None:
                     peajes = st.number_input("Peajes (exacto)", min_value=0, value=_pj_pre, step=1, key="p3_peajes_custom")
@@ -2556,7 +2559,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 with _fa3:
                     _nc_opts  = ["1", "2", "3", "4", "5+"]
                     _nc_pre   = int(pre.get("noches", 1))
-                    _nc_pre_s = str(_nc_pre) if _nc_pre <= 4 else "5+"
+                    # FIX-1: garantizar que el default exista en la lista de opciones
+                    _nc_pre_s = str(_nc_pre) if str(_nc_pre) in _nc_opts else ("5+" if _nc_pre > 4 else _nc_opts[0])
                     _nc_sel   = st.pills("Noches", _nc_opts, default=_nc_pre_s, key="p3_noches_pills")
                     if _nc_sel == "5+" or _nc_sel is None:
                         noches = st.number_input("Noches (exacto)", min_value=0, value=_nc_pre, step=1, key="p3_noches_custom")
@@ -3281,8 +3285,10 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                                            step=1.0, key="aiu_km")
                 _pj_aiu_opts = ["0", "1", "2", "3", "4+"]
                 _pj_aiu_pre  = int(st.session_state.pre.get("peajes", 0))
+                # FIX-1: garantizar que el default exista en la lista de opciones
+                _pj_aiu_pre_s = str(_pj_aiu_pre) if str(_pj_aiu_pre) in _pj_aiu_opts else ("4+" if _pj_aiu_pre > 3 else _pj_aiu_opts[0])
                 _pj_aiu_sel  = st.pills("Peajes ida+vuelta", _pj_aiu_opts,
-                                        default=str(_pj_aiu_pre) if _pj_aiu_pre <= 3 else "4+",
+                                        default=_pj_aiu_pre_s,
                                         key="aiu_pj_pills")
                 peajes_aiu   = int(_pj_aiu_sel) if (_pj_aiu_sel and _pj_aiu_sel != "4+") else st.number_input("Peajes (exacto)", min_value=0, value=_pj_aiu_pre, step=1, key="aiu_pj_custom")
 
@@ -3302,15 +3308,19 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 with _ff2:
                     _nc_aiu_opts = ["1", "2", "3", "4", "5+"]
                     _nc_aiu_pre  = int(st.session_state.pre.get("noches",1))
+                    # FIX-1: garantizar que el default exista en la lista de opciones
+                    _nc_aiu_pre_s = str(_nc_aiu_pre) if str(_nc_aiu_pre) in _nc_aiu_opts else ("5+" if _nc_aiu_pre > 4 else _nc_aiu_opts[0])
                     _nc_aiu_sel  = st.pills("Noches", _nc_aiu_opts,
-                                            default=str(_nc_aiu_pre) if _nc_aiu_pre <= 4 else "5+",
+                                            default=_nc_aiu_pre_s,
                                             key="aiu_noches_pills")
                     noches_aiu = int(_nc_aiu_sel) if (_nc_aiu_sel and _nc_aiu_sel != "5+") else st.number_input("Noches (exacto)", min_value=0, value=_nc_aiu_pre, step=1, key="aiu_nc_custom")
                 with _ff3:
                     _ps_aiu_opts = ["1", "2", "3", "4", "5+"]
                     _ps_aiu_pre  = int(st.session_state.pre.get("personas",2))
+                    # FIX-1: garantizar que el default exista en la lista de opciones
+                    _ps_aiu_pre_s = str(_ps_aiu_pre) if str(_ps_aiu_pre) in _ps_aiu_opts else ("5+" if _ps_aiu_pre > 4 else _ps_aiu_opts[0])
                     _ps_aiu_sel  = st.pills("Personas", _ps_aiu_opts,
-                                            default=str(_ps_aiu_pre) if _ps_aiu_pre <= 4 else "5+",
+                                            default=_ps_aiu_pre_s,
                                             key="aiu_pers_pills")
                     pers_aiu = int(_ps_aiu_sel) if (_ps_aiu_sel and _ps_aiu_sel != "5+") else st.number_input("Personas (exacto)", min_value=1, value=_ps_aiu_pre, step=1, key="aiu_ps_custom")
 
