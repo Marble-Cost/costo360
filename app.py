@@ -7,7 +7,7 @@ import uuid
 import hashlib
 import hmac as _hmac_mod
 import streamlit as st
-from streamlit_cookies_controller import CookieController
+from st_cookies_manager import CookieManager
 import psycopg2
 import json, os
 from datetime import date, datetime, timedelta
@@ -38,18 +38,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── GESTOR DE COOKIES HTTP ────────────────────────────────────────────────────
-# CookieController necesita un ciclo para que su componente React inyecte
-# las cookies. Usamos UN SOLO rerun inicial controlado por el flag "cookies_ok".
-# No usamos contadores: un booleano simple no puede causar bucle infinito.
-cookie_ctrl = CookieController()
+# ── GESTOR DE COOKIES HTTP (st-cookies-manager) ──────────────────────────────
+# CookieManager bloquea el renderizado con st.stop() hasta que el componente
+# React haya inyectado las cookies del navegador, eliminando la necesidad del
+# flag cookies_ok y el rerun manual anterior.
+cookies = CookieManager(prefix="ccmarmol_")
+if not cookies.ready():
+    st.stop()   # Bloqueo estricto — el script no avanza hasta que React hidrate
 _COOKIE_TOKEN = "cm_tok"   # Transporta el UUID del token al navegador
-
-# Rerun único de arranque: garantiza que React inyectó las cookies del navegador.
-# 'cookies_ok' es flag de infraestructura — NUNCA se borra en logout.
-if not st.session_state.get("cookies_ok"):
-    st.session_state["cookies_ok"] = True
-    st.rerun()
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
 if "primera_visita" not in st.session_state:
@@ -619,11 +615,8 @@ def _crear_sesion(usuario_id: int) -> str:
     except Exception:
         pass   # BD no disponible: el token queda solo en session_state esta sesión
     try:
-        cookie_ctrl.set(
-            _COOKIE_TOKEN, token,
-            max_age=30 * 24 * 3600,
-            path="/", secure=True, same_site="Lax",
-        )
+        cookies[_COOKIE_TOKEN] = token
+        cookies.save()
     except Exception:
         pass
     st.session_state["_session_token"] = token
@@ -661,11 +654,8 @@ def _validar_token(token: str) -> int | None:
             )
             conn.commit()
             try:
-                cookie_ctrl.set(
-                    _COOKIE_TOKEN, token,
-                    max_age=30 * 24 * 3600,
-                    path="/", secure=True, same_site="Lax",
-                )
+                cookies[_COOKIE_TOKEN] = token
+                cookies.save()
             except Exception:
                 pass
         cur.close(); conn.close()
@@ -683,12 +673,12 @@ def _leer_token() -> str | None:
     if cached:
         return cached
     try:
-        val = cookie_ctrl.get(_COOKIE_TOKEN)
+        val = cookies.get(_COOKIE_TOKEN)
         if val:
             st.session_state["_session_token"] = val
         return val or None
     except Exception:
-        return None   # React aún no hidratado — el rerun de arranque ya lo resolvió
+        return None
 
 
 def _limpiar_sesion() -> None:
@@ -707,7 +697,8 @@ def _limpiar_sesion() -> None:
         except Exception:
             pass
     try:
-        cookie_ctrl.remove(_COOKIE_TOKEN)
+        del cookies[_COOKIE_TOKEN]
+        cookies.save()
     except Exception:
         pass
     for k in ["usuario_actual", "_session_token", "_config_cargada",
@@ -835,8 +826,8 @@ def _asegurar_admin_existe():
 
 def _pantalla_login() -> None:
     """
-    Renderiza la pantalla de login corporativa con CookieController.
-    En login exitoso: _guardar_cookie_sesion() + time.sleep(0.3) + st.rerun().
+    Renderiza la pantalla de login corporativa con CookieManager.
+    En login exitoso: _crear_sesion() + st.rerun().
     """
     _asegurar_admin_existe()
 
@@ -900,7 +891,6 @@ def _pantalla_login() -> None:
                         st.session_state["usuario_actual"] = _usr
                         st.success(
                             f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
-                        time.sleep(0.3)
                         st.rerun()
                     else:
                         st.error("Usuario o contraseña incorrectos.", icon="🚨")
@@ -1227,28 +1217,46 @@ with st.sidebar:
     )
     if st.button("⏻ Cerrar sesión", use_container_width=True, key="btn_logout"):
         _limpiar_sesion()
-        time.sleep(0.3)
         st.rerun()
 
-    # ── 🆘 Botón SOS — Ayuda contextual inteligente en sidebar ───────────────
+    # ── ✨ Copiloto IA Flotante — popover nativo (Zero-Click UX) ─────────────
     st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
-    with st.expander("🆘 ¿Necesitas ayuda rápida?", expanded=False):
+    with st.sidebar.popover("✨ Copiloto IA", use_container_width=True):
         st.markdown(
-            "<div style='font-size:0.75rem;opacity:0.6;margin-bottom:8px'>"
-            "Pregunta cualquier duda sobre la app o sobre marmolería. "
-            "La IA responde en menos de 2 párrafos.</div>",
+            "<div style='font-size:0.82rem;font-weight:700;margin-bottom:8px;"
+            "color:#1B5FA8'>Asistente contextual</div>"
+            "<div style='font-size:0.73rem;opacity:0.6;margin-bottom:10px'>"
+            "Toca una pregunta rápida o escribe la tuya.</div>",
             unsafe_allow_html=True
         )
+
+        # ── Preguntas rápidas (Zero-Click) ────────────────────────────────────
+        _sos_ctx = st.session_state.get("nav_radio", "Inicio")
+        _PREGUNTAS_RAPIDAS = [
+            "¿Qué es el AIU y cómo se calcula?",
+            "¿Cómo calculo el retal de una lámina?",
+            "¿Qué cobro en proyectos foráneos?",
+        ]
+        for _q in _PREGUNTAS_RAPIDAS:
+            if st.button(_q, use_container_width=True, key=f"sos_q_{_q[:20]}"):
+                with st.spinner("Consultando IA..."):
+                    _resp_rapida = chat_sos(_q, _sos_ctx)
+                st.session_state["_sos_ultima_respuesta"] = _resp_rapida
+                st.session_state["_sos_ultima_pregunta"]  = _q
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        st.divider()
+
+        # ── Input manual ──────────────────────────────────────────────────────
         _sos_pregunta = st.text_input(
             "Tu duda",
-            placeholder="Ej: ¿Qué es el retal? ¿Cómo funciona el AIU?",
+            placeholder="Ej: ¿Qué es el disco diamantado?",
             label_visibility="collapsed",
             key="sos_input"
         )
         if st.button("Preguntar →", use_container_width=True, key="btn_sos",
                      type="primary"):
             if _sos_pregunta.strip():
-                _sos_ctx = st.session_state.get("nav_radio", "Inicio")
                 with st.spinner("Consultando..."):
                     _sos_resp = chat_sos(_sos_pregunta.strip(), _sos_ctx)
                 st.session_state["_sos_ultima_respuesta"] = _sos_resp
@@ -1256,13 +1264,14 @@ with st.sidebar:
             else:
                 st.warning("Escribe tu duda primero.", icon="⚠️")
 
+        # ── Respuesta de la IA (fondo azul suave) ─────────────────────────────
         if st.session_state.get("_sos_ultima_respuesta"):
             st.markdown(
-                f"<div style='background:var(--secondary-background-color);"
-                f"border:1px solid var(--border-color);border-radius:8px;"
+                f"<div style='background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.25);"
+                f"border-left:3px solid #1B5FA8;border-radius:8px;"
                 f"padding:10px 12px;margin-top:8px;font-size:0.8rem;line-height:1.6'>"
-                f"<div style='font-size:0.65rem;font-weight:700;opacity:0.4;"
-                f"text-transform:uppercase;margin-bottom:6px'>Respuesta IA</div>"
+                f"<div style='font-size:0.65rem;font-weight:700;color:#1B5FA8;"
+                f"text-transform:uppercase;margin-bottom:6px'>✨ Copiloto responde</div>"
                 f"{st.session_state['_sos_ultima_respuesta'].replace(chr(10), '<br>')}"
                 f"</div>",
                 unsafe_allow_html=True
@@ -3106,12 +3115,11 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 st.session_state.aiu_success = True
                 st.rerun()
             if _btn_an:
-                _guardar_cotizacion(st.session_state.aiu_num_auto, nombre_cliente_aiu, r)
+                # "Guardar como nueva" en modo edición: salir de edición y dejar
+                # que el bloque "¿Guardar en historial?" decida el número definitivo.
                 st.session_state.pop("editando_id", None)
                 st.session_state.pop("editando_num", None)
-                st.session_state["_aiu_guardada"]     = True
-                st.session_state["_aiu_guardada_num"] = st.session_state.aiu_num_auto
-                st.session_state.aiu_success = True
+                st.session_state["_aiu_guardada"]     = False  # Dejar al usuario decidir
                 st.rerun()
 
         elif not _ya_g_aiu:
