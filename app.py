@@ -1933,18 +1933,32 @@ elif pagina == "Cotizacion Directa":
     # ════════════════════════════════════════════════════════════════════
     paso = st.session_state.cdir_paso
 
-    # Botón limpiar (solo si no estamos en el resultado)
+    # Botón limpiar — protegido con popover de confirmación (previene pérdida accidental en móvil)
     if pre and (pre.get("nombre_cliente") or pre.get("piezas") or pre.get("materiales_proyecto")):
-        if st.button("🗑️ Limpiar y empezar de cero", key="btn_limpiar_wizard"):
-            for k in ["pre", "piezas", "materiales_proyecto", "cotizacion",
-                      "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
-                      "_borrador_restaurado"]:
-                st.session_state.pop(k, None)
-            for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
-                del st.session_state[_wk]
-            st.session_state.cdir_paso    = 0
-            st.session_state.cdir_success = False
-            st.rerun()
+        with st.popover("🗑️ Reiniciar cotización", use_container_width=False):
+            st.markdown(
+                "<div style='font-size:0.88rem;font-weight:700;color:#dc2626;margin-bottom:6px'>"
+                "⚠️ ¿Estás seguro?</div>"
+                "<div style='font-size:0.80rem;line-height:1.55;opacity:0.80;margin-bottom:14px'>"
+                "Se perderán <strong>todos los datos</strong> del formulario actual: "
+                "materiales, dimensiones, piezas, logística y el cálculo guardado.</div>",
+                unsafe_allow_html=True
+            )
+            if st.button(
+                "Sí, borrar todo y empezar de cero",
+                key="btn_confirmar_limpiar",
+                type="primary",
+                use_container_width=True,
+            ):
+                for k in ["pre", "piezas", "materiales_proyecto", "cotizacion",
+                          "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
+                          "_borrador_restaurado"]:
+                    st.session_state.pop(k, None)
+                for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
+                    del st.session_state[_wk]
+                st.session_state.cdir_paso    = 0
+                st.session_state.cdir_success = False
+                st.rerun()
 
     # Barra de progreso visual
     _pct_progreso = int((paso / (N_PASOS - 1)) * 100)
@@ -1997,6 +2011,27 @@ elif pagina == "Cotizacion Directa":
         f"<p style='opacity:0.6;font-size:0.85rem;margin-bottom:20px'>Paso {paso+1} de {N_PASOS}</p>",
         unsafe_allow_html=True
     )
+
+    # ── Navegación no-lineal: pills de salto directo entre pasos ─────────────
+    # Permite saltar a cualquier paso sin usar los botones Anterior/Siguiente.
+    # Importante: mostramos todos los pasos (incluyendo Resultado) para que el
+    # usuario pueda volver a revisar. El cambio aplica inmediatamente vía rerun.
+    _pill_labels_cdir = [
+        f"{p['icono']} {i+1}. {p['label']}"
+        for i, p in enumerate(WIZARD_PASOS)
+    ]
+    _pill_sel_cdir = st.pills(
+        "Ir al paso",
+        options=_pill_labels_cdir,
+        default=_pill_labels_cdir[paso],
+        key=f"nav_pills_cdir_{paso}",        # key incluye paso para forzar reset al avanzar
+        label_visibility="collapsed",
+    )
+    if _pill_sel_cdir is not None:
+        _paso_pill = _pill_labels_cdir.index(_pill_sel_cdir)
+        if _paso_pill != paso:
+            st.session_state.cdir_paso = _paso_pill
+            st.rerun()
 
     # ════════════════════════════════════════════════════════════════════
     # PASO 0 — MATERIAL(ES)
@@ -2099,27 +2134,84 @@ elif pagina == "Cotizacion Directa":
                 if _retales_disp:
                     _m2_total_retal = sum(r[2] for r in _retales_disp)
                     _retal_key      = f"usar_retal_{midx}"
+                    _retal_sel_key  = f"retal_seleccionando_{midx}"
                     _usando_retal   = st.session_state.get(_retal_key, False)
-                    if not _usando_retal:
+                    _seleccionando  = st.session_state.get(_retal_sel_key, False)
+
+                    if not _usando_retal and not _seleccionando:
+                        # ── Estado inicial: banner informativo + botón ─────────
                         _num_piezas = len(_retales_disp)
-                        _orig_txt   = _retales_disp[0][3] if _num_piezas == 1 else f"{_num_piezas} proyectos anteriores"
+                        _orig_txt   = _retales_disp[0][3] if _num_piezas == 1 else f"{_num_piezas} sobrantes disponibles"
                         st.markdown(
                             f'<div style="border:1px solid #1B5FA8;border-left:4px solid #1B5FA8;'
                             f'border-radius:8px;padding:10px 16px;margin:8px 0;background:rgba(27,95,168,0.06);">'
                             f'<div style="font-size:0.8rem;font-weight:700;color:#1B5FA8;margin-bottom:4px">'
-                            f'Tienes {fmt_m2(_m2_total_retal, 2)} de sobrante de este material</div>'
+                            f'♻️ Tienes {fmt_m2(_m2_total_retal, 2)} de sobrante de este material</div>'
                             f'<div style="font-size:0.75rem;opacity:0.65">Origen: {_orig_txt}</div></div>',
                             unsafe_allow_html=True
                         )
-                        _col_rb, _ = st.columns([1.4, 2.6])
+                        _col_rb, _ = st.columns([1.6, 2.4])
                         with _col_rb:
-                            if st.button("Usar sobrante →", key=f"btn_retal_{midx}", type="primary", use_container_width=True):
-                                st.session_state[_retal_key] = True
-                                _retal_sel = max(_retales_disp, key=lambda r: r[2])
-                                st.session_state[f"retal_id_{midx}"]  = _retal_sel[0]
-                                st.session_state[f"retal_m2_{midx}"]  = _retal_sel[2]
+                            if st.button("Usar sobrante →", key=f"btn_retal_{midx}",
+                                         type="primary", use_container_width=True):
+                                # Solo abre el selector — NO asigna nada todavía
+                                st.session_state[_retal_sel_key] = True
                                 st.rerun()
+
+                    elif _seleccionando:
+                        # ── Paso de selección manual ───────────────────────────
+                        st.markdown(
+                            '<div style="border:1px solid #C9A84C;border-left:4px solid #C9A84C;'
+                            'border-radius:8px;padding:10px 16px;margin:8px 0;'
+                            'background:rgba(201,168,76,0.07);">'
+                            '<div style="font-size:0.78rem;font-weight:700;color:#C9A84C;margin-bottom:6px">'
+                            '🗂️ Selecciona el sobrante que quieres usar</div>'
+                            '<div style="font-size:0.72rem;opacity:0.65;margin-bottom:6px">'
+                            'Elige el sobrante que mejor se ajuste a tu proyecto.</div>'
+                            '</div>',
+                            unsafe_allow_html=True
+                        )
+                        # Construir opciones: r = (id, referencia, m2, origen_numero, origen_cliente, fecha_ingreso)
+                        _opciones_retal = []
+                        _mapa_retal     = {}
+                        for _r in _retales_disp:
+                            _rid   = _r[0]
+                            _rref  = _r[1] or "Sin referencia"
+                            _rm2   = _r[2]
+                            _rnum  = _r[3] or "—"
+                            _rclte = _r[4] or "—"
+                            _rfech = str(_r[5])[:10] if len(_r) > 5 and _r[5] else ""
+                            _lbl   = f"{fmt_m2(_rm2, 3)} · {_rref} · Cot. {_rnum}"
+                            if _rfech:
+                                _lbl += f" · {_rfech}"
+                            _opciones_retal.append(_lbl)
+                            _mapa_retal[_lbl] = {"id": _rid, "m2": _rm2}
+
+                        _sel_lbl = st.radio(
+                            "Sobrantes disponibles",
+                            options=_opciones_retal,
+                            key=f"retal_radio_{midx}",
+                            label_visibility="collapsed",
+                        )
+                        _rsel_data = _mapa_retal.get(_sel_lbl, {})
+
+                        _cbtn_c1, _cbtn_c2 = st.columns(2)
+                        with _cbtn_c1:
+                            if st.button("✓ Usar este sobrante", key=f"btn_confirmar_retal_{midx}",
+                                         type="primary", use_container_width=True):
+                                st.session_state[_retal_key]           = True
+                                st.session_state[f"retal_id_{midx}"]   = _rsel_data["id"]
+                                st.session_state[f"retal_m2_{midx}"]   = _rsel_data["m2"]
+                                st.session_state.pop(_retal_sel_key, None)
+                                st.rerun()
+                        with _cbtn_c2:
+                            if st.button("✕ Cancelar", key=f"btn_cancel_sel_{midx}",
+                                         use_container_width=True):
+                                st.session_state.pop(_retal_sel_key, None)
+                                st.rerun()
+
                     else:
+                        # ── Sobrante ya confirmado y activo ────────────────────
                         _rid_activo = st.session_state.get(f"retal_id_{midx}")
                         _rm2_activo = st.session_state.get(f"retal_m2_{midx}", _m2_total_retal)
                         _precio_rec = 0.0
@@ -2141,12 +2233,13 @@ elif pagina == "Cotizacion Directa":
                             f'<div style="border:1px solid #15803d;border-left:4px solid #15803d;border-radius:8px;'
                             f'padding:10px 16px;margin:8px 0;background:rgba(21,128,61,0.06);">'
                             f'<div style="font-size:0.8rem;font-weight:700;color:#15803d;margin-bottom:3px">'
-                            f'Sobrante activo — {_prec_txt} · Área: {fmt_m2(_rm2_activo,3)}</div>'
+                            f'♻️ Sobrante activo — {_prec_txt} · Área: {fmt_m2(_rm2_activo,3)}</div>'
                             f'<div style="font-size:0.75rem;opacity:0.65">El margen subirá al 80-90%+</div></div>',
                             unsafe_allow_html=True
                         )
                         if st.button("Cancelar sobrante", key=f"btn_cancel_retal_{midx}"):
                             st.session_state.pop(_retal_key, None)
+                            st.session_state.pop(_retal_sel_key, None)
                             st.session_state.pop(f"retal_id_{midx}", None)
                             st.session_state.pop(f"retal_m2_{midx}", None)
                             st.rerun()
@@ -3156,6 +3249,24 @@ elif pagina == "Cotizacion AIU":
         unsafe_allow_html=True
     )
 
+    # ── Navegación no-lineal AIU: pills de salto directo entre pasos ─────────
+    _pill_labels_aiu = [
+        f"{p['icono']} {i+1}. {p['label']}"
+        for i, p in enumerate(WIZARD_AIU_PASOS)
+    ]
+    _pill_sel_aiu = st.pills(
+        "Ir al paso AIU",
+        options=_pill_labels_aiu,
+        default=_pill_labels_aiu[paso_aiu],
+        key=f"nav_pills_aiu_{paso_aiu}",
+        label_visibility="collapsed",
+    )
+    if _pill_sel_aiu is not None:
+        _paso_aiu_pill = _pill_labels_aiu.index(_pill_sel_aiu)
+        if _paso_aiu_pill != paso_aiu:
+            st.session_state.aiu_paso = _paso_aiu_pill
+            st.rerun()
+
     # ════════════════════════════════════════════════════════════════════
     # PASO AIU 0 — ÍTEMS DEL CONTRATO
     # ════════════════════════════════════════════════════════════════════
@@ -3181,25 +3292,47 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
 | Precio unitario | Costo por unidad (COP) |
             """)
 
-        # Cabecera tabla
-        hdr = st.columns([4, 1, 1, 2, 0.5])
-        for col, lbl in zip(hdr, ["Descripción", "Unidad", "Cantidad", "Precio unitario (COP)", ""]):
-            col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
-
+        # ── Cards mobile-first — un card por ítem ─────────────────────────────
         nuevos_items = []
         cd_total     = 0.0
         for idx, it in enumerate(st.session_state.aiu_items):
-            c0, c1, c2, c3, c4 = st.columns([4, 1, 1, 2, 0.5])
-            desc  = c0.text_input("Desc",  value=it["desc"],            key=f"aiu_d_{idx}", label_visibility="collapsed")
-            und   = c1.text_input("Und",   value=it["und"],             key=f"aiu_u_{idx}", label_visibility="collapsed")
-            cant  = c2.number_input("Cant", value=float(it["cant"]),    min_value=0.0, step=1.0, key=f"aiu_c_{idx}", label_visibility="collapsed")
-            punit = c3.number_input("PU",   value=float(it["punit"]),   min_value=0.0, step=5_000.0, key=f"aiu_p_{idx}", label_visibility="collapsed")
-            sub   = cant * punit
-            cd_total += sub
-            c0.caption(f"Subtotal: {numero_completo(sub)}")
-            if c4.button("✕", key=f"aiu_del_{idx}") and len(st.session_state.aiu_items) > 1:
-                st.session_state.aiu_items.pop(idx)
-                st.rerun()
+            with st.container(border=True):
+                # ── Fila 1: descripción + botón eliminar ─────────────────────
+                _row1a, _row1b = st.columns([5.5, 0.8])
+                with _row1a:
+                    desc = st.text_input(
+                        "📝 Descripción",
+                        value=it["desc"],
+                        key=f"aiu_d_{idx}",
+                        placeholder="Ej: Suministro e instalación mármol",
+                    )
+                with _row1b:
+                    st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+                    _can_del = len(st.session_state.aiu_items) > 1
+                    if st.button("✕", key=f"aiu_del_{idx}",
+                                 help="Eliminar ítem", disabled=not _can_del):
+                        st.session_state.aiu_items.pop(idx)
+                        st.rerun()
+                # ── Fila 2: unidad | cantidad | precio unitario ──────────────
+                _row2a, _row2b, _row2c = st.columns([1.5, 1.5, 3])
+                with _row2a:
+                    und = st.text_input("Unidad", value=it["und"],
+                                        key=f"aiu_u_{idx}", placeholder="glb / m² / ml")
+                with _row2b:
+                    cant = st.number_input("Cantidad", value=float(it["cant"]),
+                                           min_value=0.0, step=1.0, key=f"aiu_c_{idx}")
+                with _row2c:
+                    punit = st.number_input("Precio unitario (COP)",
+                                            value=float(it["punit"]),
+                                            min_value=0.0, step=5_000.0, format="%.0f",
+                                            key=f"aiu_p_{idx}")
+                sub = cant * punit
+                cd_total += sub
+                st.markdown(
+                    f'<div style="font-size:0.78rem;font-weight:700;color:#1B5FA8;'
+                    f'text-align:right;margin-top:2px">Subtotal: {numero_completo(sub)}</div>',
+                    unsafe_allow_html=True
+                )
             nuevos_items.append({"desc": desc, "und": und, "cant": cant, "punit": punit})
         st.session_state.aiu_items = nuevos_items
 
@@ -3611,24 +3744,48 @@ elif pagina == "Cotizacion AIU":
     nombre_cliente_aiu = st.text_input("Nombre de la Constructora o Proyecto", placeholder="Ej: Constructora ABC", value=st.session_state.pre.get("nombre_cliente", ""), key="aiu_nombre_cliente")
 
     seccion_titulo("Items del contrato")
-    hdr = st.columns([4, 1, 1, 2, 0.5])
-    for col, lbl in zip(hdr, ["Descripcion", "Unidad", "Cantidad", "Precio unitario (COP)", ""]):
-        col.markdown(f"<div style='font-size:0.72rem;font-weight:700;opacity:0.6;text-transform:uppercase'>{lbl}</div>", unsafe_allow_html=True)
 
+    # ── Cards mobile-first — un card por ítem ─────────────────────────────────
     nuevos_items = []
     cd_total = 0.0
     for idx, it in enumerate(st.session_state.aiu_items):
-        c0, c1, c2, c3, c4 = st.columns([4, 1, 1, 2, 0.5])
-        desc   = c0.text_input("Desc", value=it["desc"], key=f"aiu_d_{idx}", label_visibility="collapsed")
-        und    = c1.text_input("Und",  value=it["und"],  key=f"aiu_u_{idx}", label_visibility="collapsed")
-        cant   = c2.number_input("Cant", value=float(it["cant"]), min_value=0.0, step=1.0, key=f"aiu_c_{idx}", label_visibility="collapsed")
-        punit  = c3.number_input("PU", value=float(it["punit"]), min_value=0.0, step=5_000.0, key=f"aiu_p_{idx}", label_visibility="collapsed")
-        sub    = cant * punit
-        cd_total += sub
-        c0.caption(f"Subtotal: {numero_completo(sub)}")
-        if c4.button("X", key=f"aiu_del_{idx}") and len(st.session_state.aiu_items) > 1:
-            st.session_state.aiu_items.pop(idx)
-            st.rerun()
+        with st.container(border=True):
+            # ── Fila 1: descripción + botón eliminar ─────────────────────────
+            _row1a, _row1b = st.columns([5.5, 0.8])
+            with _row1a:
+                desc = st.text_input(
+                    "📝 Descripción",
+                    value=it["desc"],
+                    key=f"aiu_d_{idx}",
+                    placeholder="Ej: Suministro e instalación mármol",
+                )
+            with _row1b:
+                st.markdown("<div style='height:24px'></div>", unsafe_allow_html=True)
+                _can_del = len(st.session_state.aiu_items) > 1
+                if st.button("✕", key=f"aiu_del_{idx}",
+                             help="Eliminar ítem", disabled=not _can_del):
+                    st.session_state.aiu_items.pop(idx)
+                    st.rerun()
+            # ── Fila 2: unidad | cantidad | precio unitario ──────────────────
+            _row2a, _row2b, _row2c = st.columns([1.5, 1.5, 3])
+            with _row2a:
+                und = st.text_input("Unidad", value=it["und"],
+                                    key=f"aiu_u_{idx}", placeholder="glb / m² / ml")
+            with _row2b:
+                cant = st.number_input("Cantidad", value=float(it["cant"]),
+                                       min_value=0.0, step=1.0, key=f"aiu_c_{idx}")
+            with _row2c:
+                punit = st.number_input("Precio unitario (COP)",
+                                        value=float(it["punit"]),
+                                        min_value=0.0, step=5_000.0, format="%.0f",
+                                        key=f"aiu_p_{idx}")
+            sub = cant * punit
+            cd_total += sub
+            st.markdown(
+                f'<div style="font-size:0.78rem;font-weight:700;color:#1B5FA8;'
+                f'text-align:right;margin-top:2px">Subtotal: {numero_completo(sub)}</div>',
+                unsafe_allow_html=True
+            )
         nuevos_items.append({"desc": desc, "und": und, "cant": cant, "punit": punit})
     st.session_state.aiu_items = nuevos_items
 
