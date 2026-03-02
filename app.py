@@ -1,15 +1,16 @@
-# app.py — CostoMármol v8 · CookieController Auth · Feb 2026
+# app.py — CostoMármol v9 · Token Session Auth · Mar 2026
 # Mármoles Collante & Castro Ltda.
 
 import io
 import time
+import uuid
 import hashlib
 import hmac as _hmac_mod
 import streamlit as st
 from streamlit_cookies_controller import CookieController
 import psycopg2
 import json, os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 _BOG = ZoneInfo("America/Bogota")
@@ -42,10 +43,10 @@ st.set_page_config(
 # las cookies. Usamos UN SOLO rerun inicial controlado por el flag "cookies_ok".
 # No usamos contadores: un booleano simple no puede causar bucle infinito.
 cookie_ctrl = CookieController()
-_COOKIE_USUARIO = "costomarmol_usuario"   # guarda el username (30 días)
+_COOKIE_TOKEN = "cm_tok"   # Transporta el UUID del token al navegador
 
-# Un solo rerun de arranque: garantiza que el JS tuvo tiempo de ejecutarse.
-# "cookies_ok" persiste toda la sesión → jamás se vuelve a disparar.
+# Rerun único de arranque: garantiza que React inyectó las cookies del navegador.
+# 'cookies_ok' es flag de infraestructura — NUNCA se borra en logout.
 if not st.session_state.get("cookies_ok"):
     st.session_state["cookies_ok"] = True
     st.rerun()
@@ -129,6 +130,22 @@ def _init_db():
         )
     """)
     # ── Migraciones seguras: añade columnas nuevas sin romper datos existentes ──
+    # ── Tabla de sesiones persistentes (Token Auth) ────────────────────────
+    # Token UUID4 por dispositivo, expira en 30 días, validado en BD en cada render.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS sesiones (
+            id          SERIAL PRIMARY KEY,
+            token       TEXT UNIQUE NOT NULL,
+            usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            expires_at  TIMESTAMP NOT NULL,
+            device_hint TEXT DEFAULT '',
+            created_at  TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_sesiones_token ON sesiones(token)
+    """)
+
     _migraciones = [
         ("inventario_retales", "precio_recuperacion", "REAL DEFAULT 0"),
         ("inventario_retales", "precio_mercado_m2",   "REAL DEFAULT 0"),
@@ -546,79 +563,183 @@ REGLAS:
         return f"Error: {str(e)}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SISTEMA DE AUTENTICACIÓN — CookieController + PBKDF2-SHA256 + PostgreSQL
-# ═══════════════════════════════════════════════════════════════════════════════
+# SISTEMA DE AUTENTICACIÓN — Token UUID4 + PostgreSQL + PBKDF2-SHA256
+# =============================================================================
 #
-# FLUJO (dos ciclos, sin race conditions):
-#   CICLO 0 (F5/cold-start): bloqueo arriba hace sleep(0.3) + rerun.
-#   CICLO 1+: cookie_ctrl.get() tiene el valor definitivo del navegador.
-#     • Si cookie existe → buscar usuario en BD → hidratar session_state → app.
-#     • Si no → _pantalla_login() → st.stop().
-#   LOGIN:  cookie_ctrl.set(username)  + time.sleep(0.3) + rerun.
-#   LOGOUT: cookie_ctrl.remove(key)    + time.sleep(0.3) + limpiar state + rerun.
+# F5 / cierre de pestaña / reinicio del servidor NO cierran la sesión.
+# El token UUID4 persiste en PostgreSQL con expiración de 30 días.
+# La cookie es solo transporte — la fuente de verdad es la tabla `sesiones`.
 
-# ── Helpers de contraseña (PBKDF2-SHA256 puro, sin dependencias externas) ─────
 
 def _hash_password(password: str) -> str:
-    """Hashing PBKDF2-SHA256 con salt corporativo fijo. Sin dependencias externas."""
+    """Hashing PBKDF2-SHA256 con 200.000 iteraciones. Sin dependencias externas."""
     salt = b"cc_marmoles_2026_salt"
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
     return dk.hex()
+
 
 def _verificar_password(password: str, hash_almacenado: str) -> bool:
     """Comparación segura contra timing-attacks via hmac.compare_digest."""
     return _hmac_mod.compare_digest(_hash_password(password), hash_almacenado)
 
-# ── Helpers de cookie ─────────────────────────────────────────────────────────
 
-def _guardar_cookie_sesion(username: str) -> None:
-    """Persiste el username en cookie HTTP (30 días) y en session_state."""
+def _device_hint() -> str:
+    """Primeros 60 chars del User-Agent. Solo informativo."""
+    try:
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        ua = _get_websocket_headers().get("User-Agent", "")
+        return ua[:60]
+    except Exception:
+        return ""
+
+
+def _crear_sesion(usuario_id: int) -> str:
+    """
+    Genera token UUID4, lo persiste en BD por 30 días y escribe la cookie.
+    Debe llamarse inmediatamente después de un login exitoso.
+    """
+    token = str(uuid.uuid4())
+    expires = datetime.now() + timedelta(days=30)
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        # Limpiar tokens expirados del usuario (housekeeping silencioso)
+        cur.execute(
+            "DELETE FROM sesiones WHERE usuario_id = %s AND expires_at < NOW()",
+            (usuario_id,)
+        )
+        cur.execute(
+            "INSERT INTO sesiones (token, usuario_id, expires_at, device_hint) "
+            "VALUES (%s, %s, %s, %s)",
+            (token, usuario_id, expires, _device_hint())
+        )
+        conn.commit()
+        cur.close(); conn.close()
+    except Exception:
+        pass   # BD no disponible: el token queda solo en session_state esta sesión
     try:
         cookie_ctrl.set(
-            _COOKIE_USUARIO, username,
+            _COOKIE_TOKEN, token,
             max_age=30 * 24 * 3600,
             path="/", secure=True, same_site="Lax",
         )
     except Exception:
         pass
-    st.session_state["_auth_username"] = username
+    st.session_state["_session_token"] = token
+    return token
 
-def _leer_cookie_sesion() -> str | None:
+
+def _validar_token(token: str) -> int | None:
     """
-    Lee el username desde session_state (caché) o desde la cookie HTTP.
-    Si el componente React aún no está listo devuelve None silenciosamente:
-    el muro de autenticación mostrará el login, sin bucles ni crashes.
+    Valida el token contra BD. Devuelve usuario_id si es válido y vigente.
+    Renueva silenciosamente si quedan menos de 7 días.
+    Devuelve None si no existe, expiró o hay error de BD.
     """
-    cached = st.session_state.get("_auth_username")
+    if not token:
+        return None
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT usuario_id, expires_at FROM sesiones "
+            "WHERE token = %s AND expires_at > NOW()",
+            (token,)
+        )
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return None
+        usuario_id, expires_at = row[0], row[1]
+        # Renovación automática: si quedan <7 días extender a 30
+        if expires_at and (expires_at - datetime.now()).days < 7:
+            nueva_exp = datetime.now() + timedelta(days=30)
+            cur.execute(
+                "UPDATE sesiones SET expires_at = %s WHERE token = %s",
+                (nueva_exp, token)
+            )
+            conn.commit()
+            try:
+                cookie_ctrl.set(
+                    _COOKIE_TOKEN, token,
+                    max_age=30 * 24 * 3600,
+                    path="/", secure=True, same_site="Lax",
+                )
+            except Exception:
+                pass
+        cur.close(); conn.close()
+        return usuario_id
+    except Exception:
+        return None
+
+
+def _leer_token() -> str | None:
+    """
+    Lee el token desde session_state (rápido) o desde la cookie (F5/nueva pestaña).
+    Devuelve None si no hay token — no causa bucle, solo muestra pantalla de login.
+    """
+    cached = st.session_state.get("_session_token")
     if cached:
         return cached
     try:
-        val = cookie_ctrl.get(_COOKIE_USUARIO)
+        val = cookie_ctrl.get(_COOKIE_TOKEN)
         if val:
-            st.session_state["_auth_username"] = val
+            st.session_state["_session_token"] = val
         return val or None
     except Exception:
-        # Componente aún no hidratado — devolver None, mostrar login
-        return None
+        return None   # React aún no hidratado — el rerun de arranque ya lo resolvió
+
 
 def _limpiar_sesion() -> None:
-    """Cierra sesión: borra cookie HTTP y limpia session_state relevante.
-    IMPORTANTE: NO borrar "cookies_ok" — ese flag es de infraestructura,
-    no de sesión de usuario. Borrarlo causaría rerun infinito al hacer logout.
     """
+    Cierra sesión: invalida token en BD, borra cookie y limpia session_state.
+    NUNCA toca 'cookies_ok' — es flag de infraestructura del componente React.
+    """
+    token = st.session_state.get("_session_token")
+    if token:
+        try:
+            conn = _get_db_connection()
+            cur  = conn.cursor()
+            cur.execute("DELETE FROM sesiones WHERE token = %s", (token,))
+            conn.commit()
+            cur.close(); conn.close()
+        except Exception:
+            pass
     try:
-        cookie_ctrl.remove(_COOKIE_USUARIO)
+        cookie_ctrl.remove(_COOKIE_TOKEN)
     except Exception:
         pass
-    for k in ["usuario_actual", "_auth_username", "_config_cargada",
+    for k in ["usuario_actual", "_session_token", "_config_cargada",
               "cotizacion", "pre", "piezas", "materiales_proyecto",
               "chat", "resumen_ia",
               "_cotiz_guardada", "_cotiz_guardada_num",
               "_aiu_guardada", "_aiu_guardada_num"]:
         st.session_state.pop(k, None)
 
-# ── CRUD de usuarios ──────────────────────────────────────────────────────────
+
+
+
+def _buscar_usuario_por_id(usuario_id: int) -> dict | None:
+    """Busca usuario por ID numérico. Usado por auth wall tras validar token."""
+    try:
+        _init_db()
+        conn = _get_db_connection()
+        cur  = conn.cursor()
+        cur.execute(
+            "SELECT id, username, password_hash, pin_recuperacion, rol, nombre_completo "
+            "FROM usuarios WHERE id = %s",
+            (usuario_id,)
+        )
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row:
+            return {"id": row[0], "username": row[1], "password_hash": row[2],
+                    "pin_recuperacion": row[3], "rol": row[4], "nombre_completo": row[5]}
+        return None
+    except Exception:
+        return None
+
 
 def _buscar_usuario_por_username(username: str) -> dict | None:
     try:
@@ -628,6 +749,7 @@ def _buscar_usuario_por_username(username: str) -> dict | None:
         cur.execute(
             "SELECT id, username, password_hash, pin_recuperacion, rol, nombre_completo "
             "FROM usuarios WHERE username = %s",
+
             (username.strip().lower(),)
         )
         row = cur.fetchone()
@@ -774,7 +896,7 @@ def _pantalla_login() -> None:
                     _usr = _buscar_usuario_por_username(_uname)
                     if _usr and _verificar_password(_pwd, _usr["password_hash"]):
                         # Login exitoso: persistir username en cookie HTTP (30 días)
-                        _guardar_cookie_sesion(_usr["username"])
+                        _crear_sesion(_usr["id"])
                         st.session_state["usuario_actual"] = _usr
                         st.success(
                             f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
@@ -959,33 +1081,42 @@ except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MURO DE AUTENTICACIÓN — CookieController
-# ══════════════════════════════════════════════════════════════════════════════
+# MURO DE AUTENTICACIÓN — Token UUID + PostgreSQL
+# =============================================================================
 #
-# FLUJO (cookies_ok=True garantiza que el componente React ya corrió):
-#   1. _leer_cookie_sesion() → session_state cache → cookie HTTP → None
-#   2. Si hay username → buscar usuario en BD → hidratar session_state → app.
-#   3. Si no hay username → _pantalla_login() → st.stop().
+# 1. _leer_token()          →  session_state cache  →  cookie del navegador  →  None
+# 2. Token presente         →  _validar_token() en BD  →  usuario_id
+# 3. Token válido           →  hidratar usuario  →  abrir app (sin login)
+# 4. Token inválido/expirado →  _limpiar_sesion() + pantalla login
+# 5. Sin token              →  pantalla de login
+#
+# El usuario NO vuelve a hacer login mientras el token (30 días) esté vigente,
+# aunque cierre el navegador, apague el dispositivo o refresque la página.
 
-_usuario_cookie = _leer_cookie_sesion()
+_token_actual = _leer_token()
 
-if _usuario_cookie:
-    # ── Cookie activa: hidratar usuario si aún no está en session_state ───────
+if _token_actual:
+    # ── Token presente: validar en BD ───────────────────────────────────────
     if not st.session_state.get("usuario_actual"):
-        _usr_hidratado = _buscar_usuario_por_username(_usuario_cookie)
-        if _usr_hidratado:
-            st.session_state["usuario_actual"] = _usr_hidratado
+        _uid_validado = _validar_token(_token_actual)
+        if _uid_validado:
+            _usr_token = _buscar_usuario_por_id(_uid_validado)
+            if _usr_token:
+                st.session_state["usuario_actual"] = _usr_token
+            else:
+                # Usuario eliminado de la BD — invalidar token
+                _limpiar_sesion()
+                _pantalla_login()
+                st.stop()
         else:
-            # Cookie apunta a usuario eliminado → limpiar y mostrar login
+            # Token expirado o inválido
             _limpiar_sesion()
             _pantalla_login()
             st.stop()
 else:
-    # ── Sin cookie activa → mostrar login corporativo ─────────────────────────
+    # ── Sin token → primera visita o sesión expirada ───────────────────
     _pantalla_login()
     st.stop()
-
-
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
 def get_viaticos(): return st.session_state.viaticos_custom or VIATICOS
