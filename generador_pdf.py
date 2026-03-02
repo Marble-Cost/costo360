@@ -346,12 +346,25 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             m2_p   = p.get("ml",1) * p.get("ancho_custom", 0.60)
             prop   = (m2_p / total_m2) if total_m2 > 0 else (1/len(piezas))
             precio_p = precio_sugerido_total * prop
-            ml_p   = p.get("ml", 1)
-            pu     = precio_p / ml_p if ml_p > 0 else 0
+            # ── Unidad dinámica: área (Fachada/Piso/Revestimiento) vs borde (ML) ──
+            _tipo_pieza = p.get("ancho_tipo", "").lower()
+            _es_area_p  = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
+            if _es_area_p:
+                # Pieza de área: mostrar m² y precio por m²
+                _cant_str  = f"{m2_p:.2f}"
+                _unid_str  = "m²"
+                _qty_base  = m2_p
+            else:
+                # Pieza de borde: mostrar ML y precio por ML
+                ml_p       = p.get("ml", 1)
+                _cant_str  = f"{ml_p:.2f}"
+                _unid_str  = "ml"
+                _qty_base  = ml_p
+            pu = precio_p / _qty_base if _qty_base > 0 else 0
             filas.append([
                 Paragraph(p.get("nombre", "—"), E["cell"]),
-                Paragraph("ml",            E["cell_c"]),
-                Paragraph(f"{ml_p:.2f}",   E["cell_c"]),
+                Paragraph(_unid_str,             E["cell_c"]),
+                Paragraph(_cant_str,             E["cell_c"]),
                 Paragraph(_num(round(pu/1000)*1000),       E["cell_r"]),
                 Paragraph(_num(round(precio_p/1000)*1000), E["cell_br"]),
             ])
@@ -635,8 +648,11 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 # COTIZACIÓN AIU
 # ══════════════════════════════════════════════════════════════════════════════
 
-def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None):
-    """PDF AIU. IVA (19%%) SOLO sobre Utilidad (U) — Decreto 1372/92."""
+def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None, incluir_iva=True):
+    """PDF AIU. IVA (19%%) SOLO sobre Utilidad (U) — Decreto 1372/92.
+    Si incluir_iva=False (o resultado['incluir_iva']==False), la fila IVA
+    muestra 'Exento' y $0 — sin alterar el diseño premium.
+    """
     if numero is None:
         numero = f"COT-AIU-{date.today().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
@@ -751,7 +767,10 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
 
     pct_a = r.get("pct_a", 2.0); pct_i = r.get("pct_i", 2.0); pct_u = r.get("pct_u", 5.0)
     val_a = r.get("val_a", cd * pct_a / 100); val_i = r.get("val_i", cd * pct_i / 100)
-    val_u = r.get("val_u", cd * pct_u / 100); val_iva = r.get("val_iva", val_u * 0.19)
+    val_u = r.get("val_u", cd * pct_u / 100)
+    # incluir_iva: parámetro explícito > clave en el resultado > default True
+    incluir_iva = incluir_iva and r.get("incluir_iva", True)
+    val_iva = r.get("val_iva", val_u * 0.19) if incluir_iva else 0.0
     logistica = r.get("logistica", 0); viaticos = r.get("viaticos", 0)
     precio_total = r.get("precio_total", cd + val_a + val_i + val_u + val_iva + logistica + viaticos)
     anticipo_val = precio_total * (anticipo_pct / 100)
@@ -826,16 +845,22 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
          Paragraph(f"{pct_u:.1f}%%", s_aiu_pct),
          Paragraph(_num(val_u), s_aiu_val)],
         # Fila IVA — visualmente separada dentro del mismo bloque
-        [Paragraph("IVA 19%%  (Sólo sobre Utilidad — Decreto 1372/92)", s_iva_lbl),
-         Paragraph("19%%", s_iva_val),
+        # Label y valor cambian dinámicamente según si IVA aplica o no
+        [Paragraph(
+            "IVA 19%%  (Sólo sobre Utilidad — Decreto 1372/92)" if incluir_iva
+            else "IVA  (Exento — Régimen Simplificado Art. 499 E.T.)",
+            s_iva_lbl),
+         Paragraph("19%%" if incluir_iva else "0%%", s_iva_val),
          Paragraph(_num(val_iva), s_iva_val)],
     ]
+    # Tinte de la fila IVA: azul claro si gravado, verde muy suave si exento
+    _iva_bg = colors.HexColor("#EEF3FB") if incluir_iva else colors.HexColor("#EBF7EE")
     tbl_aiu_comp = Table(filas_aiu_comp, colWidths=COL_W)
     tbl_aiu_comp.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),(-1,-1), _AIU_BG),
         ("LINEBEFORE",    (0,0),(0,-1),  3.0, _BORDE_AIU),
         ("LINEABOVE",     (0,3),(-1,3),  0.8, C["border"]),   # separador antes de IVA
-        ("BACKGROUND",    (0,3),(-1,3),  colors.HexColor("#EEF3FB")),  # IVA con tinte azul
+        ("BACKGROUND",    (0,3),(-1,3),  _iva_bg),            # azul=gravado / verde=exento
         ("TOPPADDING",    (0,0),(-1,-1), 6),
         ("BOTTOMPADDING", (0,0),(-1,-1), 6),
         ("LEFTPADDING",   (0,0),(-1,-1), 10),
