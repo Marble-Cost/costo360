@@ -259,6 +259,7 @@ def _cargar_config_desde_db() -> None:
     correctamente desde la representación UTF-8 guardada en BD.
     FIX-1: los borradores se leen con claves tenant-específicas para que
     cada usuario vea solo sus propios datos.
+    FIX-4: el historial de chat del copiloto IA se recupera por usuario.
     """
     if st.session_state.get("_config_cargada"):
         return
@@ -280,6 +281,16 @@ def _cargar_config_desde_db() -> None:
         _logo_db = _cargar_logo()
         if _logo_db:
             st.session_state["logo_bytes"] = _logo_db
+
+    # FIX-4: recuperar historial del chat del copiloto IA (por usuario)
+    # Solo se hace al arrancar — si el chat ya tiene mensajes en sesión, no se pisa.
+    if not st.session_state.get("chat"):
+        try:
+            _chat_db = _leer_config(f"chat_{_uid()}")
+            if _chat_db and isinstance(_chat_db, list):
+                st.session_state["chat"] = _chat_db
+        except Exception:
+            pass
 
     st.session_state["_config_cargada"] = True
 
@@ -1646,6 +1657,22 @@ elif pagina == "Cotizacion Directa":
                 _borrador["_origen"] = "borrador"
                 st.session_state.pre = _borrador
                 pre = _borrador
+                # ── FIX-2 Hidratación forzada: reconstruir todas las listas dinámicas ──
+                # Sin esto, las piezas, adicionales y retal seleccionado se pierden en F5.
+                if "piezas" in _borrador and _borrador["piezas"]:
+                    st.session_state.piezas = _borrador["piezas"]
+                if "materiales_proyecto" in _borrador and _borrador["materiales_proyecto"]:
+                    st.session_state.materiales_proyecto = _borrador["materiales_proyecto"]
+                if "cantidades_add" in _borrador:
+                    # cantidades_add es lista plana — la usamos para pre-cargar el form
+                    st.session_state["_cantidades_add_restauradas"] = _borrador["cantidades_add"]
+                # Restaurar paso del wizard para que el usuario continúe donde lo dejó
+                if "cdir_paso" in _borrador and isinstance(_borrador["cdir_paso"], int):
+                    st.session_state.cdir_paso = _borrador["cdir_paso"]
+                # Restaurar retal_id por material (guardados como retal_id_0, retal_id_1...)
+                for _rk, _rv in _borrador.items():
+                    if _rk.startswith("retal_id_") and _rv:
+                        st.session_state[_rk] = _rv
         except Exception:
             pass
         st.session_state["_borrador_restaurado"] = True
@@ -2801,16 +2828,24 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         tipos_sel         = pre.get("tipos_proyecto", ["Mesón"])
         _ADICIONALES_ACT  = get_adicionales()
 
-        # Guardar snapshot completo en pre (autosave)
+        # ── FIX-1/3 Snapshot profundo — captura TODO el estado vital ─────────────
+        # Incluye listas dinámicas, paso del wizard y retal_ids por material,
+        # de modo que un F5 en cualquier paso restaura la sesión al 100%.
         _etapa_labels = {v: k for k, v in ETAPAS_OBRA.items()}
+        # Recopilar retal_ids activos por índice de material
+        _retal_ids_snap = {
+            k: v for k, v in st.session_state.items()
+            if k.startswith("retal_id_") and v
+        }
         _pre_snapshot = {
-            "materiales_proyecto": st.session_state.get("materiales_proyecto",[]),
+            # ── Inputs básicos ────────────────────────────────────────────────
+            "materiales_proyecto": st.session_state.get("materiales_proyecto", []),
             "tipos_proyecto": tipos_sel, "tipo_proyecto": tipo,
             "etapa_label": _etapa_labels.get(etapa, list(ETAPAS_OBRA.keys())[0]),
             "dias_obra": dias, "personas": personas, "nombre_cliente": nombre_cliente,
             "zocalo_activo": zocalo_activo, "zocalo_ml": zocalo_ml,
-            "perfil_desperdicio": pre.get("perfil_desperdicio",""),
-            "extra_corte": pre.get("extra_corte", round(m2_real*0.15,2)),
+            "perfil_desperdicio": pre.get("perfil_desperdicio", ""),
+            "extra_corte": pre.get("extra_corte", round(m2_real * 0.15, 2)),
             "m2_proyecto": m2_real, "m2_cortados_input": m2_cortados_total,
             "m2_usados": m2_usados, "margen_pct": margen_pct,
             "agente_externo_taller": agente_ext_taller,
@@ -2819,14 +2854,28 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             "tipo_aloj": tipo_aloj, "noches": noches,
             "adicionales_activos": adicionales_activos, "cantidades_add": cantidades_add,
             "incluir_iva": incluir_iva,
-            "piezas": _piezas,
+            # ── Estructuras dinámicas (Caja Negra) ────────────────────────────
+            "piezas":             _piezas,                                  # lista completa de piezas
+            "cdir_paso":          st.session_state.get("cdir_paso", 0),     # paso actual del wizard
+            "editando_id":        st.session_state.get("editando_id"),      # modo edición activo
+            **_retal_ids_snap,                                               # retal_id_0, retal_id_1…
         }
         st.session_state.pre = _pre_snapshot
+
+        # ── Autoguardado en BD en CADA render del paso 4 (hash-gated) ────────
+        # No espera al clic de Calcular — persiste en cada ciclo de renderizado.
+        try:
+            _nuevo_hash = hash(json.dumps(_pre_snapshot, sort_keys=True, default=str))
+            if _nuevo_hash != st.session_state.get("last_pre_hash"):
+                _guardar_config(_clave_borrador_cdir(), _pre_snapshot)
+                st.session_state["last_pre_hash"] = _nuevo_hash
+        except Exception:
+            pass
 
         # ── Spinner de cálculo ────────────────────────────────────────
         if not st.session_state.cotizacion or st.session_state.get("_recalcular_paso4"):
             with st.spinner("Calculando costos..."):
-                _ml_tot = sum(p.get("ml",0) for p in _piezas)
+                _ml_tot = sum(p.get("ml", 0) for p in _piezas)
                 resultado = calcular_cotizacion_directa(
                     categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo,
                     area_placa_comprada=area_placa, m2_real=m2_real, m2_cortados=m2_cortados_total,
@@ -2847,15 +2896,6 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 resultado["incluir_iva"]      = incluir_iva
                 st.session_state.cotizacion   = resultado
                 st.session_state["_recalcular_paso4"] = False
-                # FIX-2 Dirty-State: solo persiste si el contenido cambió.
-                # FIX-1 Multi-Tenant: clave dinámica por usuario.
-                try:
-                    _nuevo_hash = hash(json.dumps(_pre_snapshot, sort_keys=True, default=str))
-                    if _nuevo_hash != st.session_state.get("last_pre_hash"):
-                        _guardar_config(_clave_borrador_cdir(), _pre_snapshot)
-                        st.session_state["last_pre_hash"] = _nuevo_hash
-                except Exception:
-                    pass
 
         r         = st.session_state.cotizacion
         _iva_act  = r.get("incluir_iva", incluir_iva)
@@ -3568,12 +3608,16 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 res_aiu["precio_sugerido"] = res_aiu["precio_total"]
                 res_aiu["incluir_iva"]     = incluir_iva_aiu
                 res_aiu["_estado_guardado"] = {
+                    # ── Inputs base ───────────────────────────────────────────
                     "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
                     "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
                     "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu,
                     "agente_externo_taller": agente_aiu, "foraneo_activo": foraneo_aiu,
                     "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu,
                     "incluir_iva": incluir_iva_aiu,
+                    # ── FIX-1/3 Estructuras dinámicas (Caja Negra AIU) ────────
+                    "aiu_paso":    st.session_state.get("aiu_paso", 0),
+                    "editando_id": st.session_state.get("editando_id"),
                 }
                 st.session_state.cotizacion = res_aiu
                 st.session_state["_recalcular_aiu"] = False
@@ -3734,8 +3778,13 @@ elif pagina == "Cotizacion AIU":
             _borrador_aiu = _leer_config(_clave_borrador_aiu())
             if _borrador_aiu:
                 st.session_state.pre = _borrador_aiu
+                # ── FIX-2 Hidratación forzada AIU: reconstruir listas y paso ──────────
                 if _borrador_aiu.get("aiu_items"):
                     st.session_state.aiu_items = _borrador_aiu["aiu_items"]
+                if "aiu_paso" in _borrador_aiu and isinstance(_borrador_aiu["aiu_paso"], int):
+                    st.session_state.aiu_paso = _borrador_aiu["aiu_paso"]
+                if "editando_id" in _borrador_aiu and _borrador_aiu["editando_id"]:
+                    st.session_state["editando_id"] = _borrador_aiu["editando_id"]
                 st.info("📋 Se restauró tu último cálculo AIU (antes de la recarga).")
         except Exception:
             pass
@@ -3879,7 +3928,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             st.caption("⚠️ Sin IVA — régimen simplificado. El total no incluye IVA.")
 
     # ── AUTOSAVE AIU: persistir estado en session_state.pre ────────────────────
-    st.session_state.pre = {
+    _pre_aiu_snap = {
         **st.session_state.pre,   # conservar lo que ya había (ej: piezas de Directa)
         "nombre_cliente":          nombre_cliente_aiu,
         "pct_a":                   pct_a,
@@ -3894,9 +3943,21 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         "tipo_aloj":               tipo_aloj_aiu,
         "noches":                  noches_aiu,
         "personas":                pers_aiu,
+        # ── FIX-1/3 Estructuras dinámicas (Caja Negra AIU) ────────────────────
         "aiu_items":               st.session_state.get("aiu_items", []),
+        "aiu_paso":                st.session_state.get("aiu_paso", 0),
+        "editando_id":             st.session_state.get("editando_id"),
         "tipo_proyecto":           "Licitación AIU",
     }
+    st.session_state.pre = _pre_aiu_snap
+    # ── Autoguardado AIU en BD en cada render (hash-gated) ────────────────────
+    try:
+        _hash_aiu_live = hash(json.dumps(_pre_aiu_snap, sort_keys=True, default=str))
+        if _hash_aiu_live != st.session_state.get("last_aiu_pre_hash"):
+            _guardar_config(_clave_borrador_aiu(), _pre_aiu_snap)
+            st.session_state["last_aiu_pre_hash"] = _hash_aiu_live
+    except Exception:
+        pass
 
     # ── CALCULAR / ACTUALIZAR AIU ─────────────────────────────────────────────
     _editando_id_aiu  = st.session_state.get("editando_id")
@@ -3944,11 +4005,15 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         res_aiu["incluir_iva"]     = incluir_iva_aiu
 
         res_aiu["_estado_guardado"] = {
+            # ── Inputs base ────────────────────────────────────────────────────
             "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
             "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
             "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu, "agente_externo_taller": agente_aiu,
             "foraneo_activo": foraneo_aiu, "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu,
             "incluir_iva": incluir_iva_aiu,
+            # ── FIX-1/3 Estructuras dinámicas (Caja Negra AIU) ─────────────────
+            "aiu_paso":    st.session_state.get("aiu_paso", 0),
+            "editando_id": st.session_state.get("editando_id"),
         }
 
         st.session_state.cotizacion = res_aiu
@@ -5909,6 +5974,18 @@ elif pagina == "Asistente IA":
     if "chat_input_key" not in st.session_state:
         st.session_state.chat_input_key = 0
 
+    # ── FIX-4 Carga tardía del historial (post-auth, _uid() ya tiene ID real) ─
+    # _cargar_config_desde_db se ejecuta antes de auth → _uid() = "anon".
+    # Aquí, ya autenticado, hacemos una segunda lectura con la clave correcta.
+    if not st.session_state.chat and not st.session_state.get("_chat_hidratado"):
+        try:
+            _chat_bd = _leer_config(f"chat_{_uid()}")
+            if _chat_bd and isinstance(_chat_bd, list):
+                st.session_state.chat = _chat_bd
+        except Exception:
+            pass
+        st.session_state["_chat_hidratado"] = True
+
     # ── CSS refinado ──────────────────────────────────────────────────────────
     st.markdown("""
     <style>
@@ -6021,6 +6098,11 @@ elif pagina == "Asistente IA":
             if st.button("🗑️ Limpiar", use_container_width=True, help="Borra el historial de esta conversación"):
                 st.session_state.chat = []
                 st.session_state.chat_input_key += 1
+                # FIX-4: borrar permanentemente en BD para que el F5 tampoco lo restaure
+                try:
+                    _guardar_config(f"chat_{_uid()}", [])
+                except Exception:
+                    pass
                 st.rerun()
 
     # ── Estado vacío: tarjetas de inicio ─────────────────────────────────────
@@ -6167,6 +6249,15 @@ elif pagina == "Asistente IA":
                             )
                         st.session_state.chat.append({"role": "assistant", "content": _sr})
                         st.session_state.chat_input_key += 1
+                        # FIX-4: persistir también al usar las tarjetas de sugerencias
+                        try:
+                            _guardar_config(f"chat_{_uid()}", [
+                                {"role": m["role"], "content": m["content"]}
+                                for m in st.session_state.chat
+                                if m.get("role") in ("user", "assistant")
+                            ])
+                        except Exception:
+                            pass
                         st.rerun()
 
     # ── Input de texto ────────────────────────────────────────────────────────
@@ -6210,6 +6301,17 @@ elif pagina == "Asistente IA":
 
         st.session_state.chat.append(_nuevo_msg_ia)
         st.session_state.chat_input_key += 1
+        # FIX-4: persistir el historial completo en BD después de cada intercambio
+        # Se serializa solo text/role — datos_proyecto con dicts simples es JSON-safe.
+        try:
+            _chat_serial = [
+                {"role": m["role"], "content": m["content"]}
+                for m in st.session_state.chat
+                if m.get("role") in ("user", "assistant")
+            ]
+            _guardar_config(f"chat_{_uid()}", _chat_serial)
+        except Exception:
+            pass
         st.rerun()
 
 
