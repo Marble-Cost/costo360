@@ -2206,40 +2206,95 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         piezas_nuevas    = []
         total_m2_piezas  = 0.0
 
-        # Cabecera de tabla
-        _hdr = st.columns([2.8, 1.3, 2.4, 1.4, 1.5, 0.5])
-        for _col, _lbl in zip(_hdr, ["Nombre / Descripción", "Largo (ML)", "Tipo de pieza", "Ancho (m)", "m² calculados", ""]):
-            _col.markdown(f"<div style='font-size:0.68rem;font-weight:700;opacity:0.55;text-transform:uppercase'>{_lbl}</div>", unsafe_allow_html=True)
-
+        # ── CARDS POR PIEZA — layout mobile-first ────────────────────
+        # Se elimina la "falsa tabla" de encabezados que colapsaba en móviles.
+        # Cada pieza es una Card independiente con máximo 2 columnas por fila.
         for idx, pieza in enumerate(st.session_state.piezas):
-            with st.container():
-                c0, c1, c2, c3, c4, c5 = st.columns([2.8, 1.3, 2.4, 1.4, 1.5, 0.5])
-                with c0:
-                    nombre_p = st.text_input("Nombre", value=pieza.get("nombre",""), key=f"pnom_{idx}", label_visibility="collapsed", placeholder=f"Pieza {idx+1}")
-                with c1:
-                    ml_p = st.number_input("ML", value=float(pieza.get("ml",1.0)), min_value=0.01, step=0.1, key=f"pml_{idx}", label_visibility="collapsed")
-                with c2:
-                    tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
-                    ancho_tipo_p = st.selectbox("Tipo", tipos_superficie, index=tipo_idx, key=f"ptip_{idx}", label_visibility="collapsed")
-                with c3:
-                    ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
-                    ancho_p   = st.number_input("Ancho", value=float(ancho_def), min_value=0.01, step=0.01, key=f"panc_{idx}", label_visibility="collapsed")
-                m2_p = ml_a_m2(ml_p, ancho_p)
-                total_m2_piezas += m2_p
-                with c4:
-                    st.markdown(f"<div style='padding:8px 4px;font-weight:700;color:#1B5FA8'>{fmt_m2(m2_p)}</div>", unsafe_allow_html=True)
-                with c5:
-                    if st.button("✕", key=f"del_{idx}") and len(st.session_state.piezas) > 1:
+            with st.container(border=True):
+                # ── FILA 1: Descripción + Botón eliminar ─────────────
+                _col_nom, _col_del = st.columns([5, 1])
+                with _col_nom:
+                    nombre_p = st.text_input(
+                        "Descripción de la pieza",
+                        value=pieza.get("nombre", ""),
+                        key=f"pnom_{idx}",
+                        placeholder=f"Pieza {idx + 1} — ej: Mesón de cocina",
+                    )
+                with _col_del:
+                    # Spacer para alinear el botón con el input de la columna izquierda
+                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    if st.button("🗑️", key=f"del_{idx}", help="Eliminar pieza",
+                                 use_container_width=True) and len(st.session_state.piezas) > 1:
                         st.session_state.piezas.pop(idx)
                         st.rerun()
 
-                if ancho_tipo_p == "Personalizado":
-                    st.text_input("Descripción del elemento", value=pieza.get("nombre_personalizado",""),
-                                  key=f"pcustom_{idx}", placeholder='Ej: "Mesón de lavamanos", "Pantry"',
-                                  help="Nombre que aparecerá en el PDF")
+                # ── FILA 2: Tipo de elemento + Largo en ML ───────────
+                _col_tipo, _col_ml = st.columns(2)
+                with _col_tipo:
+                    tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
+                    ancho_tipo_p = st.selectbox(
+                        "Tipo de elemento",
+                        tipos_superficie,
+                        index=tipo_idx,
+                        key=f"ptip_{idx}",
+                        help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""),
+                    )
+                with _col_ml:
+                    ml_p = st.number_input(
+                        "Largo (ML)",
+                        value=float(pieza.get("ml", 1.0)),
+                        min_value=0.01,
+                        step=0.1,
+                        key=f"pml_{idx}",
+                        help="Metros lineales de esta pieza",
+                    )
 
-                piezas_nuevas.append({"nombre": nombre_p, "ml": ml_p, "ancho_tipo": ancho_tipo_p,
-                                      "ancho_custom": ancho_p, "nombre_personalizado": pieza.get("nombre_personalizado","")})
+                # ── CONDICIONAL: nombre extra si elige Personalizado ──
+                if ancho_tipo_p == "Personalizado":
+                    st.text_input(
+                        "Nombre personalizado (aparece en el PDF)",
+                        value=st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", "")),
+                        key=f"pcustom_{idx}",
+                        placeholder='Ej: "Mesón de lavamanos", "Pantry", "Cornisa"',
+                        help="Nombre descriptivo que aparecerá en la cotización PDF",
+                    )
+
+                # ── FILA 3: Ancho + m² calculados ────────────────────
+                _col_ancho, _col_m2 = st.columns(2)
+                with _col_ancho:
+                    ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
+                    ancho_p   = st.number_input(
+                        "Ancho (m)",
+                        value=float(ancho_def),
+                        min_value=0.01,
+                        step=0.01,
+                        key=f"panc_{idx}",
+                        help="Profundidad o alto de la pieza en metros",
+                    )
+                m2_p = ml_a_m2(ml_p, ancho_p)
+                total_m2_piezas += m2_p
+                with _col_m2:
+                    st.markdown(
+                        f"""<div style="background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.22);
+                        border-radius:10px;padding:10px 14px;margin-top:4px">
+                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
+                             letter-spacing:0.1em;color:#1B5FA8;opacity:0.8">m² calculados</div>
+                        <div style="font-size:1.45rem;font-weight:900;color:#1B5FA8;
+                             font-family:'Playfair Display',serif;line-height:1.2">{fmt_m2(m2_p)}</div>
+                        <div style="font-size:0.7rem;opacity:0.6;margin-top:2px">{ml_p:.2f} ml × {ancho_p:.2f} m</div>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+
+                # Guardar pieza con nombre_personalizado actualizado desde el widget
+                _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
+                piezas_nuevas.append({
+                    "nombre":              nombre_p,
+                    "ml":                  ml_p,
+                    "ancho_tipo":          ancho_tipo_p,
+                    "ancho_custom":        ancho_p,
+                    "nombre_personalizado": _nom_personalizado,
+                })
 
         st.session_state.piezas = piezas_nuevas
         m2_real         = total_m2_piezas
