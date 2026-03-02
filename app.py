@@ -38,25 +38,16 @@ st.set_page_config(
 )
 
 # ── GESTOR DE COOKIES HTTP ────────────────────────────────────────────────────
-# Instanciar INMEDIATAMENTE después de set_page_config, antes de cualquier
-# lógica de sesión. El componente React de CookieController necesita al menos
-# un ciclo de Streamlit para inyectar los valores de las cookies desde el
-# navegador al backend Python.
+# CookieController necesita un ciclo para que su componente React inyecte
+# las cookies. Usamos UN SOLO rerun inicial controlado por el flag "cookies_ok".
+# No usamos contadores: un booleano simple no puede causar bucle infinito.
 cookie_ctrl = CookieController()
 _COOKIE_USUARIO = "costomarmol_usuario"   # guarda el username (30 días)
 
-# ── BLOQUEO DE RENDERIZADO ASÍNCRONO — solución definitiva al F5 ──────────────
-# El componente React de CookieController necesita al menos un ciclo completo
-# para inyectar las cookies del navegador al backend Python.
-# Usamos un contador de ciclos para garantizar que esperamos suficiente.
-# _cookie_ciclo == 0  →  primer render: hacer rerun inmediato (sin sleep)
-# _cookie_ciclo == 1  →  segundo render: sleep(0.3) + rerun para dar tiempo al JS
-# _cookie_ciclo >= 2  →  cookies ya disponibles, continuar normalmente
-_ciclo = st.session_state.get("_cookie_ciclo", 0)
-if _ciclo < 2:
-    st.session_state["_cookie_ciclo"] = _ciclo + 1
-    if _ciclo == 1:
-        time.sleep(0.3)
+# Un solo rerun de arranque: garantiza que el JS tuvo tiempo de ejecutarse.
+# "cookies_ok" persiste toda la sesión → jamás se vuelve a disparar.
+if not st.session_state.get("cookies_ok"):
+    st.session_state["cookies_ok"] = True
     st.rerun()
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
@@ -595,10 +586,9 @@ def _guardar_cookie_sesion(username: str) -> None:
 
 def _leer_cookie_sesion() -> str | None:
     """
-    Lee el username desde session_state (caché de ciclo) o desde la cookie HTTP.
-    Si el componente React aún no hidratou las cookies (self.__cookies is None),
-    captura la excepción, espera un ciclo extra y devuelve None para que el
-    muro de autenticación muestre el login en lugar de explotar.
+    Lee el username desde session_state (caché) o desde la cookie HTTP.
+    Si el componente React aún no está listo devuelve None silenciosamente:
+    el muro de autenticación mostrará el login, sin bucles ni crashes.
     """
     cached = st.session_state.get("_auth_username")
     if cached:
@@ -609,19 +599,19 @@ def _leer_cookie_sesion() -> str | None:
             st.session_state["_auth_username"] = val
         return val or None
     except Exception:
-        # Cookie controller no inicializado todavía — forzar un ciclo extra
-        st.session_state["_cookie_ciclo"] = 1   # retroceder al ciclo de espera
-        st.rerun()
-        return None  # nunca se alcanza, pero satisface el type checker
+        # Componente aún no hidratado — devolver None, mostrar login
+        return None
 
 def _limpiar_sesion() -> None:
-    """Cierra sesión: borra cookie HTTP y limpia session_state relevante."""
+    """Cierra sesión: borra cookie HTTP y limpia session_state relevante.
+    IMPORTANTE: NO borrar "cookies_ok" — ese flag es de infraestructura,
+    no de sesión de usuario. Borrarlo causaría rerun infinito al hacer logout.
+    """
     try:
         cookie_ctrl.remove(_COOKIE_USUARIO)
     except Exception:
         pass
     for k in ["usuario_actual", "_auth_username", "_config_cargada",
-              "_cookie_ciclo",
               "cotizacion", "pre", "piezas", "materiales_proyecto",
               "chat", "resumen_ia",
               "_cotiz_guardada", "_cotiz_guardada_num",
@@ -967,10 +957,10 @@ except Exception:
 # MURO DE AUTENTICACIÓN — CookieController
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# FLUJO (ciclo 1+ — el ciclo 0 ya hizo rerun arriba):
-#   1. Leer username de la cookie HTTP (o del caché de session_state).
-#   2. Si existe → buscar usuario en BD → hidratar session_state → mostrar app.
-#   3. Si no existe → mostrar _pantalla_login() → st.stop().
+# FLUJO (cookies_ok=True garantiza que el componente React ya corrió):
+#   1. _leer_cookie_sesion() → session_state cache → cookie HTTP → None
+#   2. Si hay username → buscar usuario en BD → hidratar session_state → app.
+#   3. Si no hay username → _pantalla_login() → st.stop().
 
 _usuario_cookie = _leer_cookie_sesion()
 
