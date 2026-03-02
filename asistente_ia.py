@@ -221,13 +221,15 @@ TONO: Espanol colombiano claro. Amigable pero profesional. Sin tecnicismos innec
 """
 
 
-def chat_sos(pregunta: str, contexto_actual: str = "Inicio") -> str:
+def chat_sos(pregunta: str, contexto_actual: str = "Inicio", contexto_form: str = "") -> str:
     """
     Asistente contextual rapido para el boton SOS del sidebar.
 
     Args:
-        pregunta: duda del usuario en texto libre
+        pregunta:       duda del usuario en texto libre
         contexto_actual: pagina en la que esta el usuario (st.session_state.nav_radio)
+        contexto_form:  volcado en texto de st.session_state.pre — datos
+                        del formulario activo (material, dimensiones, precios, etc.)
 
     Returns:
         Respuesta en maximo 2 parrafos. Mensaje de error descriptivo si falla.
@@ -239,13 +241,20 @@ def chat_sos(pregunta: str, contexto_actual: str = "Inicio") -> str:
             "de Anthropic en `.streamlit/secrets.toml` con la clave `ANTHROPIC_API_KEY`."
         )
     try:
-        mensaje = (
-            f"Estoy en la seccion '{contexto_actual}' de la app.\n\n"
-            f"Mi duda es: {pregunta}"
-        )
+        # ── Construir mensaje con contexto del formulario ─────────────────────
+        _partes = [f"Estoy en la seccion '{contexto_actual}' de la app."]
+        if contexto_form.strip():
+            _partes.append(
+                "\n\nAQUI TIENES LOS DATOS ACTUALES DE LA CALCULADORA DEL USUARIO. "
+                "Basa tus respuestas en estas medidas, precios y selecciones exactas:\n"
+                + contexto_form
+            )
+        _partes.append(f"\n\nMi duda es: {pregunta}")
+        mensaje = "".join(_partes)
+
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=350,
+            max_tokens=400,
             system=_SYSTEM_SOS,
             messages=[{"role": "user", "content": mensaje}],
         )
