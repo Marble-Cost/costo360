@@ -1683,32 +1683,43 @@ elif pagina == "Cotizacion Directa":
         if _i < paso:
             _dot_style = "background:#1B5FA8;color:white;border:2px solid #1B5FA8"
             _lbl_style = "color:#1B5FA8;font-weight:700"
-            _dot_char  = "✓"
+            _dot_char  = "&#10003;"
+            _conn_bg   = "#1B5FA8"
+            _conn_op   = "1"
         elif _i == paso:
             _dot_style = "background:#1B5FA8;color:white;border:2px solid #1B5FA8;box-shadow:0 0 0 4px rgba(27,95,168,0.18)"
             _lbl_style = "color:#1B5FA8;font-weight:900"
             _dot_char  = str(_i + 1)
+            _conn_bg   = "var(--border-color)"
+            _conn_op   = "0.25"
         else:
             _dot_style = "background:transparent;color:var(--text-color);border:2px solid var(--border-color);opacity:0.4"
             _lbl_style = "opacity:0.4"
             _dot_char  = str(_i + 1)
+            _conn_bg   = "var(--border-color)"
+            _conn_op   = "0.25"
 
-        _connector = f"<div style='flex:1;height:2px;background:{"#1B5FA8" if _i < paso else "var(--border-color)"};opacity:{"1" if _i < paso else "0.25"};margin:0 4px;align-self:center'></div>" if _i < N_PASOS - 1 else ""
-        _pasos_html += f"""
-        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">
-          <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
-                      justify-content:center;font-size:0.78rem;font-weight:800;{_dot_style}">{_dot_char}</div>
-          <div style="font-size:0.65rem;text-align:center;{_lbl_style}">{_p["label"]}</div>
-        </div>
-        {"" if _i == N_PASOS - 1 else f'<div style="flex:1;height:2px;background:{"#1B5FA8" if _i < paso else "var(--border-color)"};opacity:{"1" if _i < paso else "0.25"};margin-bottom:14px;align-self:flex-start;margin-top:16px"></div>'}
-        """
+        _pasos_html += (
+            '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">'
+            '<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;'
+            'justify-content:center;font-size:0.78rem;font-weight:800;' + _dot_style + '">' + _dot_char + '</div>'
+            '<div style="font-size:0.65rem;text-align:center;' + _lbl_style + '">' + _p["label"] + '</div>'
+            '</div>'
+        )
+        if _i < N_PASOS - 1:
+            _pasos_html += (
+                '<div style="flex:1;height:2px;background:' + _conn_bg + ';opacity:' + _conn_op + ';'
+                'margin-bottom:14px;align-self:flex-start;margin-top:16px"></div>'
+            )
 
-    st.markdown(f"""
-    <div style="display:flex;align-items:flex-start;margin-bottom:24px;
-                padding:16px 20px;background:var(--secondary-background-color);
-                border-radius:12px;border:1px solid var(--border-color)">
-      {_pasos_html}
-    </div>""", unsafe_allow_html=True)
+    st.markdown(
+        '<div style="display:flex;align-items:flex-start;margin-bottom:24px;'
+        'padding:16px 20px;background:var(--secondary-background-color);'
+        'border-radius:12px;border:1px solid var(--border-color)">'
+        + _pasos_html +
+        '</div>',
+        unsafe_allow_html=True
+    )
 
     st.markdown(
         f"<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>"
@@ -2758,30 +2769,43 @@ elif pagina == "Cotizacion AIU":
         if _i < paso_aiu:
             _ds = "background:#1B5FA8;color:white;border:2px solid #1B5FA8"
             _ls = "color:#1B5FA8;font-weight:700"
-            _dc = "✓"
+            _dc = "&#10003;"
+            _cb = "#1B5FA8"
+            _co = "1"
         elif _i == paso_aiu:
             _ds = "background:#1B5FA8;color:white;border:2px solid #1B5FA8;box-shadow:0 0 0 4px rgba(27,95,168,0.18)"
             _ls = "color:#1B5FA8;font-weight:900"
             _dc = str(_i + 1)
+            _cb = "var(--border-color)"
+            _co = "0.25"
         else:
             _ds = "background:transparent;color:var(--text-color);border:2px solid var(--border-color);opacity:0.4"
             _ls = "opacity:0.4"
             _dc = str(_i + 1)
-        _connector_aiu = "" if _i == N_AIU - 1 else f'<div style="flex:1;height:2px;background:{"#1B5FA8" if _i < paso_aiu else "var(--border-color)"};opacity:{"1" if _i < paso_aiu else "0.25"};margin-bottom:14px;align-self:flex-start;margin-top:16px"></div>'
-        _pasos_aiu_html += f"""
-        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">
-          <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
-                      justify-content:center;font-size:0.78rem;font-weight:800;{_ds}">{_dc}</div>
-          <div style="font-size:0.65rem;text-align:center;{_ls}">{_p["label"]}</div>
-        </div>
-        {_connector_aiu}"""
+            _cb = "var(--border-color)"
+            _co = "0.25"
 
-    st.markdown(f"""
-    <div style="display:flex;align-items:flex-start;margin-bottom:24px;
-                padding:16px 20px;background:var(--secondary-background-color);
-                border-radius:12px;border:1px solid var(--border-color)">
-      {_pasos_aiu_html}
-    </div>""", unsafe_allow_html=True)
+        _pasos_aiu_html += (
+            '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">'
+            '<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;'
+            'justify-content:center;font-size:0.78rem;font-weight:800;' + _ds + '">' + _dc + '</div>'
+            '<div style="font-size:0.65rem;text-align:center;' + _ls + '">' + _p["label"] + '</div>'
+            '</div>'
+        )
+        if _i < N_AIU - 1:
+            _pasos_aiu_html += (
+                '<div style="flex:1;height:2px;background:' + _cb + ';opacity:' + _co + ';'
+                'margin-bottom:14px;align-self:flex-start;margin-top:16px"></div>'
+            )
+
+    st.markdown(
+        '<div style="display:flex;align-items:flex-start;margin-bottom:24px;'
+        'padding:16px 20px;background:var(--secondary-background-color);'
+        'border-radius:12px;border:1px solid var(--border-color)">'
+        + _pasos_aiu_html +
+        '</div>',
+        unsafe_allow_html=True
+    )
 
     st.markdown(
         f"<h2 style='font-family:Playfair Display,serif;margin-bottom:2px'>"
