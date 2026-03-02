@@ -217,6 +217,13 @@ def _estilos(C):
                                        leading=10, textColor=C["white"]),
         "accent_s":    ParagraphStyle("accent_s", fontSize=7, fontName="Helvetica-Bold",
                                        leading=9, textColor=C["accent"]),
+        # Estilos nuevos para FIX-2, FIX-3, FIX-4
+        "nota_legal":  ParagraphStyle("nota_legal", fontSize=6.5, fontName="Helvetica-Oblique",
+                                       leading=9, textColor=colors.HexColor("#4A5568")),
+        "firma_titulo":ParagraphStyle("firma_titulo", fontSize=8, fontName="Helvetica-Bold",
+                                       leading=11, textColor=colors.HexColor("#1C2B3A")),
+        "firma_campo": ParagraphStyle("firma_campo", fontSize=8, fontName="Helvetica",
+                                       leading=12, textColor=colors.HexColor("#1C2B3A")),
     }
 
 
@@ -401,6 +408,27 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
         ("BOX",           (0,0),  (-1,-1), 0.5, C["border"]),
     ]))
     story.append(tbl)
+
+    # FIX-4: Nota Legal "A Todo Costo" — manejo de objeciones contractuales.
+    # Clarifica que los precios unitarios absorben todos los costos del proyecto.
+    nota_atodocosto = (
+        "Nota Legal: Los valores unitarios presentados corresponden a la modalidad "
+        "‘A Todo Costo’. Incluyen el suministro del material pétreo, mano de obra "
+        "especializada de corte e instalación, insumos técnicos, herramientas y "
+        "logística de transporte."
+    )
+    story.append(Table(
+        [[Paragraph(nota_atodocosto, E["nota_legal"])]],
+        colWidths=[17*cm],
+        style=TableStyle([
+            ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#F7F9FC")),
+            ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",  (0,0),(-1,-1),10),
+            ("TOPPADDING",    (0,0),(-1,-1), 5),  ("BOTTOMPADDING", (0,0),(-1,-1),5),
+            ("LINEABOVE",     (0,0),(-1, 0), 0.5, colors.HexColor("#6B85A0")),
+            ("BOX",           (0,0),(-1,-1), 0.4, colors.HexColor("#C8D8E8")),
+        ])
+    ))
+
     return story
 
 
@@ -557,6 +585,50 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
     return story
 
 
+def _bloque_firma_cliente(E, C):
+    """
+    FIX-3 — Bloque contractual de aceptación con valor probatorio.
+    KeepTogether garantiza que no se divida entre páginas.
+    Debe insertarse inmediatamente después de _seccion_terminos() en los 3 PDFs.
+    """
+    linea_blanca = "_" * 42
+
+    filas_firma = [
+        [Paragraph("ACEPTADO Y APROBADO POR EL CLIENTE:", E["firma_titulo"]), ""],
+        [Paragraph("Firma:", E["firma_campo"]),
+         Paragraph(linea_blanca, E["firma_campo"])],
+        [Paragraph("Nombre / Razón Social:", E["firma_campo"]),
+         Paragraph(linea_blanca, E["firma_campo"])],
+        [Paragraph("C.C. / NIT:", E["firma_campo"]),
+         Paragraph(linea_blanca, E["firma_campo"])],
+        [Paragraph("Fecha de aprobación:", E["firma_campo"]),
+         Paragraph(linea_blanca, E["firma_campo"])],
+    ]
+
+    tbl_firma = Table(filas_firma, colWidths=[5.2*cm, 11.8*cm])
+    tbl_firma.setStyle(TableStyle([
+        ("SPAN",          (0, 0), (-1, 0)),          # título ocupa ambas columnas
+        ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#EEF4FB")),
+        ("BACKGROUND",    (0, 1), (-1, -1), colors.HexColor("#FAFCFF")),
+        ("LINEABOVE",     (0, 0), (-1,  0), 1.5, colors.HexColor("#1B5FA8")),
+        ("LINEBELOW",     (0,-1), (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
+        ("LINEBELOW",     (0, 1), (-1, -2), 0.3, colors.HexColor("#E0E8F0")),
+        ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
+        ("TOPPADDING",    (0, 0), (-1,  0), 7),
+        ("BOTTOMPADDING", (0, 0), (-1,  0), 7),
+        ("TOPPADDING",    (0, 1), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+    ]))
+
+    return [
+        Spacer(1, 8),
+        KeepTogether([tbl_firma]),
+    ]
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # COTIZACIÓN DIRECTA
 # ══════════════════════════════════════════════════════════════════════════════
@@ -628,7 +700,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
         E, C, precio_sugerido_total, anticipo_pct, incluir_iva)
     story += fin_story
     valor_letras = _numero_a_letras(int(round(precio_final_doc)))
-    story.append(Table([[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["letras"])]],
+    story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
         colWidths=[17*cm], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
@@ -647,6 +719,8 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
         "Propuesta sin IVA — Regimen Simplificado (Art. 499 E.T.). "
     )
     story += _seccion_terminos(E, C, nota_iva, anticipo_pct)
+    # FIX-3: Bloque contractual de aceptación con KeepTogether
+    story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
     story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero)
 
@@ -928,7 +1002,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     story.append(tbl_extra)
 
     valor_letras = _numero_a_letras(int(round(precio_total)))
-    story.append(Table([[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["letras"])]],
+    story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
         colWidths=[17*cm], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
@@ -945,6 +1019,8 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         "Barranquilla, Colombia."
     )
     story += _seccion_terminos(E, C, nota_aiu, anticipo_pct)
+    # FIX-3: Bloque contractual de aceptación con KeepTogether
+    story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
     story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero)
 
@@ -992,14 +1068,23 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     C = _C(palette)
     E = _estilos(C)
 
+    # FIX-1: Título tributario dinámico — la DIAN prohíbe "Cuenta de Cobro" con IVA.
+    # Con IVA → PRE-FACTURA / DOCUMENTO PROFORMA (régimen común responsable IVA)
+    # Sin IVA → CUENTA DE COBRO (DOCUMENTO SOPORTE) (régimen simplificado)
+    _titulo_doc = (
+        "PRE-FACTURA / DOCUMENTO PROFORMA"
+        if (incluir_iva and not es_aiu) else
+        "CUENTA DE COBRO (DOCUMENTO SOPORTE)"
+    )
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
         leftMargin=1.4*cm, rightMargin=1.4*cm,
         topMargin=1.0*cm,  bottomMargin=1.2*cm,
-        title=f"Cuenta de Cobro {numero}")
+        title=f"{_titulo_doc} {numero}")
 
     story = []
-    story.append(_encabezado_doc(E, C, "CUENTA DE COBRO", numero, fecha_str, emp, _lb))
+    story.append(_encabezado_doc(E, C, _titulo_doc, numero, fecha_str, emp, _lb))
     story.append(Spacer(1, 7))
 
     story += _seccion_header("Quien Cobra", E)
@@ -1092,7 +1177,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     story.append(tbl_val)
 
     valor_letras = _numero_a_letras(int(round(valor_anticipo)))
-    story.append(Table([[Paragraph(f"Son: {valor_letras} pesos M/CTE", E["letras"])]],
+    story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
         colWidths=[17*cm], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
@@ -1110,6 +1195,26 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         story.append(_tabla_datos_cliente(E, C, banco_filas))
         story.append(Spacer(1, 7))
 
+    # FIX-1: Nota tributaria obligatoria según régimen fiscal del emisor
+    _nota_tributaria = (
+        "Este documento es una Proforma. La Factura Electrónica legal será emitida "
+        "y transmitida a la DIAN tras la recepción del anticipo."
+        if (incluir_iva and not es_aiu) else
+        "El prestador del servicio pertenece al Régimen Simplificado (No Responsable de IVA)."
+    )
+    story.append(Table(
+        [[Paragraph(_nota_tributaria, E["nota_legal"])]],
+        colWidths=[17*cm],
+        style=TableStyle([
+            ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FFF9EC")),
+            ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",  (0,0),(-1,-1),10),
+            ("TOPPADDING",    (0,0),(-1,-1), 6),  ("BOTTOMPADDING", (0,0),(-1,-1),6),
+            ("LINEABOVE",     (0,0),(-1, 0), 1.0, colors.HexColor("#C9A84C")),
+            ("BOX",           (0,0),(-1,-1), 0.4, colors.HexColor("#C8D8E8")),
+        ])
+    ))
+    story.append(Spacer(1, 7))
+
     firma = Table([[
         Table([[Paragraph("_" * 40, E["cell"])],[Paragraph(datos_prestador.get("nombre",""), E["aviso"])],[Paragraph("Firma del Prestador", E["aviso"])]]),
         "",
@@ -1118,6 +1223,9 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     firma.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),10),("VALIGN",(0,0),(-1,-1),"BOTTOM")]))
     story.append(firma)
     story.append(Spacer(1, 7))
+    # FIX-3: Bloque contractual de aceptación con KeepTogether
+    story += _bloque_firma_cliente(E, C)
+    story.append(Spacer(1, 5))
     story += _footer_doc(E, C, datos_prestador.get("nombre",""), fecha_str, numero)
 
     doc.build(story)
@@ -1127,36 +1235,51 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
 # ── Conversion numero a letras (espanol colombiano) ───────────────────────────
 
 def _numero_a_letras(n):
-    if n == 0: return "cero"
-    unidades = ["","uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve",
-                "diez","once","doce","trece","catorce","quince","dieciseis","diecisiete",
-                "dieciocho","diecinueve"]
-    decenas  = ["","diez","veinte","treinta","cuarenta","cincuenta","sesenta","setenta",
-                "ochenta","noventa"]
-    centenas = ["","ciento","doscientos","trescientos","cuatrocientos","quinientos",
-                "seiscientos","setecientos","ochocientos","novecientos"]
-    def _menor_mil(x):
-        if x == 0:   return ""
-        if x == 100: return "cien"
-        c, resto = divmod(x, 100)
-        d, u     = divmod(resto, 10)
-        partes   = []
-        if c:          partes.append(centenas[c])
-        if resto == 0: pass
-        elif resto < 20: partes.append(unidades[resto])
-        else:
-            p = decenas[d]
-            if u: p += " y " + unidades[u]
-            partes.append(p)
-        return " ".join(partes)
-    if n < 0:           return "menos " + _numero_a_letras(-n)
-    if n < 1_000:       return _menor_mil(n)
-    if n < 1_000_000:
-        m, r = divmod(n, 1_000)
-        pre  = "mil" if m == 1 else _menor_mil(m) + " mil"
-        return (pre + " " + _menor_mil(r)).strip()
-    if n < 1_000_000_000:
-        m, r = divmod(n, 1_000_000)
-        pre  = "un millon" if m == 1 else _menor_mil(m) + " millones"
-        return (pre + " " + _numero_a_letras(r)).strip()
-    return str(n)
+    """Convierte entero a letras en español colombiano.
+    Devuelve string en MAYÚSCULAS con sufijo obligatorio ' PESOS M/CTE.'
+    para ortografía contable estricta conforme a normas DIAN.
+    """
+    def _core(n):
+        if n == 0: return "cero"
+        # FIX-2: ortografía correcta — tildes en dieciséis, veintiuno, etc.
+        unidades = ["","uno","dos","tres","cuatro","cinco","seis","siete","ocho","nueve",
+                    "diez","once","doce","trece","catorce","quince","dieciséis","diecisiete",
+                    "dieciocho","diecinueve"]
+        # Compuestos del 20 con ortografía estricta
+        veintes  = {20:"veinte",21:"veintiuno",22:"veintidós",23:"veintitrés",
+                    24:"veinticuatro",25:"veinticinco",26:"veintiséis",
+                    27:"veintisiete",28:"veintiocho",29:"veintinueve"}
+        decenas  = ["","diez","veinte","treinta","cuarenta","cincuenta","sesenta","setenta",
+                    "ochenta","noventa"]
+        centenas = ["","ciento","doscientos","trescientos","cuatrocientos","quinientos",
+                    "seiscientos","setecientos","ochocientos","novecientos"]
+        def _menor_mil(x):
+            if x == 0:   return ""
+            if x == 100: return "cien"
+            c, resto = divmod(x, 100)
+            d, u     = divmod(resto, 10)
+            partes   = []
+            if c: partes.append(centenas[c])
+            if resto == 0: pass
+            elif resto < 20: partes.append(unidades[resto])
+            elif resto in veintes: partes.append(veintes[resto])
+            else:
+                p = decenas[d]
+                if u: p += " y " + unidades[u]
+                partes.append(p)
+            return " ".join(partes)
+        if n < 0:           return "menos " + _core(-n)
+        if n < 1_000:       return _menor_mil(n)
+        if n < 1_000_000:
+            m, r = divmod(n, 1_000)
+            pre  = "mil" if m == 1 else _menor_mil(m) + " mil"
+            return (pre + " " + _menor_mil(r)).strip()
+        if n < 1_000_000_000:
+            m, r = divmod(n, 1_000_000)
+            pre  = "un millón" if m == 1 else _menor_mil(m) + " millones"
+            return (pre + " " + _core(r)).strip()
+        return str(n)
+
+    raw = _core(int(abs(n)))
+    # FIX-2: Capitalizar primera letra y añadir sufijo contable obligatorio
+    return raw.capitalize() + " PESOS M/CTE."
