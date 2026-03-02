@@ -20,6 +20,7 @@ CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzi
 TARIFAS = {
     "Mármol": {
         "prod_ml":       60_000,  # COP/ml — lo que cobra el operario por cada ml cortado e instalado
+        "prod_m2":       35_000,  # COP/m² — mano de obra en pisos/fachadas/revestimientos (menos cortes de borde)
         "zocalo":        12_000,  # COP/ml de zócalo instalado
         "disco":          2_200,  # COP/m² cortado (disco diamantado rinde ~90 m² en mármol)
         "maquina":       20_000,  # COP/día de uso de la cortadora
@@ -28,6 +29,7 @@ TARIFAS = {
     },
     "Granito": {
         "prod_ml":       55_000,
+        "prod_m2":       32_000,  # Granito: menos cortes de borde en pisos/fachadas
         "zocalo":        14_000,
         "disco":          6_000,
         "maquina":       25_000,
@@ -36,6 +38,7 @@ TARIFAS = {
     },
     "Sinterizado": {
         "prod_ml":       85_000,
+        "prod_m2":       52_000,  # Sinterizado: herramientas especiales, mayor cuidado en pisos grandes
         "zocalo":        20_000,
         "disco":         18_000,
         "maquina":       32_000,
@@ -44,6 +47,7 @@ TARIFAS = {
     },
     "Quarztone": {
         "prod_ml":       65_000,
+        "prod_m2":       38_000,  # Quarztone: cuarzo compactado, pisos sin cortes de perfil
         "zocalo":        16_000,
         "disco":          5_200,
         "maquina":       27_000,
@@ -52,6 +56,7 @@ TARIFAS = {
     },
     "Quarzita": {
         "prod_ml":       70_000,
+        "prod_m2":       42_000,  # Quarzita: mayor dureza → más desgaste en pisos, menos que en bordes
         "zocalo":        15_000,
         "disco":          8_000,
         "maquina":       28_000,
