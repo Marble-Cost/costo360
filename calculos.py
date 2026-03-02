@@ -164,25 +164,55 @@ def calcular_cotizacion_directa(
     costo_material = precio_m2 * area_placa_comprada
 
     # ── ② Producción ──────────────────────────────────────────────────────────
-    # El operario cobra por ML cortado e instalado para piezas ML.
-    # Para piezas m² (pisos) cobra por m² con una tarifa diferente (prod_m2).
-    # prod_m2 se estima como prod_ml × 0.55 si no está configurado (menos cortes en pisos).
+    # ARQUITECTURA DUAL ML vs m²:
+    #
+    # TIPO BORDE (Mesón, Baño, Escalera, Cocina…):
+    #   El operario cobra por ML cortado e instalado. Mayor cantidad de
+    #   cortes de borde y perfilado → tarifa prod_ml por metro lineal.
+    #
+    # TIPO ÁREA (Piso, Fachada, Revestimiento):
+    #   El operario trabaja por m² instalado. Menos cortes de borde,
+    #   más colocación → tarifa prod_m2 por metro cuadrado.
+    #   Esta tarifa DEBE venir de TARIFAS["Material"]["prod_m2"] — no se
+    #   puede inferir dividiendo m2_real / 0.60 (eso era un hack incorrecto).
+    #
+    # Las piezas con unidad_venta=="m2" SIEMPRE usan prod_m2.
+    # Las piezas con unidad_venta=="ml"  SIEMPRE usan prod_ml.
+    # El tipo_proyecto actúa como tiebreaker en el fallback sin piezas.
     piezas = kwargs.get("piezas", [])
 
-    ml_piezas  = sum(float(p.get("largo", p.get("ml", 0))) for p in piezas if p.get("unidad_venta","ml") == "ml")
-    m2_piezas  = sum(ml_a_m2(float(p.get("largo", p.get("ml",0))), float(p.get("ancho", 0.60)))
-                     for p in piezas if p.get("unidad_venta","ml") == "m2")
+    ml_piezas = sum(
+        float(p.get("largo", p.get("ml", 0)))
+        for p in piezas if p.get("unidad_venta", "ml") == "ml"
+    )
+    m2_piezas = sum(
+        ml_a_m2(float(p.get("largo", p.get("ml", 0))), float(p.get("ancho", 0.60)))
+        for p in piezas if p.get("unidad_venta", "ml") == "m2"
+    )
 
-    # Fallback si no hay piezas (modo m² directo o carga desde pre)
+    # Tipos de proyecto que se pagan por área (no por borde)
+    _TIPOS_AREA = {"Piso", "Fachada", "Revestimiento"}
+    _es_tipo_area = any(t.strip() in _TIPOS_AREA for t in tipo_proyecto.split(",")) if tipo_proyecto else False
+
+    # Fallback cuando no hay piezas explícitas (carga desde pre, atajo, etc.)
     ml_proyecto = kwargs.get("ml_proyecto", 0.0)
     if ml_piezas <= 0 and ml_proyecto > 0:
         ml_piezas = ml_proyecto
+
     if ml_piezas <= 0 and m2_piezas <= 0:
-        # estimado: toda el área como ML con ancho 0.60
-        ml_piezas = m2_real / 0.60
+        if _es_tipo_area:
+            # Proyecto de área: costear todo por m², sin convertir a ML ficticio
+            m2_piezas = m2_real
+        else:
+            # Proyecto de borde: estimado razonable — 1 ML = 0.60 m de ancho estándar
+            # Solo se usa cuando no hay piezas detalladas disponibles
+            ml_piezas = m2_real / 0.60
 
     tarifa_prod_ml = tar.get("prod_ml", 60_000)
-    tarifa_prod_m2 = tar.get("prod_m2", round(tarifa_prod_ml * 0.55))   # pisos: menos cortes
+    # prod_m2 viene de TARIFAS (valor real calibrado por material).
+    # El fallback 0.55×prod_ml se mantiene solo para retrocompatibilidad
+    # con instalaciones donde prod_m2 aún no esté en la BD de config.
+    tarifa_prod_m2 = tar.get("prod_m2", round(tarifa_prod_ml * 0.55))
 
     c2_ml = ml_piezas * tarifa_prod_ml
     c2_m2 = m2_piezas * tarifa_prod_m2
