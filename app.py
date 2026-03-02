@@ -1673,7 +1673,6 @@ elif pagina == "Cotizacion Directa":
                             adicionales_lista=_add_sb,
                             tipo_proyecto=_pre_sb.get("tipo_proyecto", ""),
                             nombre_cliente=_nombre_atajo,
-                            piezas_lista=_pre_sb.get("piezas") or [],
                             piezas=_pre_sb.get("piezas", []),
                             ml_proyecto=float(_pre_sb.get("ml_proyecto", 0)),
                             logistica_override=st.session_state.get("logistica_custom"),
@@ -2209,7 +2208,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _margen_pre_str  = f"{_margen_pre}%" if f"{_margen_pre}%" in _margen_opciones else "Otro"
             _margen_sel = st.pills("Margen rápido", _margen_opciones,
                                    default=_margen_pre_str, key="p1_margen_pills",
-                                   help="Porcentaje de ganancia sobre el precio de venta") or _margen_pre_str
+                                   help="Porcentaje de ganancia sobre el precio de venta")
             if _margen_sel == "Otro" or _margen_sel is None:
                 margen_pct = st.number_input("Margen personalizado (%)", min_value=5, max_value=80,
                                              value=_margen_pre, step=1, key="p1_margen_custom")
@@ -2280,7 +2279,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _dias_opts = ["1", "2", "3", "4", "5", "6+"]
             _dias_pre  = int(pre.get("dias_obra", 2))
             _dias_pre_s = str(_dias_pre) if _dias_pre <= 5 else "6+"
-            _dias_sel   = st.pills("Días en obra", _dias_opts, default=_dias_pre_s, key="p2_dias_pills") or _dias_pre_s
+            _dias_sel   = st.pills("Días en obra", _dias_opts, default=_dias_pre_s, key="p2_dias_pills")
             if _dias_sel == "6+" or _dias_sel is None:
                 dias = st.number_input("Días (exacto)", min_value=1, value=_dias_pre, step=1, key="p2_dias_custom")
             else:
@@ -2290,7 +2289,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _pers_opts = ["1", "2", "3", "4", "5+"]
             _pers_pre  = int(pre.get("personas", 2))
             _pers_pre_s = str(_pers_pre) if _pers_pre <= 4 else "5+"
-            _pers_sel   = st.pills("Personas en obra", _pers_opts, default=_pers_pre_s, key="p2_pers_pills") or _pers_pre_s
+            _pers_sel   = st.pills("Personas en obra", _pers_opts, default=_pers_pre_s, key="p2_pers_pills")
             if _pers_sel == "5+" or _pers_sel is None:
                 personas = st.number_input("Personas (exacto)", min_value=1, value=_pers_pre, step=1, key="p2_pers_custom")
             else:
@@ -2306,7 +2305,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _zoc_opts = ["1 ml", "2 ml", "3 ml", "4 ml", "5 ml", "Otro"]
             _zoc_pre  = float(pre.get("zocalo_ml", 2.0))
             _zoc_pre_s = f"{int(_zoc_pre)} ml" if f"{int(_zoc_pre)} ml" in _zoc_opts else "Otro"
-            _zoc_sel  = st.pills("Metros de zócalo", _zoc_opts, default=_zoc_pre_s, key="p2_zocalo_pills") or _zoc_pre_s
+            _zoc_sel  = st.pills("Metros de zócalo", _zoc_opts, default=_zoc_pre_s, key="p2_zocalo_pills")
             if _zoc_sel == "Otro" or _zoc_sel is None:
                 zocalo_ml = st.number_input("Metros lineales de zócalo", min_value=0.0,
                                              value=_zoc_pre, step=0.5, key="cdir_zocalo_ml")
@@ -2441,7 +2440,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
 
                 # Selector visual de vehículo con st.pills
                 _veh_sel = st.pills("Vehículo de entrega", _veh_keys,
-                                    default=_veh_keys[_v_idx], key="p3_veh_pills") or _veh_keys[_v_idx]
+                                    default=_veh_keys[_v_idx], key="p3_veh_pills")
                 veh_lbl  = _veh_sel if _veh_sel else _veh_keys[0]
                 vehiculo = _veh_dict[veh_lbl]
 
@@ -2456,7 +2455,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     "15-30 km" if _km_pre <= 30 else
                     "30-60 km" if _km_pre <= 60 else "60+ km"
                 )
-                _km_rango = st.pills("Distancia al destino", _km_opts, default=_km_pre_s, key="p3_km_pills") or _km_pre_s
+                _km_rango = st.pills("Distancia al destino", _km_opts, default=_km_pre_s, key="p3_km_pills")
                 _km_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
                 km = st.number_input("Km exactos (un trayecto)", min_value=0.0,
                                      value=float(_km_defaults.get(_km_rango or "5-15 km", _km_pre)), step=1.0, key="cdir_km")
@@ -2466,7 +2465,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _pj_opts = ["0", "1", "2", "3", "4+"]
                 _pj_pre  = int(pre.get("peajes", 0))
                 _pj_pre_s = str(_pj_pre) if _pj_pre <= 3 else "4+"
-                _pj_sel  = st.pills("Peajes ida+vuelta", _pj_opts, default=_pj_pre_s, key="p3_peajes_pills") or _pj_pre_s
+                _pj_sel  = st.pills("Peajes ida+vuelta", _pj_opts, default=_pj_pre_s, key="p3_peajes_pills")
                 if _pj_sel == "4+" or _pj_sel is None:
                     peajes = st.number_input("Peajes (exacto)", min_value=0, value=_pj_pre, step=1, key="p3_peajes_custom")
                 else:
@@ -2491,7 +2490,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     _nc_opts  = ["1", "2", "3", "4", "5+"]
                     _nc_pre   = int(pre.get("noches", 1))
                     _nc_pre_s = str(_nc_pre) if _nc_pre <= 4 else "5+"
-                    _nc_sel   = st.pills("Noches", _nc_opts, default=_nc_pre_s, key="p3_noches_pills") or _nc_pre_s
+                    _nc_sel   = st.pills("Noches", _nc_opts, default=_nc_pre_s, key="p3_noches_pills")
                     if _nc_sel == "5+" or _nc_sel is None:
                         noches = st.number_input("Noches (exacto)", min_value=0, value=_nc_pre, step=1, key="p3_noches_custom")
                     else:
@@ -2620,7 +2619,6 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     adicionales_activos=adicionales_activos, cantidades_add=cantidades_add,
                     etapa=etapa, adicionales_lista=_ADICIONALES_ACT,
                     tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
-                    piezas_lista=st.session_state.get("piezas") or [],
                     ml_proyecto=_ml_tot,
                     logistica_override=st.session_state.get("logistica_custom"),
                     vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
@@ -2894,13 +2892,14 @@ elif pagina == "Cotizacion AIU":
           </div>
         </div>""", unsafe_allow_html=True)
 
+        _iva_lbl_sc = "IVA 19% (solo sobre Utilidad)" if r_aiu.get("incluir_iva", True)                       else "IVA (Exento — Régimen Simplificado)"
         with st.expander("📊 Ver desglose AIU", expanded=False):
             bloque_costos([
                 ("Costo Directo (CD)",        r_aiu["cd"]),
                 (f"A — Administración ({pct_a}%)", r_aiu["val_a"]),
                 (f"I — Imprevistos ({pct_i}%)",    r_aiu["val_i"]),
                 (f"U — Utilidad ({pct_u}%)",        r_aiu["val_u"]),
-                ("IVA 19% (solo sobre Utilidad)", r_aiu["val_iva"]),
+                (_iva_lbl_sc,                  r_aiu["val_iva"]),
                 ("Logística",                  r_aiu["logistica"]),
                 ("Viáticos",                   r_aiu.get("viaticos", 0)),
             ], "PRECIO TOTAL CONTRATO", r_aiu["precio_total"])
@@ -2922,7 +2921,8 @@ elif pagina == "Cotizacion AIU":
                     pdf_bytes = generar_pdf_cotizacion_aiu(
                         r_aiu, numero=num_cot_aiu,
                         empresa_info=st.session_state.empresa_info,
-                        logo_bytes=st.session_state.logo_bytes
+                        logo_bytes=st.session_state.logo_bytes,
+                        incluir_iva=r_aiu.get("incluir_iva", True),
                     )
                     st.download_button("⬇ Descargar Oferta AIU", pdf_bytes,
                                        file_name=f"{num_cot_aiu}.pdf", mime="application/pdf",
@@ -3117,7 +3117,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
             _a_pre  = float(st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"]))
             _a_pre_s = f"{int(_a_pre) if _a_pre == int(_a_pre) else _a_pre}%" if f"{int(_a_pre) if _a_pre == int(_a_pre) else _a_pre}%" in _a_opts else "Otro"
             _a_sel  = st.pills("A — Administración", _a_opts, default=_a_pre_s, key="aiu_pills_a",
-                               help="Cubre gastos administrativos del proyecto") or _a_pre_s
+                               help="Cubre gastos administrativos del proyecto")
             if _a_sel == "Otro" or _a_sel is None:
                 pct_a = st.number_input("A% exacto", min_value=0.0, max_value=20.0, value=_a_pre, step=0.5, key="aiu_pct_a_custom")
             else:
@@ -3128,7 +3128,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
             _i_pre  = float(st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"]))
             _i_pre_s = f"{int(_i_pre) if _i_pre == int(_i_pre) else _i_pre}%" if f"{int(_i_pre) if _i_pre == int(_i_pre) else _i_pre}%" in _i_opts else "Otro"
             _i_sel  = st.pills("I — Imprevistos", _i_opts, default=_i_pre_s, key="aiu_pills_i",
-                               help="Reserva para lo inesperado") or _i_pre_s
+                               help="Reserva para lo inesperado")
             if _i_sel == "Otro" or _i_sel is None:
                 pct_i = st.number_input("I% exacto", min_value=0.0, max_value=20.0, value=_i_pre, step=0.5, key="aiu_pct_i_custom")
             else:
@@ -3139,18 +3139,35 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
             _u_pre  = float(st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"]))
             _u_pre_s = f"{int(_u_pre) if _u_pre == int(_u_pre) else _u_pre}%" if f"{int(_u_pre) if _u_pre == int(_u_pre) else _u_pre}%" in _u_opts else "Otro"
             _u_sel  = st.pills("U — Utilidad", _u_opts, default=_u_pre_s, key="aiu_pills_u",
-                               help="Tu margen de ganancia. El IVA aplica SOLO sobre este valor") or _u_pre_s
+                               help="Tu margen de ganancia. El IVA aplica SOLO sobre este valor")
             if _u_sel == "Otro" or _u_sel is None:
                 pct_u = st.number_input("U% exacto", min_value=0.0, max_value=30.0, value=_u_pre, step=0.5, key="aiu_pct_u_custom")
             else:
                 pct_u = float(_u_sel.replace("%",""))
 
+        # ── Toggle fiscal IVA ─────────────────────────────────────────
+        st.markdown("---")
+        _aiu_iva_col, _ = st.columns([1.5, 1])
+        with _aiu_iva_col:
+            incluir_iva_aiu = st.toggle(
+                "🧾 Incluir IVA 19% sobre Utilidad",
+                value=st.session_state.pre.get("incluir_iva", True),
+                key="aiu_iva_toggle",
+                help="Activa si tu empresa es responsable del régimen común. "
+                     "Desactiva si cotizas bajo régimen simplificado (Art. 499 E.T.).",
+            )
+            if incluir_iva_aiu:
+                st.caption("IVA 19% sobre U (Utilidad) — Decreto 1372/92.")
+            else:
+                st.caption("⚠️ Sin IVA — régimen simplificado. El total no incluye IVA.")
+
         # Preview cálculo en tiempo real
         _val_a_prev = cd_total * (pct_a / 100)
         _val_i_prev = cd_total * (pct_i / 100)
         _val_u_prev = cd_total * (pct_u / 100)
-        _val_iva_prev = _val_u_prev * 0.19
+        _val_iva_prev = _val_u_prev * 0.19 if incluir_iva_aiu else 0.0
         _total_prev  = cd_total + _val_a_prev + _val_i_prev + _val_u_prev + _val_iva_prev
+        _iva_label   = f"IVA: <strong>{numero_completo(_val_iva_prev)}</strong>" if incluir_iva_aiu else                        "<span style='opacity:0.45;text-decoration:line-through'>IVA: Exento</span>"
         st.markdown(
             f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
             border-radius:10px;padding:12px 18px;margin-top:8px;font-size:0.85rem">
@@ -3159,7 +3176,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
               <span>A: <strong>{numero_completo(_val_a_prev)}</strong></span>
               <span>I: <strong>{numero_completo(_val_i_prev)}</strong></span>
               <span>U: <strong>{numero_completo(_val_u_prev)}</strong></span>
-              <span>IVA: <strong>{numero_completo(_val_iva_prev)}</strong></span>
+              <span>{_iva_label}</span>
               <span style="color:#1B5FA8;font-weight:900">Total: {numero_completo(_total_prev)}</span>
             </div></div>""",
             unsafe_allow_html=True
@@ -3175,27 +3192,25 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 _veh_aiu_keys = list(VEHICULOS.keys())
                 _veh_aiu_pre  = st.session_state.pre.get("vehiculo_entrega","frontier")
                 _veh_aiu_lbl_pre = next((k for k, v in VEHICULOS.items() if v == _veh_aiu_pre), _veh_aiu_keys[0])
-                _veh_aiu_sel  = st.pills("Vehículo", _veh_aiu_keys, default=_veh_aiu_lbl_pre, key="aiu_veh_pills") or _veh_aiu_lbl_pre
+                _veh_aiu_sel  = st.pills("Vehículo", _veh_aiu_keys, default=_veh_aiu_lbl_pre, key="aiu_veh_pills")
                 vehiculo_aiu  = VEHICULOS.get(_veh_aiu_sel or _veh_aiu_lbl_pre, "frontier")
                 agente_aiu    = st.toggle("Agente externo trae material", value=bool(st.session_state.pre.get("agente_externo_taller",False)), key="aiu_agente")
 
             with _al2:
                 _km_aiu_opts = ["0-5 km", "5-15 km", "15-30 km", "30-60 km", "60+ km"]
                 _km_aiu_pre  = float(st.session_state.pre.get("km", 10.0))
-                _km_aiu_sel  = (st.pills("Distancia", _km_aiu_opts,
+                _km_aiu_sel  = st.pills("Distancia", _km_aiu_opts,
                                         default="5-15 km" if _km_aiu_pre <= 15 else "15-30 km" if _km_aiu_pre <= 30 else "30-60 km",
                                         key="aiu_km_pills")
-                                       or ("5-15 km" if _km_aiu_pre <= 15 else "15-30 km" if _km_aiu_pre <= 30 else "30-60 km"))
                 _km_aiu_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
                 km_aiu  = st.number_input("Km exactos (Ida)", min_value=0.0,
                                            value=float(_km_aiu_defaults.get(_km_aiu_sel or "5-15 km", _km_aiu_pre)),
                                            step=1.0, key="aiu_km")
                 _pj_aiu_opts = ["0", "1", "2", "3", "4+"]
                 _pj_aiu_pre  = int(st.session_state.pre.get("peajes", 0))
-                _pj_aiu_sel  = (st.pills("Peajes ida+vuelta", _pj_aiu_opts,
+                _pj_aiu_sel  = st.pills("Peajes ida+vuelta", _pj_aiu_opts,
                                         default=str(_pj_aiu_pre) if _pj_aiu_pre <= 3 else "4+",
                                         key="aiu_pj_pills")
-                                       or (str(_pj_aiu_pre) if _pj_aiu_pre <= 3 else "4+"))
                 peajes_aiu   = int(_pj_aiu_sel) if (_pj_aiu_sel and _pj_aiu_sel != "4+") else st.number_input("Peajes (exacto)", min_value=0, value=_pj_aiu_pre, step=1, key="aiu_pj_custom")
 
         # ── Foráneo ──────────────────────────────────────────────────
@@ -3214,27 +3229,26 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 with _ff2:
                     _nc_aiu_opts = ["1", "2", "3", "4", "5+"]
                     _nc_aiu_pre  = int(st.session_state.pre.get("noches",1))
-                    _nc_aiu_sel  = (st.pills("Noches", _nc_aiu_opts,
+                    _nc_aiu_sel  = st.pills("Noches", _nc_aiu_opts,
                                             default=str(_nc_aiu_pre) if _nc_aiu_pre <= 4 else "5+",
                                             key="aiu_noches_pills")
-                                           or (str(_nc_aiu_pre) if _nc_aiu_pre <= 4 else "5+"))
                     noches_aiu = int(_nc_aiu_sel) if (_nc_aiu_sel and _nc_aiu_sel != "5+") else st.number_input("Noches (exacto)", min_value=0, value=_nc_aiu_pre, step=1, key="aiu_nc_custom")
                 with _ff3:
                     _ps_aiu_opts = ["1", "2", "3", "4", "5+"]
                     _ps_aiu_pre  = int(st.session_state.pre.get("personas",2))
-                    _ps_aiu_sel  = (st.pills("Personas", _ps_aiu_opts,
+                    _ps_aiu_sel  = st.pills("Personas", _ps_aiu_opts,
                                             default=str(_ps_aiu_pre) if _ps_aiu_pre <= 4 else "5+",
                                             key="aiu_pers_pills")
-                                           or (str(_ps_aiu_pre) if _ps_aiu_pre <= 4 else "5+"))
                     pers_aiu = int(_ps_aiu_sel) if (_ps_aiu_sel and _ps_aiu_sel != "5+") else st.number_input("Personas (exacto)", min_value=1, value=_ps_aiu_pre, step=1, key="aiu_ps_custom")
 
-        # Guardar en pre
+        # Guardar en pre (incluir_iva persiste entre pasos y restauraciones)
         st.session_state.pre = {
             **st.session_state.pre,
             "nombre_cliente":        nombre_cliente_aiu,
             "pct_a":                 pct_a,
             "pct_i":                 pct_i,
             "pct_u":                 pct_u,
+            "incluir_iva":           incluir_iva_aiu,
             "vehiculo_entrega":      vehiculo_aiu,
             "km":                    km_aiu,
             "peajes":                peajes_aiu,
@@ -3256,21 +3270,23 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
         pct_a        = st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])
         pct_i        = st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])
         pct_u        = st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])
-        vehiculo_aiu = st.session_state.pre.get("vehiculo_entrega","frontier")
-        km_aiu       = st.session_state.pre.get("km", 10.0)
-        peajes_aiu   = st.session_state.pre.get("peajes", 0)
-        agente_aiu   = st.session_state.pre.get("agente_externo_taller", False)
-        foraneo_aiu  = st.session_state.pre.get("foraneo_activo", False)
+        vehiculo_aiu  = st.session_state.pre.get("vehiculo_entrega","frontier")
+        km_aiu        = st.session_state.pre.get("km", 10.0)
+        peajes_aiu    = st.session_state.pre.get("peajes", 0)
+        agente_aiu    = st.session_state.pre.get("agente_externo_taller", False)
+        foraneo_aiu   = st.session_state.pre.get("foraneo_activo", False)
         tipo_aloj_aiu = st.session_state.pre.get("tipo_aloj","pueblo")
-        noches_aiu   = st.session_state.pre.get("noches", 0)
-        pers_aiu     = st.session_state.pre.get("personas", 2)
+        noches_aiu    = st.session_state.pre.get("noches", 0)
+        pers_aiu      = st.session_state.pre.get("personas", 2)
+        incluir_iva_aiu = st.session_state.pre.get("incluir_iva", True)
 
         # Calcular
         if not st.session_state.cotizacion or st.session_state.get("_recalcular_aiu"):
             with st.spinner("Calculando AIU..."):
                 res_aiu = calcular_aiu(
                     cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu,
-                    agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu
+                    agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu,
+                    incluir_iva=incluir_iva_aiu,
                 )
                 res_aiu["tipo_proyecto"]   = "Licitación AIU"
                 res_aiu["categoria"]       = "Proyecto Constructora"
@@ -3279,12 +3295,14 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 res_aiu["ml_proyecto"]     = 0
                 res_aiu["costo_total"]     = cd_total
                 res_aiu["precio_sugerido"] = res_aiu["precio_total"]
+                res_aiu["incluir_iva"]     = incluir_iva_aiu
                 res_aiu["_estado_guardado"] = {
                     "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
                     "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
                     "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu,
                     "agente_externo_taller": agente_aiu, "foraneo_activo": foraneo_aiu,
                     "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu,
+                    "incluir_iva": incluir_iva_aiu,
                 }
                 st.session_state.cotizacion = res_aiu
                 st.session_state["_recalcular_aiu"] = False
@@ -3317,12 +3335,13 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
 
         _cres, _ = st.columns([1.5, 1])
         with _cres:
+            _iva_lbl_p2 = "IVA 19% exclusivo sobre Utilidad" if r.get("incluir_iva", True)                           else "IVA (Exento — Régimen Simplificado)"
             bloque_costos([
                 ("Costo Directo Base (CD)",        r["cd"]),
                 (f"A — Administración ({pct_a}%)", r["val_a"]),
                 (f"I — Imprevistos ({pct_i}%)",    r["val_i"]),
                 (f"U — Utilidad ({pct_u}%)",        r["val_u"]),
-                ("IVA 19% exclusivo sobre Utilidad", r["val_iva"]),
+                (_iva_lbl_p2,                       r["val_iva"]),
                 ("Gastos logísticos",               r["logistica"]),
             ], "PRECIO TOTAL CONTRATO", r["precio_total"])
 
@@ -3543,6 +3562,21 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         noches_aiu = ca2.number_input("Noches", min_value=0, value=int(st.session_state.pre.get("noches", 1)), step=1, key="aiu_noches")
         pers_aiu = ca3.number_input("Personas", min_value=1, value=int(st.session_state.pre.get("personas", 2)), step=1, key="aiu_personas")
 
+    # ── Toggle fiscal IVA (ruta plana AIU) ──────────────────────────────────────
+    _aiv_col, _ = st.columns([1.5, 1])
+    with _aiv_col:
+        incluir_iva_aiu = st.toggle(
+            "🧾 Incluir IVA 19% sobre Utilidad",
+            value=st.session_state.pre.get("incluir_iva", True),
+            key="aiu_iva_toggle",
+            help="Activa si tu empresa es responsable del régimen común. "
+                 "Desactiva si cotizas bajo régimen simplificado (Art. 499 E.T.).",
+        )
+        if incluir_iva_aiu:
+            st.caption("IVA 19% sobre U (Utilidad) — Decreto 1372/92.")
+        else:
+            st.caption("⚠️ Sin IVA — régimen simplificado. El total no incluye IVA.")
+
     # ── AUTOSAVE AIU: persistir estado en session_state.pre ────────────────────
     st.session_state.pre = {
         **st.session_state.pre,   # conservar lo que ya había (ej: piezas de Directa)
@@ -3550,6 +3584,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         "pct_a":                   pct_a,
         "pct_i":                   pct_i,
         "pct_u":                   pct_u,
+        "incluir_iva":             incluir_iva_aiu,
         "vehiculo_entrega":        vehiculo_aiu,
         "km":                      km_aiu,
         "peajes":                  peajes_aiu,
@@ -3594,22 +3629,25 @@ no sobre el total del contrato. La app calcula esto automáticamente.
     )
 
     if _ejecutar_aiu:
-        res_aiu = calcular_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu, agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu)
+        res_aiu = calcular_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu, agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu,
+                              incluir_iva=incluir_iva_aiu)
 
         # Preparación de campos para compatibilidad con BD y PDF
-        res_aiu["tipo_proyecto"] = "Licitación AIU"
-        res_aiu["categoria"] = "Proyecto Constructora"
-        res_aiu["referencia"] = "Múltiple"
-        res_aiu["m2_real"] = 0
-        res_aiu["ml_proyecto"] = 0
-        res_aiu["costo_total"] = cd_total
-        res_aiu["precio_sugerido"] = res_aiu['precio_total']
+        res_aiu["tipo_proyecto"]   = "Licitación AIU"
+        res_aiu["categoria"]       = "Proyecto Constructora"
+        res_aiu["referencia"]      = "Múltiple"
+        res_aiu["m2_real"]         = 0
+        res_aiu["ml_proyecto"]     = 0
+        res_aiu["costo_total"]     = cd_total
+        res_aiu["precio_sugerido"] = res_aiu["precio_total"]
+        res_aiu["incluir_iva"]     = incluir_iva_aiu
 
         res_aiu["_estado_guardado"] = {
             "nombre_cliente": nombre_cliente_aiu, "aiu_items": st.session_state.aiu_items,
             "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u, "tipo_proyecto": "Licitación AIU",
             "vehiculo_entrega": vehiculo_aiu, "km": km_aiu, "peajes": peajes_aiu, "agente_externo_taller": agente_aiu,
-            "foraneo_activo": foraneo_aiu, "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu
+            "foraneo_activo": foraneo_aiu, "tipo_aloj": tipo_aloj_aiu, "noches": noches_aiu, "personas": pers_aiu,
+            "incluir_iva": incluir_iva_aiu,
         }
 
         st.session_state.cotizacion = res_aiu
@@ -3648,14 +3686,15 @@ no sobre el total del contrato. La app calcula esto automáticamente.
 
         c_res, _ = st.columns([1.5, 1])
         with c_res:
+            _iva_lbl_pl = "IVA 19% exclusivo sobre Utilidad" if r.get("incluir_iva", True)                           else "IVA (Exento — Régimen Simplificado)"
             bloque_costos([
-                ("Costo Directo Base (CD)", r['cd']),
-                (f"A — Administración ({r.get('pct_a', pct_a)}%)", r['val_a']),
-                (f"I — Imprevistos ({r.get('pct_i', pct_i)}%)", r['val_i']),
-                (f"U — Utilidad ({r.get('pct_u', pct_u)}%)", r['val_u']),
-                ("IVA 19% exclusivo sobre Utilidad", r['val_iva']),
-                ("Gastos Logísticos Integrados", r['logistica']),
-            ], "PRECIO TOTAL", r['precio_total'])
+                ("Costo Directo Base (CD)", r["cd"]),
+                (f"A — Administración ({r.get('pct_a', pct_a)}%)", r["val_a"]),
+                (f"I — Imprevistos ({r.get('pct_i', pct_i)}%)", r["val_i"]),
+                (f"U — Utilidad ({r.get('pct_u', pct_u)}%)", r["val_u"]),
+                (_iva_lbl_pl,               r["val_iva"]),
+                ("Gastos Logísticos Integrados", r["logistica"]),
+            ], "PRECIO TOTAL", r["precio_total"])
 
         st.markdown("---")
 
@@ -3719,7 +3758,8 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         with cp1:
             num_cot_a = st.text_input("Número de Oferta", value=f"OFE-AIU-{_hoy().strftime('%Y')}-001")
             if st.button("📄 Generar Oferta AIU (PDF)", type="primary", use_container_width=True):
-                pdf_bytes = generar_pdf_cotizacion_aiu(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes)
+                pdf_bytes = generar_pdf_cotizacion_aiu(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes,
+                                                            incluir_iva=r.get("incluir_iva", True))
                 st.download_button("⬇ Descargar Oferta", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
         with cp2:
             num_cc_a = st.text_input("Número de Cuenta / Factura", value=f"FAC-AIU-{_hoy().strftime('%Y')}-001")
