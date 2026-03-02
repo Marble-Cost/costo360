@@ -46,12 +46,17 @@ cookie_ctrl = CookieController()
 _COOKIE_USUARIO = "costomarmol_usuario"   # guarda el username (30 días)
 
 # ── BLOQUEO DE RENDERIZADO ASÍNCRONO — solución definitiva al F5 ──────────────
-# En el ciclo 0 (cold start / F5), el JS del componente aún no ha enviado las
-# cookies al backend. Forzamos un rerun con delay mínimo para que el ciclo 1
-# ya tenga disponible el valor real de la cookie en cookie_ctrl.get().
-if "sesion_inicializada" not in st.session_state:
-    time.sleep(0.3)
-    st.session_state.sesion_inicializada = True
+# El componente React de CookieController necesita al menos un ciclo completo
+# para inyectar las cookies del navegador al backend Python.
+# Usamos un contador de ciclos para garantizar que esperamos suficiente.
+# _cookie_ciclo == 0  →  primer render: hacer rerun inmediato (sin sleep)
+# _cookie_ciclo == 1  →  segundo render: sleep(0.3) + rerun para dar tiempo al JS
+# _cookie_ciclo >= 2  →  cookies ya disponibles, continuar normalmente
+_ciclo = st.session_state.get("_cookie_ciclo", 0)
+if _ciclo < 2:
+    st.session_state["_cookie_ciclo"] = _ciclo + 1
+    if _ciclo == 1:
+        time.sleep(0.3)
     st.rerun()
 
 # ── INICIALIZACIÓN DE VARIABLES Y NAVEGACIÓN (CON PERSISTENCIA EN URL) ────────
@@ -578,22 +583,36 @@ def _verificar_password(password: str, hash_almacenado: str) -> bool:
 
 def _guardar_cookie_sesion(username: str) -> None:
     """Persiste el username en cookie HTTP (30 días) y en session_state."""
-    cookie_ctrl.set(
-        _COOKIE_USUARIO, username,
-        max_age=30 * 24 * 3600,
-        path="/", secure=True, same_site="Lax",
-    )
+    try:
+        cookie_ctrl.set(
+            _COOKIE_USUARIO, username,
+            max_age=30 * 24 * 3600,
+            path="/", secure=True, same_site="Lax",
+        )
+    except Exception:
+        pass
     st.session_state["_auth_username"] = username
 
 def _leer_cookie_sesion() -> str | None:
-    """Lee el username desde session_state (caché de ciclo) o desde la cookie HTTP."""
+    """
+    Lee el username desde session_state (caché de ciclo) o desde la cookie HTTP.
+    Si el componente React aún no hidratou las cookies (self.__cookies is None),
+    captura la excepción, espera un ciclo extra y devuelve None para que el
+    muro de autenticación muestre el login en lugar de explotar.
+    """
     cached = st.session_state.get("_auth_username")
     if cached:
         return cached
-    val = cookie_ctrl.get(_COOKIE_USUARIO)
-    if val:
-        st.session_state["_auth_username"] = val
-    return val or None
+    try:
+        val = cookie_ctrl.get(_COOKIE_USUARIO)
+        if val:
+            st.session_state["_auth_username"] = val
+        return val or None
+    except Exception:
+        # Cookie controller no inicializado todavía — forzar un ciclo extra
+        st.session_state["_cookie_ciclo"] = 1   # retroceder al ciclo de espera
+        st.rerun()
+        return None  # nunca se alcanza, pero satisface el type checker
 
 def _limpiar_sesion() -> None:
     """Cierra sesión: borra cookie HTTP y limpia session_state relevante."""
@@ -602,7 +621,7 @@ def _limpiar_sesion() -> None:
     except Exception:
         pass
     for k in ["usuario_actual", "_auth_username", "_config_cargada",
-              "sesion_inicializada",
+              "_cookie_ciclo",
               "cotizacion", "pre", "piezas", "materiales_proyecto",
               "chat", "resumen_ia",
               "_cotiz_guardada", "_cotiz_guardada_num",
