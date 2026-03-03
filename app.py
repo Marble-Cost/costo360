@@ -328,6 +328,7 @@ def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, refe
     """Registra el retal de una cotización aprobada en el inventario."""
     if m2_retal <= 0:
         return
+    _uid_act = st.session_state.get("usuario_actual", {}).get("id")
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
@@ -338,11 +339,11 @@ def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, refe
             """INSERT INTO inventario_retales
                (material_categoria, referencia, m2_disponibles, m2_original,
                 origen_cotizacion_id, origen_numero, origen_cliente, fecha_ingreso,
-                estado, precio_recuperacion, precio_mercado_m2)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible', 0, %s)""",
+                estado, precio_recuperacion, precio_mercado_m2, usuario_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible', 0, %s, %s)""",
             (categoria, referencia or "", round(m2_retal, 4), round(m2_retal, 4),
              cot_id, numero, cliente or "Sin nombre", _hoy().isoformat(),
-             round(precio_m2_original, 0))
+             round(precio_m2_original, 0), _uid_act)
         )
         conn.commit()
     cur.close()
@@ -587,29 +588,33 @@ def _eliminar_cotizacion(cot_id):
     st.cache_data.clear()
 
 @st.cache_data(ttl=60)
-def _stats_db():
+def _stats_db(usuario_id=None, rol="Admin"):
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
     s = {}
-    cur.execute("SELECT COUNT(*) FROM cotizaciones")
-    s["total"]      = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Aprobada'")
-    s["aprobadas"]  = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Pendiente'")
-    s["pendientes"] = cur.fetchone()[0]
+    # Multi-tenant: Operario solo ve sus propias cotizaciones
+    _es_op = (rol == "Operario" and usuario_id is not None)
+    _w  = "WHERE usuario_id = %s" if _es_op else "WHERE TRUE"
+    _p  = (usuario_id,) if _es_op else ()
+    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w}", _p)
+    s["total"]       = cur.fetchone()[0]
+    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
+    s["aprobadas"]   = cur.fetchone()[0]
+    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Pendiente'", _p)
+    s["pendientes"]  = cur.fetchone()[0]
     # Rechazadas: query directa — NO se infiere como total-aprobadas-pendientes
     # porque pueden existir otros estados (ej: "En revisión").
-    cur.execute("SELECT COUNT(*) FROM cotizaciones WHERE estado='Rechazada'")
-    s["rechazadas"] = cur.fetchone()[0]
-    cur.execute("SELECT SUM(precio) FROM cotizaciones WHERE estado='Aprobada'")
-    s["facturacion"]= cur.fetchone()[0] or 0
-    cur.execute("SELECT AVG(margen) FROM cotizaciones WHERE estado='Aprobada'")
-    s["margen_prom"]= cur.fetchone()[0] or 0
-    cur.execute("SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones WHERE estado='Aprobada' GROUP BY material")
-    s["por_material"]= cur.fetchall()
-    cur.execute("SELECT SUBSTR(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones WHERE estado='Aprobada' GROUP BY SUBSTR(fecha,1,7) ORDER BY SUBSTR(fecha,1,7) DESC LIMIT 6")
-    s["por_mes"]    = cur.fetchall()
+    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Rechazada'", _p)
+    s["rechazadas"]  = cur.fetchone()[0]
+    cur.execute(f"SELECT SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
+    s["facturacion"] = cur.fetchone()[0] or 0
+    cur.execute(f"SELECT AVG(margen) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
+    s["margen_prom"] = cur.fetchone()[0] or 0
+    cur.execute(f"SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada' GROUP BY material", _p)
+    s["por_material"] = cur.fetchall()
+    cur.execute(f"SELECT SUBSTR(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada' GROUP BY SUBSTR(fecha,1,7) ORDER BY SUBSTR(fecha,1,7) DESC LIMIT 6", _p)
+    s["por_mes"]     = cur.fetchall()
     # ── Tasa de cierre real (B2B correcta) ────────────────────────────────────
     # Fórmula: Aprobadas / (Aprobadas + Rechazadas) × 100
     # Los Pendientes se EXCLUYEN — no son decisiones tomadas todavía.
@@ -619,31 +624,36 @@ def _stats_db():
     conn.close()
     return s
 
-def _stats_retales() -> dict:
+
+def _stats_retales(usuario_id=None, rol="Admin") -> dict:
     """Calcula el capital inmovilizado y métricas del banco de retales."""
     _init_db()
     conn = _get_db_connection()
     cur = conn.cursor()
-    cur.execute("""
+    # Multi-tenant: Operario solo ve sus propios retales
+    _es_op = (rol == "Operario" and usuario_id is not None)
+    _extra = "AND usuario_id = %s" if _es_op else ""
+    _p     = (usuario_id,) if _es_op else ()
+    cur.execute(f"""
         SELECT
             material_categoria,
             COUNT(*) AS piezas,
             SUM(m2_disponibles) AS m2_total,
             SUM(m2_disponibles * precio_mercado_m2) AS valor_potencial
         FROM inventario_retales
-        WHERE estado = 'Disponible' AND m2_disponibles > 0.05
+        WHERE estado = 'Disponible' AND m2_disponibles > 0.05 {_extra}
         GROUP BY material_categoria
         ORDER BY valor_potencial DESC
-    """)
+    """, _p)
     por_categoria = cur.fetchall()
-    cur.execute("""
+    cur.execute(f"""
         SELECT
             COUNT(*) AS total_piezas,
             COALESCE(SUM(m2_disponibles), 0) AS m2_total,
             COALESCE(SUM(m2_disponibles * precio_mercado_m2), 0) AS valor_total
         FROM inventario_retales
-        WHERE estado = 'Disponible' AND m2_disponibles > 0.05
-    """)
+        WHERE estado = 'Disponible' AND m2_disponibles > 0.05 {_extra}
+    """, _p)
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -4040,7 +4050,7 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
                 with _row2c:
                     punit = st.number_input("Precio unitario (COP)",
                                             value=float(it["punit"]),
-                                            min_value=0.0, step=5_000.0,
+                                            min_value=0.0, step=5_000.0, format="%.0f",
                                             key=f"aiu_p_{idx}")
                     st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(punit)}</div>", unsafe_allow_html=True)
                 sub = cant * punit
@@ -4529,7 +4539,7 @@ elif pagina == "Cotizacion AIU":
             with _row2c:
                 punit = st.number_input("Precio unitario (COP)",
                                         value=float(it["punit"]),
-                                        min_value=0.0, step=5_000.0,
+                                        min_value=0.0, step=5_000.0, format="%.0f",
                                         key=f"aiu_p_{idx}")
                 st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(punit)}</div>", unsafe_allow_html=True)
             sub = cant * punit
@@ -4921,7 +4931,10 @@ elif pagina == "Historial":
     )
 
     # ── Métricas rápidas (integradas — ya no hay Dashboard separado) ──────────
-    _s = _stats_db()
+    _s = _stats_db(
+        usuario_id=st.session_state.get("usuario_actual", {}).get("id"),
+        rol=st.session_state.get("usuario_actual", {}).get("rol", "Admin"),
+    )
     if _s["total"] > 0:
         _tasa = _s["tasa_cierre"]   # Aprobadas / (Aprobadas + Rechazadas) × 100
         _mc1, _mc2, _mc3, _mc4 = st.columns(4)
@@ -5186,7 +5199,10 @@ elif pagina == "Dashboard":
         unsafe_allow_html=True,
     )
 
-    _s = _stats_db()
+    _s = _stats_db(
+        usuario_id=st.session_state.get("usuario_actual", {}).get("id"),
+        rol=st.session_state.get("usuario_actual", {}).get("rol", "Admin"),
+    )
 
     # ── Estado vacío ──────────────────────────────────────────────────────────
     if _s["total"] == 0:
@@ -5245,7 +5261,10 @@ elif pagina == "Dashboard":
 
     # ── KPI: Capital Inmovilizado en Retales ─────────────────────────────────
     try:
-        _sr = _stats_retales()
+        _sr = _stats_retales(
+            usuario_id=st.session_state.get("usuario_actual", {}).get("id"),
+            rol=st.session_state.get("usuario_actual", {}).get("rol", "Admin"),
+        )
     except Exception:
         _sr = {"total_piezas": 0, "m2_total": 0.0, "valor_total": 0.0, "por_categoria": []}
 
@@ -5690,15 +5709,16 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                 st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
                 if st.button("Guardar", key="rfm_save", type="primary", use_container_width=True):
                     try:
+                        _uid_manual = st.session_state.get("usuario_actual", {}).get("id")
                         _init_db()
                         _conn = _get_db_connection()
                         _cur = _conn.cursor()
                         _cur.execute(
                             """INSERT INTO inventario_retales
                                (material_categoria, referencia, m2_disponibles, m2_original,
-                                fecha_ingreso, estado, notas)
-                               VALUES (%s, %s, %s, %s, %s, 'Disponible', %s)""",
-                            (_ncat, _nref, _nm2, _nm2, _hoy().isoformat(), _nnota)
+                                fecha_ingreso, estado, notas, usuario_id)
+                               VALUES (%s, %s, %s, %s, %s, 'Disponible', %s, %s)""",
+                            (_ncat, _nref, _nm2, _nm2, _hoy().isoformat(), _nnota, _uid_manual)
                         )
                         _conn.commit()
                         _cur.close()
@@ -5836,7 +5856,7 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                                 "de margen reflejarán la rentabilidad real del proyecto."
                             ),
                         )
-                        st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(_nuevo_precio_rec)}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='margin-top:-2px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(_nuevo_precio_rec)}</div>", unsafe_allow_html=True)
                         if _nuevo_precio_rec != int(_rr_precio_rec):
                             try:
                                 _conn_pr = _get_db_connection()
