@@ -5242,7 +5242,7 @@ elif pagina == "Dashboard":
              "decisiones reales. Una tasa saludable en marmolería está entre el 50% y el 70%.",
     )
     _k3.metric(
-        "Facturación real",
+        "Ingresos Asegurados",
         _facturacion_f,
         help="Dinero asegurado que va a entrar a la empresa, "
              "contando solo los proyectos que el cliente ya aprobó. "
