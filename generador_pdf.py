@@ -24,6 +24,7 @@ from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     HRFlowable, Image, KeepTogether,
 )
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from calculos import cop
 
@@ -138,12 +139,11 @@ def _logo_img(logo_bytes, max_h=1.4*cm):
     if not logo_bytes:
         return None
     try:
-        buf = io.BytesIO(logo_bytes)
+        img_reader = ImageReader(io.BytesIO(logo_bytes))
         # FIX-4: kind='proportional' garantiza que el logo escale dentro del
         # bounding box sin deformarse, aunque la imagen no tenga ratio 3:1.
-        # El cálculo manual de ratio se mantiene como capa primaria; kind=
-        # 'proportional' actúa como red de seguridad de ReportLab.
-        img = Image(buf, kind='proportional')
+        # ImageReader (Tarea 3) garantiza renderizado en visores PDF móviles.
+        img = Image(img_reader, kind='proportional')
         ratio = img.imageWidth / img.imageHeight
         img.drawWidth  = max_h * ratio
         img.drawHeight = max_h
@@ -301,7 +301,7 @@ def _tabla_datos_cliente(E, C, filas_datos):
     rows = []
     for label, valor in filas_datos:
         rows.append([Paragraph(label, E["cell"]), Paragraph(f"<b>{valor}</b>", E["cell_b"])])
-    tbl = Table(rows, colWidths=[5*cm, 12*cm])
+    tbl = Table(rows, colWidths=[5*cm, 12*cm], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0,0), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
         ("TOPPADDING",     (0,0), (-1,-1), 5),
@@ -395,7 +395,7 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             Paragraph(_num(precio_sugerido_total), E["cell_br"]),
         ])
 
-    tbl = Table(filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm])
+    tbl = Table(filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
         ("ROWBACKGROUNDS",(0,1),  (-1,-1), [C["zebra_a"], C["zebra_b"]]),
@@ -503,7 +503,7 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
         ("BOX",            (0,0), (-1,-1), 1.0, C["border"]),
         ("LINEBELOW",      (0,0), (-1,-2), 0.3, C["border"]),
     ]))
-    story.append(tbl_fin)
+    story.append(KeepTogether([tbl_fin]))
     return story, precio_final_doc, anticipo_val
 
 
@@ -532,7 +532,7 @@ def _seccion_alcance(E, C):
     while len(col_inc)  < max_r: col_inc.append([""])
     while len(col_ninc) < max_r: col_ninc.append([""])
     rows = [[col_inc[i][0], col_ninc[i][0]] for i in range(max_r)]
-    tbl_al = Table(rows, colWidths=[8.5*cm, 8.5*cm])
+    tbl_al = Table(rows, colWidths=[8.5*cm, 8.5*cm], repeatRows=1)
     tbl_al.setStyle(TableStyle([
         ("BACKGROUND",    (0,0), (-1,0),  C["header_dark"]),
         ("ROWBACKGROUNDS",(0,1), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
@@ -827,7 +827,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         Paragraph("", E["cell_c"]), Paragraph("", E["cell_c"]), Paragraph("", E["cell_c"]),
         Paragraph(_num(cd), E["subtotal_v"]),
     ])
-    tbl_cd = Table(cd_filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm])
+    tbl_cd = Table(cd_filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm], repeatRows=1)
     tbl_cd.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
         ("ROWBACKGROUNDS",(0,1),  (-1,-2), [C["zebra_a"], C["zebra_b"]]),
@@ -953,7 +953,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         ("LINEBELOW",     (0,0),(-1,-1), 0.3, C["border"]),
         ("BOX",           (0,0),(-1,-1), 0.5, C["border"]),
     ]))
-    story.append(tbl_aiu_comp)
+    story.append(KeepTogether([tbl_aiu_comp]))
 
     # ── BLOQUE 3: Logística / Viáticos (si aplica) + Anticipo + TOTAL ─────────
     filas_extra = []
@@ -999,7 +999,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         ("LINEBELOW",       (0,0),(-1,-2), 0.3, C["border"]),
         ("BOX",             (0,0),(-1,-1), 0.5, C["border"]),
     ]))
-    story.append(tbl_extra)
+    story.append(KeepTogether([tbl_extra]))
 
     valor_letras = _numero_a_letras(int(round(precio_total)))
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
@@ -1174,7 +1174,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         ("LINEBELOW",      (0,0),(-1,-2), 0.3, C["border"]),
         ("BOX",            (0,0),(-1,-1), 0.5, C["border"]),
     ]))
-    story.append(tbl_val)
+    story.append(KeepTogether([tbl_val]))
 
     valor_letras = _numero_a_letras(int(round(valor_anticipo)))
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
