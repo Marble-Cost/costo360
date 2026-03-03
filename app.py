@@ -976,22 +976,41 @@ def _pantalla_login() -> None:
         # ── Tab login principal ───────────────────────────────────────────────
         with _tab_login:
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            _uname = st.text_input("Usuario", placeholder="Ej: jcastro", key="login_username")
-            _pwd   = st.text_input("Contraseña", type="password",
-                                   placeholder="••••••••", key="login_password")
+            # FIX-1: st.form agrupa los inputs en un solo bloque cerrado.
+            # Efecto: (a) cero reruns por pulsación de tecla — elimina el lag y
+            # la gray-screen al escribir; (b) habilita submit nativo con Enter.
+            with st.form("login_form", clear_on_submit=False):
+                _uname = st.text_input(
+                    "Usuario", placeholder="Ej: jcastro", key="login_username"
+                )
+                _pwd = st.text_input(
+                    "Contraseña", type="password",
+                    placeholder="••••••••", key="login_password"
+                )
+                _btn_login = st.form_submit_button(
+                    "Iniciar Sesión", type="primary", use_container_width=True
+                )
 
-            if st.button("Ingresar →", type="primary",
-                         use_container_width=True, key="btn_login"):
+            # La lógica de validación va FUERA del form para poder mostrar
+            # el spinner sin que quede capturado dentro del contexto del form.
+            if _btn_login:
                 if not _uname or not _pwd:
                     st.error("Completa usuario y contraseña.", icon="⚠️")
                 else:
-                    _usr = _buscar_usuario_por_username(_uname)
-                    if _usr and _verificar_password(_pwd, _usr["password_hash"]):
-                        # Login exitoso: persistir username en cookie HTTP (30 días)
+                    # FIX-2a: spinner durante la consulta a BD — da feedback
+                    # inmediato y bloquea el doble-clic accidental.
+                    with st.spinner("Validando credenciales..."):
+                        _usr     = _buscar_usuario_por_username(_uname)
+                        _auth_ok = bool(
+                            _usr and _verificar_password(_pwd, _usr["password_hash"])
+                        )
+                    if _auth_ok:
+                        # Login exitoso: persistir sesión en cookie HTTP (30 días)
                         _crear_sesion(_usr["id"])
                         st.session_state["usuario_actual"] = _usr
                         st.success(
-                            f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!")
+                            f"Bienvenido, {_usr['nombre_completo'] or _usr['username']}!"
+                        )
                         st.rerun()
                     else:
                         st.error("Usuario o contraseña incorrectos.", icon="🚨")
@@ -1900,12 +1919,14 @@ elif pagina == "Cotizacion Directa":
             with _cp2:
                 st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
                 if st.button("📄 Generar PDF Cotización", type="primary", use_container_width=True, key="btn_pdf_cot"):
-                    pdf_bytes = generar_pdf_cotizacion(
-                        r, numero=num_cot,
-                        empresa_info=st.session_state.empresa_info,
-                        logo_bytes=st.session_state.logo_bytes,
-                        incluir_iva=_iva_act,
-                    )
+                    # FIX-2b: spinner durante la generación del buffer ReportLab
+                    with st.spinner("Generando documento corporativo..."):
+                        pdf_bytes = generar_pdf_cotizacion(
+                            r, numero=num_cot,
+                            empresa_info=st.session_state.empresa_info,
+                            logo_bytes=st.session_state.logo_bytes,
+                            incluir_iva=_iva_act,
+                        )
                     st.download_button(
                         "⬇ Descargar Cotización PDF", pdf_bytes,
                         file_name=f"{num_cot}_Cotizacion.pdf", mime="application/pdf",
@@ -1923,10 +1944,12 @@ elif pagina == "Cotizacion Directa":
                 dir_pag = st.text_input("Dirección", value="", key="dir_pag_success")
             if st.button("📄 Generar PDF Cuenta de Cobro", type="primary", use_container_width=True, key="btn_pdf_cc"):
                 datos_pag = {"nombre": nom_pag, "nit": nit_pag, "direccion": dir_pag}
-                cc_bytes = generar_cuenta_cobro(
-                    r, st.session_state.empresa_info.copy(), datos_pag,
-                    numero=num_cc, logo_bytes=st.session_state.logo_bytes, incluir_iva=_iva_act,
-                )
+                # FIX-2c: spinner durante la generación del buffer ReportLab
+                with st.spinner("Generando documento corporativo..."):
+                    cc_bytes = generar_cuenta_cobro(
+                        r, st.session_state.empresa_info.copy(), datos_pag,
+                        numero=num_cc, logo_bytes=st.session_state.logo_bytes, incluir_iva=_iva_act,
+                    )
                 st.download_button(
                     "⬇ Descargar Cuenta de Cobro PDF", cc_bytes,
                     file_name=f"{num_cc}_CuentaCobro.pdf", mime="application/pdf",
@@ -3183,12 +3206,14 @@ elif pagina == "Cotizacion AIU":
             with _ap2:
                 st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
                 if st.button("📄 Generar Oferta AIU PDF", type="primary", use_container_width=True, key="btn_pdf_aiu"):
-                    pdf_bytes = generar_pdf_cotizacion_aiu(
-                        r_aiu, numero=num_cot_aiu,
-                        empresa_info=st.session_state.empresa_info,
-                        logo_bytes=st.session_state.logo_bytes,
-                        incluir_iva=r_aiu.get("incluir_iva", True),
-                    )
+                    # FIX-2d: spinner durante la generación del buffer ReportLab
+                    with st.spinner("Generando documento corporativo..."):
+                        pdf_bytes = generar_pdf_cotizacion_aiu(
+                            r_aiu, numero=num_cot_aiu,
+                            empresa_info=st.session_state.empresa_info,
+                            logo_bytes=st.session_state.logo_bytes,
+                            incluir_iva=r_aiu.get("incluir_iva", True),
+                        )
                     st.download_button("⬇ Descargar Oferta AIU", pdf_bytes,
                                        file_name=f"{num_cot_aiu}.pdf", mime="application/pdf",
                                        use_container_width=True, key="dl_pdf_aiu")
@@ -3203,8 +3228,10 @@ elif pagina == "Cotizacion AIU":
                 nit_pag_aiu = st.text_input("NIT / Rut", value="", key="nit_pag_aiu_success")
             if st.button("📄 Generar Cobro AIU PDF", type="primary", use_container_width=True, key="btn_pdf_cc_aiu"):
                 datos_pag = {"nombre": nom_pag_aiu, "nit": nit_pag_aiu, "direccion": ""}
-                cc_bytes  = generar_cuenta_cobro(r_aiu, st.session_state.empresa_info.copy(), datos_pag,
-                                                  numero=num_cc_aiu, logo_bytes=st.session_state.logo_bytes)
+                # FIX-2e: spinner durante la generación del buffer ReportLab
+                with st.spinner("Generando documento corporativo..."):
+                    cc_bytes  = generar_cuenta_cobro(r_aiu, st.session_state.empresa_info.copy(), datos_pag,
+                                                      numero=num_cc_aiu, logo_bytes=st.session_state.logo_bytes)
                 st.download_button("⬇ Descargar Cobro AIU", cc_bytes,
                                    file_name=f"{num_cc_aiu}.pdf", mime="application/pdf",
                                    use_container_width=True, key="dl_pdf_cc_aiu")
@@ -3577,19 +3604,42 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
     # ════════════════════════════════════════════════════════════════════
     elif paso_aiu == 2:
         nombre_cliente_aiu = st.session_state.pre.get("nombre_cliente","")
-        cd_total     = st.session_state.pre.get("cd_total", sum(it["cant"]*it["punit"] for it in st.session_state.aiu_items))
-        pct_a        = st.session_state.pre.get("pct_a", AIU_DEFAULTS["a"])
-        pct_i        = st.session_state.pre.get("pct_i", AIU_DEFAULTS["i"])
-        pct_u        = st.session_state.pre.get("pct_u", AIU_DEFAULTS["u"])
-        vehiculo_aiu  = st.session_state.pre.get("vehiculo_entrega","frontier")
-        km_aiu        = st.session_state.pre.get("km", 10.0)
+
+        # FIX-3 Live Data Fetching — Corrección de Stale State en salto por pills.
+        # ─────────────────────────────────────────────────────────────────────────
+        # st.session_state.pre puede estar desactualizado si el usuario saltó
+        # directamente al paso 2 sin pasar por el paso 0/1 en este ciclo de render.
+        # La fuente de verdad para la lista de ítems y el toggle de IVA es siempre
+        # session_state directamente, ya que esos widgets escriben en session_state
+        # en tiempo real. Leerlos desde ahí garantiza que cd_total e iva sean
+        # exactos sin importar el orden o velocidad de navegación.
+        _current_aiu_items = st.session_state.get("aiu_items", [])
+        _current_iva       = st.session_state.get("aiu_iva_toggle",
+                                st.session_state.pre.get("incluir_iva", True))
+
+        # cd_total: recalcular siempre desde los ítems en vivo
+        if _current_aiu_items:
+            cd_total = sum(
+                float(it.get("cant", 0)) * float(it.get("punit", 0))
+                for it in _current_aiu_items
+            )
+        else:
+            # Fallback: usar el valor cacheado en pre si no hay ítems en vivo
+            cd_total = st.session_state.pre.get("cd_total", 0.0)
+
+        pct_a         = st.session_state.pre.get("pct_a",  AIU_DEFAULTS["a"])
+        pct_i         = st.session_state.pre.get("pct_i",  AIU_DEFAULTS["i"])
+        pct_u         = st.session_state.pre.get("pct_u",  AIU_DEFAULTS["u"])
+        vehiculo_aiu  = st.session_state.pre.get("vehiculo_entrega", "frontier")
+        km_aiu        = st.session_state.pre.get("km",     10.0)
         peajes_aiu    = st.session_state.pre.get("peajes", 0)
         agente_aiu    = st.session_state.pre.get("agente_externo_taller", False)
-        foraneo_aiu   = st.session_state.pre.get("foraneo_activo", False)
-        tipo_aloj_aiu = st.session_state.pre.get("tipo_aloj","pueblo")
-        noches_aiu    = st.session_state.pre.get("noches", 0)
-        pers_aiu      = st.session_state.pre.get("personas", 2)
-        incluir_iva_aiu = st.session_state.pre.get("incluir_iva", True)
+        foraneo_aiu   = st.session_state.pre.get("foraneo_activo",       False)
+        tipo_aloj_aiu = st.session_state.pre.get("tipo_aloj",  "pueblo")
+        noches_aiu    = st.session_state.pre.get("noches",    0)
+        pers_aiu      = st.session_state.pre.get("personas",  2)
+        # FIX-3: usar _current_iva (live) en lugar de pre.get("incluir_iva")
+        incluir_iva_aiu = _current_iva
 
         # Calcular
         if not st.session_state.cotizacion or st.session_state.get("_recalcular_aiu"):
@@ -3597,7 +3647,8 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 res_aiu = calcular_aiu(
                     cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu,
                     agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu,
-                    incluir_iva=incluir_iva_aiu,
+                    # FIX-3: iva en vivo — nunca stale
+                    incluir_iva=_current_iva,
                 )
                 res_aiu["tipo_proyecto"]   = "Licitación AIU"
                 res_aiu["categoria"]       = "Proyecto Constructora"
@@ -4050,7 +4101,18 @@ no sobre el total del contrato. La app calcula esto automáticamente.
     # incluso si el usuario llegó aquí sin pasar por el botón Calcular
     # (navegación directa, F5, o salto de pasos desde pills/radio).
     _pre = st.session_state.pre
-    _aiu_items_pre = _pre.get("aiu_items", st.session_state.get("aiu_items", []))
+
+    # FIX-3b: Live Data Fetching — priorizar session_state sobre _pre
+    # para evitar stale state en aiu_items e IVA (mismo fix que paso 2).
+    _aiu_items_pre = (
+        st.session_state.get("aiu_items")           # fuente en vivo (prioridad)
+        or _pre.get("aiu_items")                    # fallback: borrador guardado
+        or []
+    )
+    _iva_defensiva = st.session_state.get(
+        "aiu_iva_toggle", bool(_pre.get("incluir_iva", True))
+    )
+
     if _aiu_items_pre:
         _cd_total_pre = sum(float(it.get("cant", 0)) * float(it.get("punit", 0)) for it in _aiu_items_pre)
     else:
@@ -4070,7 +4132,8 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             _pre.get("tipo_aloj", "pueblo"),
             int(_pre.get("noches", 0)),
             int(_pre.get("personas", 2)),
-            incluir_iva=bool(_pre.get("incluir_iva", True)),
+            # FIX-3b: IVA en vivo — coherente con el live-fetching del paso 2
+            incluir_iva=_iva_defensiva,
         )
         _res_aiu_pre["tipo_proyecto"]   = "Licitación AIU"
         _res_aiu_pre["categoria"]       = "Proyecto Constructora"
@@ -4080,7 +4143,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         _res_aiu_pre["costo_total"]     = _cd_total_pre
         _res_aiu_pre["precio_sugerido"] = _res_aiu_pre["precio_total"]
         _res_aiu_pre["nombre_cliente"]  = _pre.get("nombre_cliente", "")
-        _res_aiu_pre["incluir_iva"]     = bool(_pre.get("incluir_iva", True))
+        _res_aiu_pre["incluir_iva"]     = _iva_defensiva  # FIX-3b: IVA en vivo
         _res_aiu_pre["aiu_items"]       = _aiu_items_pre
         # Solo sobreescribir cotizacion si NO es ya una AIU válida con precio_total
         _cot_actual = st.session_state.cotizacion or {}
@@ -4172,8 +4235,12 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         with cp1:
             num_cot_a = st.text_input("Número de Oferta", value=f"OFE-AIU-{_hoy().strftime('%Y')}-001")
             if st.button("📄 Generar Oferta AIU (PDF)", type="primary", use_container_width=True):
-                pdf_bytes = generar_pdf_cotizacion_aiu(r, numero=num_cot_a, empresa_info=st.session_state.empresa_info, logo_bytes=st.session_state.logo_bytes,
-                                                            incluir_iva=r.get("incluir_iva", True))
+                # FIX-2f: spinner durante la generación del buffer ReportLab
+                with st.spinner("Generando documento corporativo..."):
+                    pdf_bytes = generar_pdf_cotizacion_aiu(
+                        r, numero=num_cot_a, empresa_info=st.session_state.empresa_info,
+                        logo_bytes=st.session_state.logo_bytes, incluir_iva=r.get("incluir_iva", True)
+                    )
                 st.download_button("⬇ Descargar Oferta", pdf_bytes, file_name=f"{num_cot_a}.pdf", mime="application/pdf", use_container_width=True)
         with cp2:
             num_cc_a = st.text_input("Número de Cuenta / Factura", value=f"FAC-AIU-{_hoy().strftime('%Y')}-001")
@@ -4182,7 +4249,12 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             if st.button("📄 Generar Cobro AIU (PDF)", type="primary", use_container_width=True):
                 datos_prest = st.session_state.empresa_info.copy()
                 datos_pag = {"nombre": nom_pag_a, "nit": nit_pag_a, "direccion": ""}
-                cc_bytes = generar_cuenta_cobro(r, datos_prest, datos_pag, numero=num_cc_a, logo_bytes=st.session_state.logo_bytes)
+                # FIX-2g: spinner durante la generación del buffer ReportLab
+                with st.spinner("Generando documento corporativo..."):
+                    cc_bytes = generar_cuenta_cobro(
+                        r, datos_prest, datos_pag,
+                        numero=num_cc_a, logo_bytes=st.session_state.logo_bytes
+                    )
                 st.download_button("⬇ Descargar Cobro", cc_bytes, file_name=f"{num_cc_a}.pdf", mime="application/pdf", use_container_width=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
