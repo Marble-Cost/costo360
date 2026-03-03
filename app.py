@@ -2742,6 +2742,7 @@ elif pagina == "Cotizacion Directa":
                         key=f"mpm2_{midx}",
                         help="Este valor está en la factura del proveedor"
                     )
+                    st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(precio_m2_m)}</div>", unsafe_allow_html=True)
                 with cold:
                     area_placa_m = st.number_input(
                         "Área de la lámina comprada (m²)", min_value=0.01, max_value=200.0,
@@ -4039,8 +4040,9 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
                 with _row2c:
                     punit = st.number_input("Precio unitario (COP)",
                                             value=float(it["punit"]),
-                                            min_value=0.0, step=5_000.0, format="%.0f",
+                                            min_value=0.0, step=5_000.0,
                                             key=f"aiu_p_{idx}")
+                    st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(punit)}</div>", unsafe_allow_html=True)
                 sub = cant * punit
                 cd_total += sub
                 st.markdown(
@@ -4527,8 +4529,9 @@ elif pagina == "Cotizacion AIU":
             with _row2c:
                 punit = st.number_input("Precio unitario (COP)",
                                         value=float(it["punit"]),
-                                        min_value=0.0, step=5_000.0, format="%.0f",
+                                        min_value=0.0, step=5_000.0,
                                         key=f"aiu_p_{idx}")
+                st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(punit)}</div>", unsafe_allow_html=True)
             sub = cant * punit
             cd_total += sub
             st.markdown(
@@ -5833,6 +5836,7 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                                 "de margen reflejarán la rentabilidad real del proyecto."
                             ),
                         )
+                        st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(_nuevo_precio_rec)}</div>", unsafe_allow_html=True)
                         if _nuevo_precio_rec != int(_rr_precio_rec):
                             try:
                                 _conn_pr = _get_db_connection()
