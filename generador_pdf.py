@@ -16,6 +16,7 @@
 import io
 import os
 from datetime import date, timedelta
+from PIL import Image as PILImage
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -139,11 +140,38 @@ def _logo_img(logo_bytes, max_h=1.4*cm):
     if not logo_bytes:
         return None
     try:
-        img_reader = ImageReader(io.BytesIO(logo_bytes))
-        # FIX-4: kind='proportional' garantiza que el logo escale dentro del
-        # bounding box sin deformarse, aunque la imagen no tenga ratio 3:1.
-        # ImageReader (Tarea 3) garantiza renderizado en visores PDF móviles.
-        img = Image(img_reader, kind='proportional')
+        # ── Sanitización de canal Alpha para visores PDF móviles (iOS / WhatsApp) ──
+        # Los motores de renderizado móviles no interpretan correctamente el canal
+        # Alpha de PNGs dentro de PDFs, mostrando el logo en blanco o invisible.
+        # Solución: aplanar la transparencia sobre un lienzo blanco sólido y
+        # recodificar como JPEG antes de pasar a ReportLab.
+        pil_img = PILImage.open(io.BytesIO(logo_bytes))
+
+        # Detectar si la imagen tiene transparencia (RGBA, LA, o P con paleta+alpha)
+        _tiene_alpha = (
+            pil_img.mode in ("RGBA", "LA") or
+            (pil_img.mode == "P" and "transparency" in pil_img.info)
+        )
+
+        if _tiene_alpha:
+            # Convertir a RGBA para garantizar canal alpha uniforme
+            pil_rgba = pil_img.convert("RGBA")
+            # Crear lienzo blanco sólido del mismo tamaño
+            fondo_blanco = PILImage.new("RGB", pil_rgba.size, (255, 255, 255))
+            # Pegar la imagen usando su propio canal alpha como máscara
+            fondo_blanco.paste(pil_rgba, mask=pil_rgba.split()[3])
+            pil_clean = fondo_blanco
+        else:
+            # Sin transparencia: conversión directa a RGB
+            pil_clean = pil_img.convert("RGB")
+
+        # Guardar imagen plana en BytesIO como JPEG de alta calidad
+        clean_io = io.BytesIO()
+        pil_clean.save(clean_io, format="JPEG", quality=95)
+        clean_io.seek(0)
+
+        # Pasar el BytesIO limpio a la clase Image de Platypus
+        img = Image(clean_io, width=4.2*cm, height=1.6*cm, kind='proportional')
         ratio = img.imageWidth / img.imageHeight
         img.drawWidth  = max_h * ratio
         img.drawHeight = max_h
