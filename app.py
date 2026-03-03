@@ -294,6 +294,33 @@ def _cargar_config_desde_db() -> None:
 
     st.session_state["_config_cargada"] = True
 
+    # ── Precargar borrador de Cotización Directa desde BD ────────────────────
+    # Se hace aquí (en _cargar_config_desde_db) porque en este punto ya tenemos
+    # el usuario activo (_uid() funciona) y la BD está disponible.
+    # El store_permanente se inicializará después con estos datos pre-cargados.
+    if not st.session_state.get("pre"):
+        try:
+            _borrador = _leer_config(_clave_borrador_cdir())
+            if _borrador:
+                _borrador["_origen"] = "borrador"
+                st.session_state.pre = _borrador
+                if "piezas" in _borrador and _borrador["piezas"]:
+                    st.session_state.piezas = _borrador["piezas"]
+                if "materiales_proyecto" in _borrador and _borrador["materiales_proyecto"]:
+                    st.session_state.materiales_proyecto = _borrador["materiales_proyecto"]
+        except Exception:
+            pass
+
+    # ── Precargar borrador AIU ────────────────────────────────────────────────
+    if not st.session_state.get("aiu_items"):
+        try:
+            _borrador_aiu = _leer_config(_clave_borrador_aiu())
+            if _borrador_aiu and _borrador_aiu.get("aiu_items"):
+                st.session_state.aiu_items = _borrador_aiu["aiu_items"]
+        except Exception:
+            pass
+
+
 # ── CRUD Banco de Retales ─────────────────────────────────────────────────────
 
 def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, referencia: str,
@@ -806,7 +833,10 @@ def _limpiar_sesion() -> None:
               "cotizacion", "pre", "piezas", "materiales_proyecto",
               "chat", "resumen_ia",
               "_cotiz_guardada", "_cotiz_guardada_num",
-              "_aiu_guardada", "_aiu_guardada_num"]:
+              "_aiu_guardada", "_aiu_guardada_num",
+              # ── store_permanente: limpiar completamente al cerrar sesión ──
+              "store_permanente", "_sp_borrador_hash", "_sp_aiu_hash",
+              "_borrador_restaurado"]:
         st.session_state.pop(k, None)
 
 
@@ -1189,6 +1219,512 @@ try:
     _cargar_config_desde_db()
 except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ARQUITECTURA EVENT-DRIVEN: store_permanente + callbacks on_change
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# PROBLEMA RAÍZ: Cuando el usuario navega entre páginas del menú lateral,
+# Streamlit desmonta todos los widgets de la página anterior y ELIMINA sus
+# claves de st.session_state automáticamente ("Widget State Cleanup").
+# Cualquier dato que solo vivía en un widget key se pierde para siempre.
+#
+# SOLUCIÓN — Tres capas independientes:
+#
+#   1. store_permanente (dict en session_state, sin keys de widgets)
+#      El "cerebro central" de la app. Se inicializa UNA VEZ y NUNCA se borra.
+#      Almacena el estado canónico de todos los inputs críticos.
+#      Los widgets se hidratán desde aquí al renderizarse (value=store[...]).
+#
+#   2. Callbacks on_change (disparados en el instante del cambio)
+#      Cada input crítico tiene on_change= apuntando a su callback.
+#      El callback escribe en store_permanente y hace commit a PostgreSQL
+#      ANTES de que Streamlit termine el ciclo de renderizado.
+#      No hay botón "Guardar" que interceptar — el guardado es atómico.
+#
+#   3. Autoguardado de listas dinámicas
+#      Cada mutación de piezas (agregar/eliminar/editar) llama a
+#      _sp_commit_borrador() que persiste el snapshot completo en BD.
+#      Igual para ítems AIU y materiales del proyecto.
+#
+# GARANTÍA: al navegar de "Cotización Directa" → "Parámetros" → volver a
+# "Cotización Directa", el store_permanente no fue tocado, los widgets se
+# renderizan con value=store[...] y el usuario ve exactamente lo que dejó.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _sp_init():
+    """
+    Inicializa st.session_state.store_permanente una única vez por sesión.
+    Lo precarga desde el borrador en BD si existe.
+    NUNCA sobreescribe un store ya existente en memoria — idempotente.
+    """
+    if "store_permanente" in st.session_state:
+        return   # Ya existe — no tocar
+
+    # ── Valores por defecto del store ────────────────────────────────────────
+    _sp_defaults = {
+        # ── Cotización Directa ───────────────────────────────────────────────
+        "cdir_paso": 0,
+        "cdir_materiales": [],          # lista [{cat, ref, precio_m2, area_placa}, ...]
+        "cdir_piezas": [],              # lista [{nombre, ml, ancho_tipo, ancho_custom}, ...]
+        "cdir_margen_pct": 40,
+        "cdir_m2_usados": 0.0,
+        "cdir_tipo_proyecto": "Mesón",
+        "cdir_tipos_proyecto": ["Mesón"],
+        "cdir_etapa_label": "Casa terminada (limpia)",
+        "cdir_nombre_cliente": "",
+        "cdir_dias_obra": 2,
+        "cdir_personas": 2,
+        "cdir_zocalo_activo": False,
+        "cdir_zocalo_ml": 0.0,
+        "cdir_agente_externo": False,
+        "cdir_vehiculo": "frontier",
+        "cdir_km": 5.0,
+        "cdir_peajes": 0,
+        "cdir_foraneo": False,
+        "cdir_viaticos_activos": False,
+        "cdir_tipo_aloj": "pueblo",
+        "cdir_noches": 0,
+        "cdir_adicionales_activos": False,
+        "cdir_cantidades_add": [],
+        "cdir_incluir_iva": True,
+        # ── Cotización AIU ───────────────────────────────────────────────────
+        "aiu_paso": 0,
+        "aiu_items": [
+            {"desc": "Material pétreo (suministro)", "und": "m²",  "cant": 10.0, "punit": 250_000},
+            {"desc": "Mano de obra corte y elaboración", "und": "m²", "cant": 10.0, "punit": 100_000},
+            {"desc": "Instalación y nivelación",  "und": "m²",  "cant": 10.0, "punit": 50_000},
+            {"desc": "Insumos (disco, adhesivo, silicona)", "und": "glb", "cant": 1.0, "punit": 150_000},
+        ],
+        "aiu_nombre_cliente": "",
+        "aiu_numero": "",
+        "aiu_a_pct": 2.0,
+        "aiu_i_pct": 2.0,
+        "aiu_u_pct": 5.0,
+        "aiu_anticipo_pct": 50,
+        "aiu_incluir_iva": True,
+        # ── Parámetros ───────────────────────────────────────────────────────
+        "params_tarifas": None,         # dict completo tarifas o None → usa TARIFAS
+        "params_logistica": None,       # dict completo logistica o None → usa LOGISTICA
+        "params_viaticos": None,        # dict completo viaticos o None → usa VIATICOS
+        "params_adicionales": None,     # lista adicionales o None → usa ADICIONALES
+    }
+
+    sp = dict(_sp_defaults)
+
+    # ── Precargar desde sesión existente (si el store no existía pero sí hay pre) ──
+    _pre = st.session_state.get("pre", {})
+    if _pre:
+        sp["cdir_paso"]                = _pre.get("cdir_paso", sp["cdir_paso"])
+        sp["cdir_materiales"]          = _pre.get("materiales_proyecto", sp["cdir_materiales"])
+        sp["cdir_piezas"]              = _pre.get("piezas", sp["cdir_piezas"])
+        sp["cdir_margen_pct"]          = _pre.get("margen_pct", sp["cdir_margen_pct"])
+        sp["cdir_m2_usados"]           = _pre.get("m2_usados", sp["cdir_m2_usados"])
+        sp["cdir_tipo_proyecto"]       = _pre.get("tipo_proyecto", sp["cdir_tipo_proyecto"])
+        sp["cdir_tipos_proyecto"]      = _pre.get("tipos_proyecto", sp["cdir_tipos_proyecto"])
+        sp["cdir_etapa_label"]         = _pre.get("etapa_label", sp["cdir_etapa_label"])
+        sp["cdir_nombre_cliente"]      = _pre.get("nombre_cliente", sp["cdir_nombre_cliente"])
+        sp["cdir_dias_obra"]           = _pre.get("dias_obra", sp["cdir_dias_obra"])
+        sp["cdir_personas"]            = _pre.get("personas", sp["cdir_personas"])
+        sp["cdir_zocalo_activo"]       = _pre.get("zocalo_activo", sp["cdir_zocalo_activo"])
+        sp["cdir_zocalo_ml"]           = _pre.get("zocalo_ml", sp["cdir_zocalo_ml"])
+        sp["cdir_agente_externo"]      = _pre.get("agente_externo_taller", sp["cdir_agente_externo"])
+        sp["cdir_vehiculo"]            = _pre.get("vehiculo_entrega", sp["cdir_vehiculo"])
+        sp["cdir_km"]                  = _pre.get("km", sp["cdir_km"])
+        sp["cdir_peajes"]              = _pre.get("peajes", sp["cdir_peajes"])
+        sp["cdir_foraneo"]             = _pre.get("foraneo_activo", sp["cdir_foraneo"])
+        sp["cdir_viaticos_activos"]    = _pre.get("viaticos_activos", sp["cdir_viaticos_activos"])
+        sp["cdir_tipo_aloj"]           = _pre.get("tipo_aloj", sp["cdir_tipo_aloj"])
+        sp["cdir_noches"]              = _pre.get("noches", sp["cdir_noches"])
+        sp["cdir_adicionales_activos"] = _pre.get("adicionales_activos", sp["cdir_adicionales_activos"])
+        sp["cdir_cantidades_add"]      = _pre.get("cantidades_add", sp["cdir_cantidades_add"])
+        sp["cdir_incluir_iva"]         = _pre.get("incluir_iva", sp["cdir_incluir_iva"])
+
+    # ── Precargar tarifas/logística/viáticos desde sesión ────────────────────
+    if st.session_state.get("tarifas_custom"):
+        sp["params_tarifas"]   = st.session_state.tarifas_custom
+    if st.session_state.get("logistica_custom"):
+        sp["params_logistica"] = st.session_state.logistica_custom
+    if st.session_state.get("viaticos_custom"):
+        sp["params_viaticos"]  = st.session_state.viaticos_custom
+    if st.session_state.get("adicionales_custom"):
+        sp["params_adicionales"] = st.session_state.adicionales_custom
+
+    # ── Precargar ítems AIU si existen ────────────────────────────────────────
+    if st.session_state.get("aiu_items"):
+        sp["aiu_items"] = st.session_state.aiu_items
+
+    st.session_state.store_permanente = sp
+
+
+def _sp() -> dict:
+    """Acceso rápido al store_permanente. Garantiza que exista antes de devolver."""
+    if "store_permanente" not in st.session_state:
+        _sp_init()
+    return st.session_state.store_permanente
+
+
+def _sp_set(key: str, value) -> None:
+    """Escribe un valor en el store_permanente de forma segura."""
+    _sp()[key] = value
+
+
+def _sp_commit_borrador():
+    """
+    Persiste el estado crítico del borrador de Cotización Directa en BD.
+    Se llama desde callbacks on_change y desde mutaciones de listas.
+    Hash-gated: solo escribe si hay cambios reales desde el último commit.
+    """
+    sp = _sp()
+    # Construir snapshot desde el store (independiente de widgets)
+    _snapshot = {
+        "materiales_proyecto": sp.get("cdir_materiales", []),
+        "piezas":              sp.get("cdir_piezas", []),
+        "margen_pct":          sp.get("cdir_margen_pct", 40),
+        "m2_usados":           sp.get("cdir_m2_usados", 0.0),
+        "tipo_proyecto":       sp.get("cdir_tipo_proyecto", "Mesón"),
+        "tipos_proyecto":      sp.get("cdir_tipos_proyecto", ["Mesón"]),
+        "etapa_label":         sp.get("cdir_etapa_label", "Casa terminada (limpia)"),
+        "nombre_cliente":      sp.get("cdir_nombre_cliente", ""),
+        "dias_obra":           sp.get("cdir_dias_obra", 2),
+        "personas":            sp.get("cdir_personas", 2),
+        "zocalo_activo":       sp.get("cdir_zocalo_activo", False),
+        "zocalo_ml":           sp.get("cdir_zocalo_ml", 0.0),
+        "agente_externo_taller": sp.get("cdir_agente_externo", False),
+        "vehiculo_entrega":    sp.get("cdir_vehiculo", "frontier"),
+        "km":                  sp.get("cdir_km", 5.0),
+        "peajes":              sp.get("cdir_peajes", 0),
+        "foraneo_activo":      sp.get("cdir_foraneo", False),
+        "viaticos_activos":    sp.get("cdir_viaticos_activos", False),
+        "tipo_aloj":           sp.get("cdir_tipo_aloj", "pueblo"),
+        "noches":              sp.get("cdir_noches", 0),
+        "adicionales_activos": sp.get("cdir_adicionales_activos", False),
+        "cantidades_add":      sp.get("cdir_cantidades_add", []),
+        "incluir_iva":         sp.get("cdir_incluir_iva", True),
+        "cdir_paso":           sp.get("cdir_paso", 0),
+    }
+    # ── Sync bidireccional: mantener pre en sincronía con el store ────────────
+    st.session_state.pre = _snapshot
+    if st.session_state.get("cdir_piezas") is not None:
+        st.session_state.piezas = sp.get("cdir_piezas", [])
+    if st.session_state.get("materiales_proyecto") is not None:
+        st.session_state.materiales_proyecto = sp.get("cdir_materiales", [])
+    # ── Hash-gate: commit a BD solo si hay cambio real ────────────────────────
+    try:
+        import json as _json
+        _h = hash(_json.dumps(_snapshot, sort_keys=True, default=str))
+        if _h != st.session_state.get("_sp_borrador_hash"):
+            _guardar_config(_clave_borrador_cdir(), _snapshot)
+            st.session_state["_sp_borrador_hash"] = _h
+    except Exception:
+        pass
+
+
+def _sp_commit_borrador_aiu():
+    """Persiste el estado del borrador de Cotización AIU en BD."""
+    sp = _sp()
+    _snapshot = {
+        "aiu_items":         sp.get("aiu_items", []),
+        "aiu_nombre_cliente": sp.get("aiu_nombre_cliente", ""),
+        "aiu_numero":        sp.get("aiu_numero", ""),
+        "aiu_a_pct":         sp.get("aiu_a_pct", 2.0),
+        "aiu_i_pct":         sp.get("aiu_i_pct", 2.0),
+        "aiu_u_pct":         sp.get("aiu_u_pct", 5.0),
+        "aiu_anticipo_pct":  sp.get("aiu_anticipo_pct", 50),
+        "aiu_incluir_iva":   sp.get("aiu_incluir_iva", True),
+        "aiu_paso":          sp.get("aiu_paso", 0),
+    }
+    st.session_state.aiu_items = sp.get("aiu_items", [])
+    try:
+        import json as _json
+        _h = hash(_json.dumps(_snapshot, sort_keys=True, default=str))
+        if _h != st.session_state.get("_sp_aiu_hash"):
+            _guardar_config(_clave_borrador_aiu(), _snapshot)
+            st.session_state["_sp_aiu_hash"] = _h
+    except Exception:
+        pass
+
+
+def _sp_commit_params(tipo: str):
+    """
+    Persiste un grupo de parámetros (tarifas/logistica/viaticos) en BD.
+    Actualiza simultáneamente session_state y store_permanente.
+    Llamado desde callbacks on_change de Parámetros.
+    """
+    sp = _sp()
+    if tipo == "tarifas":
+        _val = sp.get("params_tarifas")
+        st.session_state.tarifas_custom = _val
+        try: _guardar_config("tarifas_custom", _val)
+        except Exception: pass
+    elif tipo == "logistica":
+        _val = sp.get("params_logistica")
+        st.session_state.logistica_custom = _val
+        try: _guardar_config("logistica_custom", _val)
+        except Exception: pass
+    elif tipo == "viaticos":
+        _val = sp.get("params_viaticos")
+        st.session_state.viaticos_custom = _val
+        try: _guardar_config("viaticos_custom", _val)
+        except Exception: pass
+    elif tipo == "adicionales":
+        _val = sp.get("params_adicionales")
+        st.session_state.adicionales_custom = _val
+        try: _guardar_config("adicionales_custom", _val)
+        except Exception: pass
+
+
+# ── Callbacks on_change para Cotización Directa ──────────────────────────────
+
+def _cb_cdir_nombre_cliente():
+    _sp_set("cdir_nombre_cliente", st.session_state.get("cb_cdir_nombre_cliente", ""))
+    _sp_commit_borrador()
+
+def _cb_cdir_margen():
+    _sp_set("cdir_margen_pct", st.session_state.get("cb_cdir_margen", 40))
+    _sp_commit_borrador()
+
+def _cb_cdir_m2_usados():
+    _sp_set("cdir_m2_usados", st.session_state.get("cb_cdir_m2_usados", 0.0))
+    _sp_commit_borrador()
+
+def _cb_cdir_tipos_proyecto():
+    _vals = st.session_state.get("cb_cdir_tipos_proyecto", ["Mesón"])
+    _sp_set("cdir_tipos_proyecto", _vals)
+    _sp_set("cdir_tipo_proyecto", " + ".join(_vals) if _vals else "Otro")
+    _sp_commit_borrador()
+
+def _cb_cdir_etapa():
+    _sp_set("cdir_etapa_label", st.session_state.get("cb_cdir_etapa", "Casa terminada (limpia)"))
+    _sp_commit_borrador()
+
+def _cb_cdir_dias():
+    _sp_set("cdir_dias_obra", st.session_state.get("cb_cdir_dias", 2))
+    _sp_commit_borrador()
+
+def _cb_cdir_personas():
+    _sp_set("cdir_personas", st.session_state.get("cb_cdir_personas", 2))
+    _sp_commit_borrador()
+
+def _cb_cdir_zocalo_activo():
+    _sp_set("cdir_zocalo_activo", st.session_state.get("cb_cdir_zocalo_activo", False))
+    _sp_commit_borrador()
+
+def _cb_cdir_zocalo_ml():
+    _sp_set("cdir_zocalo_ml", st.session_state.get("cb_cdir_zocalo_ml", 0.0))
+    _sp_commit_borrador()
+
+def _cb_cdir_agente_externo():
+    _sp_set("cdir_agente_externo", st.session_state.get("cb_cdir_agente_externo", False))
+    _sp_commit_borrador()
+
+def _cb_cdir_vehiculo_km():
+    _sp_set("cdir_km", st.session_state.get("cb_cdir_km", 5.0))
+    _sp_commit_borrador()
+
+def _cb_cdir_peajes():
+    _sp_set("cdir_peajes", st.session_state.get("cb_cdir_peajes", 0))
+    _sp_commit_borrador()
+
+def _cb_cdir_foraneo():
+    _sp_set("cdir_foraneo", st.session_state.get("cb_cdir_foraneo", False))
+    _sp_commit_borrador()
+
+def _cb_cdir_viaticos_activos():
+    _sp_set("cdir_viaticos_activos", st.session_state.get("cb_cdir_viaticos_activos", False))
+    _sp_commit_borrador()
+
+def _cb_cdir_tipo_aloj():
+    _sp_set("cdir_tipo_aloj", st.session_state.get("cb_cdir_tipo_aloj", "pueblo"))
+    _sp_commit_borrador()
+
+def _cb_cdir_noches():
+    _sp_set("cdir_noches", st.session_state.get("cb_cdir_noches", 0))
+    _sp_commit_borrador()
+
+def _cb_cdir_adicionales_activos():
+    _sp_set("cdir_adicionales_activos", st.session_state.get("cb_cdir_adicionales_activos", False))
+    _sp_commit_borrador()
+
+def _cb_cdir_incluir_iva():
+    _sp_set("cdir_incluir_iva", st.session_state.get("cb_cdir_incluir_iva", True))
+    _sp_commit_borrador()
+
+
+# ── Callbacks on_change para Cotización AIU ──────────────────────────────────
+
+def _cb_aiu_nombre_cliente():
+    _sp_set("aiu_nombre_cliente", st.session_state.get("cb_aiu_nombre_cliente", ""))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_numero():
+    _sp_set("aiu_numero", st.session_state.get("cb_aiu_numero", ""))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_a_pct():
+    _sp_set("aiu_a_pct", st.session_state.get("cb_aiu_a_pct", 2.0))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_i_pct():
+    _sp_set("aiu_i_pct", st.session_state.get("cb_aiu_i_pct", 2.0))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_u_pct():
+    _sp_set("aiu_u_pct", st.session_state.get("cb_aiu_u_pct", 5.0))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_anticipo():
+    _sp_set("aiu_anticipo_pct", st.session_state.get("cb_aiu_anticipo_pct", 50))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_incluir_iva():
+    _sp_set("aiu_incluir_iva", st.session_state.get("cb_aiu_incluir_iva", True))
+    _sp_commit_borrador_aiu()
+
+
+# ── Helpers para listas dinámicas con persistencia atómica ───────────────────
+
+def _sp_agregar_pieza():
+    """Añade una pieza nueva y persiste en BD de inmediato."""
+    piezas = list(_sp().get("cdir_piezas", []))
+    piezas.append({"nombre": f"Pieza {len(piezas)+1}",
+                   "ml": 1.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60})
+    _sp_set("cdir_piezas", piezas)
+    st.session_state.piezas = piezas
+    _sp_commit_borrador()
+
+def _sp_eliminar_pieza(idx: int):
+    """Elimina una pieza y persiste en BD de inmediato."""
+    piezas = list(_sp().get("cdir_piezas", []))
+    if len(piezas) > 1 and 0 <= idx < len(piezas):
+        piezas.pop(idx)
+        _sp_set("cdir_piezas", piezas)
+        st.session_state.piezas = piezas
+        _sp_commit_borrador()
+
+def _sp_sync_piezas(piezas_nuevas: list):
+    """Sincroniza la lista de piezas completa hacia el store y BD."""
+    _sp_set("cdir_piezas", piezas_nuevas)
+    st.session_state.piezas = piezas_nuevas
+    _sp_commit_borrador()
+
+def _sp_agregar_material():
+    """Añade un material nuevo y persiste en BD."""
+    mats = list(_sp().get("cdir_materiales", []))
+    mats.append({"cat": "Mármol", "ref": "", "precio_m2": 220_000, "area_placa": 5.94})
+    _sp_set("cdir_materiales", mats)
+    st.session_state.materiales_proyecto = mats
+    _sp_commit_borrador()
+
+def _sp_eliminar_material(idx: int):
+    """Elimina un material y persiste en BD."""
+    mats = list(_sp().get("cdir_materiales", []))
+    if 0 <= idx < len(mats):
+        mats.pop(idx)
+        _sp_set("cdir_materiales", mats)
+        st.session_state.materiales_proyecto = mats
+        _sp_commit_borrador()
+
+def _sp_sync_materiales(mats_nuevos: list):
+    """Sincroniza la lista de materiales completa hacia el store y BD."""
+    _sp_set("cdir_materiales", mats_nuevos)
+    st.session_state.materiales_proyecto = mats_nuevos
+    _sp_commit_borrador()
+
+def _sp_agregar_item_aiu():
+    """Añade un ítem AIU y persiste en BD."""
+    items = list(_sp().get("aiu_items", []))
+    items.append({"desc": f"Ítem {len(items)+1}", "und": "und", "cant": 1.0, "punit": 0})
+    _sp_set("aiu_items", items)
+    st.session_state.aiu_items = items
+    _sp_commit_borrador_aiu()
+
+def _sp_eliminar_item_aiu(idx: int):
+    """Elimina un ítem AIU y persiste en BD."""
+    items = list(_sp().get("aiu_items", []))
+    if len(items) > 1 and 0 <= idx < len(items):
+        items.pop(idx)
+        _sp_set("aiu_items", items)
+        st.session_state.aiu_items = items
+        _sp_commit_borrador_aiu()
+
+def _sp_sync_items_aiu(items_nuevos: list):
+    """Sincroniza la lista de ítems AIU completa hacia el store y BD."""
+    _sp_set("aiu_items", items_nuevos)
+    st.session_state.aiu_items = items_nuevos
+    _sp_commit_borrador_aiu()
+
+
+# ── Callbacks on_change para Parámetros (cada campo guarda inmediatamente) ───
+
+def _cb_tar(mat: str, campo: str, tipo: str):
+    """Factory closure para callbacks de tarifas. Usa cierre sobre mat/campo/tipo."""
+    def _inner():
+        from parametros import TARIFAS as _TARIFAS_BASE
+        import copy as _copy
+        sp = _sp()
+        _tar = _copy.deepcopy(sp.get("params_tarifas") or _copy.deepcopy(_TARIFAS_BASE))
+        if mat not in _tar:
+            _tar[mat] = {}
+        _wk = f"cb_tar_{mat}_{campo}"
+        _raw = st.session_state.get(_wk)
+        if _raw is not None:
+            _tar[mat][campo] = float(_raw) if tipo == "float" else int(_raw)
+        sp["params_tarifas"] = _tar
+        st.session_state.tarifas_custom = _tar
+        try: _guardar_config("tarifas_custom", _tar)
+        except Exception: pass
+    return _inner
+
+
+def _cb_via(dest: str, campo: str):
+    """Factory closure para callbacks de viáticos."""
+    def _inner():
+        from parametros import VIATICOS as _VIATICOS_BASE
+        import copy as _copy
+        sp = _sp()
+        _via = _copy.deepcopy(sp.get("params_viaticos") or _copy.deepcopy(_VIATICOS_BASE))
+        if dest not in _via:
+            _via[dest] = {}
+        _wk = f"cb_via_{dest}_{campo}"
+        _raw = st.session_state.get(_wk)
+        if _raw is not None:
+            _via[dest][campo] = int(_raw)
+        sp["params_viaticos"] = _via
+        st.session_state.viaticos_custom = _via
+        try: _guardar_config("viaticos_custom", _via)
+        except Exception: pass
+    return _inner
+
+
+def _cb_log(campo: str, veh: str = "", sub: str = "", tipo: str = "int"):
+    """Factory closure para callbacks de logística."""
+    def _inner():
+        from parametros import LOGISTICA as _LOGISTICA_BASE
+        import copy as _copy
+        sp = _sp()
+        _log = _copy.deepcopy(sp.get("params_logistica") or _copy.deepcopy(_LOGISTICA_BASE))
+        _wk = f"cb_log_{campo}" if not veh else f"cb_log_{veh}_{sub}"
+        _raw = st.session_state.get(_wk)
+        if _raw is not None:
+            if not veh:
+                _log[campo] = float(_raw) if tipo == "float" else int(_raw)
+            else:
+                if veh not in _log or not isinstance(_log[veh], dict):
+                    _log[veh] = {}
+                _log[veh][sub] = float(_raw) if tipo == "float" else int(_raw)
+        sp["params_logistica"] = _log
+        st.session_state.logistica_custom = _log
+        try: _guardar_config("logistica_custom", _log)
+        except Exception: pass
+    return _inner
+
+
+# ── Inicializar el store_permanente AHORA (antes del auth wall) ───────────────
+_sp_init()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MURO DE AUTENTICACIÓN — Token UUID + PostgreSQL
@@ -1636,6 +2172,53 @@ if pagina == "Inicio":
 elif pagina == "Cotizacion Directa":
 
     # ══════════════════════════════════════════════════════════════════
+    # EVENT-DRIVEN STATE SYNC: store_permanente → pre (on page entry)
+    # ══════════════════════════════════════════════════════════════════
+    # Garantiza que al navegar de vuelta a Cotización Directa, el estado
+    # del wizard refleje exactamente lo que hay en el store_permanente,
+    # que SOBREVIVIÓ el desmontaje de widgets al cambiar de página.
+    _sp_entry = _sp()
+    if _sp_entry.get("cdir_piezas") or _sp_entry.get("cdir_materiales"):
+        # Solo sincronizar si el store tiene datos (evitar sobreescribir borrador pre-cargado)
+        _pre_from_store = {
+            "materiales_proyecto": _sp_entry.get("cdir_materiales", []),
+            "piezas":              _sp_entry.get("cdir_piezas", []),
+            "margen_pct":          _sp_entry.get("cdir_margen_pct", 40),
+            "m2_usados":           _sp_entry.get("cdir_m2_usados", 0.0),
+            "tipo_proyecto":       _sp_entry.get("cdir_tipo_proyecto", "Mesón"),
+            "tipos_proyecto":      _sp_entry.get("cdir_tipos_proyecto", ["Mesón"]),
+            "etapa_label":         _sp_entry.get("cdir_etapa_label", "Casa terminada (limpia)"),
+            "nombre_cliente":      _sp_entry.get("cdir_nombre_cliente", ""),
+            "dias_obra":           _sp_entry.get("cdir_dias_obra", 2),
+            "personas":            _sp_entry.get("cdir_personas", 2),
+            "zocalo_activo":       _sp_entry.get("cdir_zocalo_activo", False),
+            "zocalo_ml":           _sp_entry.get("cdir_zocalo_ml", 0.0),
+            "agente_externo_taller": _sp_entry.get("cdir_agente_externo", False),
+            "vehiculo_entrega":    _sp_entry.get("cdir_vehiculo", "frontier"),
+            "km":                  _sp_entry.get("cdir_km", 5.0),
+            "peajes":              _sp_entry.get("cdir_peajes", 0),
+            "foraneo_activo":      _sp_entry.get("cdir_foraneo", False),
+            "viaticos_activos":    _sp_entry.get("cdir_viaticos_activos", False),
+            "tipo_aloj":           _sp_entry.get("cdir_tipo_aloj", "pueblo"),
+            "noches":              _sp_entry.get("cdir_noches", 0),
+            "adicionales_activos": _sp_entry.get("cdir_adicionales_activos", False),
+            "cantidades_add":      _sp_entry.get("cdir_cantidades_add", []),
+            "incluir_iva":         _sp_entry.get("cdir_incluir_iva", True),
+            "cdir_paso":           _sp_entry.get("cdir_paso", 0),
+        }
+        # Merge: solo sobreescribir pre si el store tiene datos más recientes
+        _pre_existing = st.session_state.get("pre", {})
+        if not _pre_existing or _pre_existing.get("_origen") == "borrador":
+            st.session_state.pre = _pre_from_store
+            if _pre_from_store["piezas"]:
+                st.session_state.piezas = _pre_from_store["piezas"]
+            if _pre_from_store["materiales_proyecto"]:
+                st.session_state.materiales_proyecto = _pre_from_store["materiales_proyecto"]
+        # Sync wizard paso from store
+        if "cdir_paso" not in st.session_state or st.session_state.get("cdir_paso") != _sp_entry.get("cdir_paso", 0):
+            st.session_state.cdir_paso = _sp_entry.get("cdir_paso", 0)
+
+    # ══════════════════════════════════════════════════════════════════
     # WIZARD COTIZACIÓN DIRECTA — 5 pasos, un bloque visible a la vez
     # ══════════════════════════════════════════════════════════════════
     # Estado del wizard: cdir_paso (0-4). Nunca se borra con limpiar
@@ -1962,10 +2545,17 @@ elif pagina == "Cotizacion Directa":
             if st.button("🆕 Nueva cotización", use_container_width=True, type="primary"):
                 for k in ["cotizacion", "pre", "piezas", "materiales_proyecto",
                           "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
-                          "_borrador_restaurado"]:
+                          "_borrador_restaurado", "_sp_borrador_hash"]:
                     st.session_state.pop(k, None)
                 for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
                     del st.session_state[_wk]
+                # ── store_permanente: reset del wizard para nueva cotización ──
+                _sp = st.session_state.get("store_permanente", {})
+                for _sk in [k for k in list(_sp.keys()) if k.startswith("cdir_")]:
+                    del _sp[_sk]
+                _sp["cdir_paso"]      = 0
+                _sp["cdir_piezas"]    = []
+                _sp["cdir_materiales"] = []
                 st.session_state.cdir_paso    = 0
                 st.session_state.cdir_success = False
                 st.rerun()
@@ -2296,15 +2886,17 @@ elif pagina == "Cotizacion Directa":
 
                 if len(mats) > 1:
                     if st.button("🗑️ Quitar este material", key=f"mdel_{midx}"):
-                        st.session_state.materiales_proyecto.pop(midx)
+                        _sp_eliminar_material(midx)
                         st.rerun()
 
                 mats_nuevos.append(_mat_dict)
 
+        # Sync materiales to store_permanente
+        _sp_sync_materiales(mats_nuevos)
         st.session_state.materiales_proyecto = mats_nuevos
 
         if st.button("＋ Agregar otro material", use_container_width=True):
-            st.session_state.materiales_proyecto.append({"cat": "Mármol", "ref": "", "precio_m2": 220_000, "area_placa": 5.94})
+            _sp_agregar_material()
             st.rerun()
 
         # Derivar valores de materiales para pasos siguientes
@@ -2368,7 +2960,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
                     if st.button("🗑️", key=f"del_{idx}", help="Eliminar pieza",
                                  use_container_width=True) and len(st.session_state.piezas) > 1:
-                        st.session_state.piezas.pop(idx)
+                        _sp_eliminar_pieza(idx)
                         st.rerun()
 
                 # ── FILA 2: Tipo de elemento + Largo en ML ───────────
@@ -2439,6 +3031,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     "nombre_personalizado": _nom_personalizado,
                 })
 
+        # Sync piezas to store_permanente (event-driven — persists across navigation)
+        _sp_sync_piezas(piezas_nuevas)
         st.session_state.piezas = piezas_nuevas
         m2_real         = total_m2_piezas
         m2_cortados_total = total_m2_piezas
@@ -2446,8 +3040,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _col_add, _col_tot = st.columns([1, 2])
         with _col_add:
             if st.button("＋ Agregar pieza", use_container_width=True):
-                st.session_state.piezas.append({"nombre": f"Pieza {len(st.session_state.piezas)+1}",
-                                                 "ml": 1.0, "ancho_tipo": tipos_superficie[0], "ancho_custom": 0.60})
+                _sp_agregar_pieza()
                 st.rerun()
         with _col_tot:
             if m2_real > 0:
@@ -2500,6 +3093,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
 
         # Guardar en pre para uso en pasos siguientes
         st.session_state.pre = {**pre, "margen_pct": margen_pct, "m2_usados": m2_usados, "piezas": st.session_state.piezas}
+        # ── store_permanente sync: margen y m2_usados ─────────────────────────
+        _sp_set("cdir_margen_pct", margen_pct)
+        _sp_set("cdir_m2_usados", m2_usados)
 
     # ════════════════════════════════════════════════════════════════════
     # PASO 2 — PROYECTO (tipo, etapa, días, personas, zócalos, desperdicio)
@@ -2516,23 +3112,32 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         c1, c2 = st.columns(2)
         with c1:
             tipo_opts  = ["Mesón", "Cocina", "Baño", "Piso", "Escalera", "Fachada", "Mueble de cocina", "Otro"]
-            pre_tipos  = pre.get("tipos_proyecto", [pre.get("tipo_proyecto","Mesón")] if pre.get("tipo_proyecto") else ["Mesón"])
-            tipos_sel  = st.multiselect("Tipo(s) de proyecto", tipo_opts,
-                                        default=[t for t in pre_tipos if t in tipo_opts] or ["Mesón"],
-                                        key="cdir_tipos_proyecto")
+            _sp_tipos  = _sp().get("cdir_tipos_proyecto", pre.get("tipos_proyecto", [pre.get("tipo_proyecto","Mesón")] if pre.get("tipo_proyecto") else ["Mesón"]))
+            tipos_sel  = st.multiselect(
+                "Tipo(s) de proyecto", tipo_opts,
+                default=[t for t in _sp_tipos if t in tipo_opts] or ["Mesón"],
+                key="cb_cdir_tipos_proyecto",
+                on_change=_cb_cdir_tipos_proyecto,
+            )
             tipo = " + ".join(tipos_sel) if tipos_sel else "Otro"
 
         with c2:
+            _sp_etapa_label = _sp().get("cdir_etapa_label", pre.get("etapa_label", list(ETAPAS_OBRA.keys())[0]))
             etapa = ETAPAS_OBRA[st.selectbox(
                 "Etapa de la obra", list(ETAPAS_OBRA.keys()),
-                index=list(ETAPAS_OBRA.keys()).index(pre.get("etapa_label", list(ETAPAS_OBRA.keys())[0]))
-                      if pre.get("etapa_label") in ETAPAS_OBRA else 0,
-                key="cdir_etapa"
+                index=list(ETAPAS_OBRA.keys()).index(_sp_etapa_label)
+                      if _sp_etapa_label in ETAPAS_OBRA else 0,
+                key="cb_cdir_etapa",
+                on_change=_cb_cdir_etapa,
             )]
 
-        nombre_cliente = st.text_input("Nombre del cliente", value=pre.get("nombre_cliente",""),
-                                       placeholder="Ej: Juan García / Constructora XYZ",
-                                       key="cdir_nombre_cliente")
+        nombre_cliente = st.text_input(
+            "Nombre del cliente",
+            value=_sp().get("cdir_nombre_cliente", pre.get("nombre_cliente", "")),
+            placeholder="Ej: Juan García / Constructora XYZ",
+            key="cb_cdir_nombre_cliente",
+            on_change=_cb_cdir_nombre_cliente,
+        )
 
         st.markdown("---")
 
@@ -2696,7 +3301,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             with _lag1:
                 agente_ext_taller = st.toggle(
                     "Agente externo trajo el material al taller",
-                    value=bool(pre.get("agente_externo_taller", False)), key="cdir_agente_ext"
+                    value=bool(_sp().get("cdir_agente_externo", pre.get("agente_externo_taller", False))),
+                    key="cb_cdir_agente_externo",
+                    on_change=_cb_cdir_agente_externo,
                 )
             with _lag2:
                 _veh_dict = get_vehiculos_dict()
@@ -2724,8 +3331,13 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 )
                 _km_rango = st.pills("Distancia al destino", _km_opts, default=_km_pre_s, key="p3_km_pills")
                 _km_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
-                km = st.number_input("Km exactos (un trayecto)", min_value=0.0,
-                                     value=float(_km_defaults.get(_km_rango or "5-15 km", _km_pre)), step=1.0, key="cdir_km")
+                km = st.number_input(
+                    "Km exactos (un trayecto)", min_value=0.0,
+                    value=float(_sp().get("cdir_km", _km_defaults.get(_km_rango or "5-15 km", _km_pre))),
+                    step=1.0,
+                    key="cb_cdir_km",
+                    on_change=_cb_cdir_vehiculo_km,
+                )
 
             with _lk2:
                 # Peajes — segmented control 0-4+
@@ -2742,17 +3354,29 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         # ── Foráneo ──────────────────────────────────────────────────
         with st.container(border=True):
             st.markdown("**✈️ ¿El proyecto es fuera de Barranquilla?**")
-            foraneo_activo = st.toggle("Sí, proyecto en otra ciudad", value=pre.get("foraneo_activo", False), key="cdir_foraneo")
+            foraneo_activo = st.toggle(
+                "Sí, proyecto en otra ciudad",
+                value=_sp().get("cdir_foraneo", pre.get("foraneo_activo", False)),
+                key="cb_cdir_foraneo",
+                on_change=_cb_cdir_foraneo,
+            )
             viaticos_activos = False; tipo_aloj = "pueblo"; noches = 0
             if foraneo_activo:
                 _fa1, _fa2, _fa3 = st.columns(3)
                 with _fa1:
-                    viaticos_activos = st.toggle("Incluir viáticos", value=pre.get("viaticos_activos", False), key="cdir_viaticos")
+                    viaticos_activos = st.toggle(
+                        "Incluir viáticos",
+                        value=_sp().get("cdir_viaticos_activos", pre.get("viaticos_activos", False)),
+                        key="cb_cdir_viaticos_activos",
+                        on_change=_cb_cdir_viaticos_activos,
+                    )
                 with _fa2:
+                    _sp_tipo_aloj = _sp().get("cdir_tipo_aloj", pre.get("tipo_aloj", "pueblo"))
                     tipo_aloj = ALOJAMIENTO[st.selectbox(
                         "Destino", list(ALOJAMIENTO.keys()),
-                        index=list(ALOJAMIENTO.keys()).index(next((k for k, v in ALOJAMIENTO.items() if v == pre.get("tipo_aloj","pueblo")), list(ALOJAMIENTO.keys())[0])),
-                        key="cdir_tipo_aloj"
+                        index=list(ALOJAMIENTO.keys()).index(next((k for k, v in ALOJAMIENTO.items() if v == _sp_tipo_aloj), list(ALOJAMIENTO.keys())[0])),
+                        key="cb_cdir_tipo_aloj",
+                        on_change=_cb_cdir_tipo_aloj,
                     )]
                 with _fa3:
                     _nc_opts  = ["1", "2", "3", "4", "5+"]
@@ -2770,7 +3394,10 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             st.markdown("**🔧 Costos adicionales** *(silicona, impermeabilizante, etc.)*")
             _ADICIONALES_ACT = get_adicionales()
             adicionales_activos = st.toggle(
-                "Agregar costos adicionales", value=pre.get("adicionales_activos", False), key="cdir_adicionales"
+                "Agregar costos adicionales",
+                value=_sp().get("cdir_adicionales_activos", pre.get("adicionales_activos", False)),
+                key="cb_cdir_adicionales_activos",
+                on_change=_cb_cdir_adicionales_activos,
             )
             cantidades_add = pre.get("cantidades_add", [0.0]*len(_ADICIONALES_ACT)) if pre.get("adicionales_activos") else [0.0]*len(_ADICIONALES_ACT)
             while len(cantidades_add) < len(_ADICIONALES_ACT):
@@ -2789,7 +3416,10 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _iv1, _iv2 = st.columns([1, 1.5])
             with _iv1:
                 incluir_iva = st.toggle(
-                    "Incluir IVA 19%", value=pre.get("incluir_iva", True), key="cdir_incluir_iva",
+                    "Incluir IVA 19%",
+                    value=_sp().get("cdir_incluir_iva", pre.get("incluir_iva", True)),
+                    key="cb_cdir_incluir_iva",
+                    on_change=_cb_cdir_incluir_iva,
                     help="Activa si tu empresa es responsable del régimen común."
                 )
             with _iv2:
@@ -2809,6 +3439,18 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             "adicionales_activos": adicionales_activos, "cantidades_add": cantidades_add,
             "incluir_iva": incluir_iva,
         }
+        # ── store_permanente sync: logística/adicionales/IVA ──────────────────
+        _sp_set("cdir_agente_externo", agente_ext_taller)
+        _sp_set("cdir_vehiculo", vehiculo)
+        _sp_set("cdir_km", km)
+        _sp_set("cdir_peajes", peajes)
+        _sp_set("cdir_foraneo", foraneo_activo)
+        _sp_set("cdir_viaticos_activos", viaticos_activos)
+        _sp_set("cdir_tipo_aloj", tipo_aloj)
+        _sp_set("cdir_noches", noches)
+        _sp_set("cdir_adicionales_activos", adicionales_activos)
+        _sp_set("cdir_cantidades_add", cantidades_add)
+        _sp_set("cdir_incluir_iva", incluir_iva)
 
     # ════════════════════════════════════════════════════════════════════
     # PASO 4 — CALCULAR (trigger automático al llegar a este paso)
@@ -3092,6 +3734,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             if paso > 0:
                 if st.button("← Atrás", use_container_width=True, key="btn_wizard_back"):
                     st.session_state.cdir_paso -= 1
+                    # ── store_permanente: persistir paso (sobrevive nav) ──────
+                    _sp_set("cdir_paso", st.session_state.cdir_paso)
+                    _sp_commit_borrador()
                     st.rerun()
 
         with _nav_r:
@@ -3101,6 +3746,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _lbl_sig = "Calcular cotización →" if paso == N_PASOS - 2 else "Siguiente →"
                 if st.button(_lbl_sig, type="primary", use_container_width=True, key="btn_wizard_next"):
                     st.session_state.cdir_paso += 1
+                    # ── store_permanente: persistir paso (sobrevive nav) ──────
+                    _sp_set("cdir_paso", st.session_state.cdir_paso)
+                    _sp_commit_borrador()
                     if st.session_state.cdir_paso == N_PASOS - 1:
                         # Forzar recálculo al llegar al paso de resultado
                         st.session_state["_recalcular_paso4"] = True
@@ -3378,7 +4026,7 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
                     _can_del = len(st.session_state.aiu_items) > 1
                     if st.button("✕", key=f"aiu_del_{idx}",
                                  help="Eliminar ítem", disabled=not _can_del):
-                        st.session_state.aiu_items.pop(idx)
+                        _sp_eliminar_item_aiu(idx)
                         st.rerun()
                 # ── Fila 2: unidad | cantidad | precio unitario ──────────────
                 _row2a, _row2b, _row2c = st.columns([1.5, 1.5, 3])
@@ -3401,10 +4049,12 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
                     unsafe_allow_html=True
                 )
             nuevos_items.append({"desc": desc, "und": und, "cant": cant, "punit": punit})
+        # Sync AIU items to store_permanente (event-driven)
+        _sp_sync_items_aiu(nuevos_items)
         st.session_state.aiu_items = nuevos_items
 
         if st.button("＋ Agregar ítem", use_container_width=True):
-            st.session_state.aiu_items.append({"desc": "Nuevo ítem", "und": "glb", "cant": 1.0, "punit": 100_000})
+            _sp_agregar_item_aiu()
             st.rerun()
 
         st.markdown(
@@ -5607,6 +6257,7 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
         st.markdown("")
         _col_save_tar, _col_reset_tar = st.columns([3, 1])
         if _col_save_tar.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar", use_container_width=True):
+            # Leer valores DIRECTAMENTE de los widgets activos (store + widget state)
             _saved_tar = {}
             for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
                 _saved_tar[_sm] = {
@@ -5618,6 +6269,8 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
                     "consumibles":   int(st.session_state.get(f"tar_con_{_sm}", 10_000)),
                     "riesgo_rotura": float(st.session_state.get(f"tar_rie_{_sm}", 0.02)),
                 }
+            # ── store_permanente: escritura dual — widget state + store ─────────
+            _sp()["params_tarifas"] = _saved_tar
             st.session_state.tarifas_custom = _saved_tar
             # [PERSISTENCIA] Guardar en Supabase para sobrevivir a F5 y reinicios
             try:
@@ -5633,6 +6286,7 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
         if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
                                   help="Vuelve a los valores por defecto de fábrica"):
             st.session_state.tarifas_custom = None
+            _sp()["params_tarifas"] = None  # store_permanente sync
             try:
                 _guardar_config("tarifas_custom", None)
             except Exception:
@@ -5712,7 +6366,7 @@ La app multiplica estos valores por el número de personas y noches que configur
         st.markdown("")
         _col_save_via, _col_reset_via = st.columns([3, 1])
         if _col_save_via.button("💾 Guardar Viáticos", type="primary", key="btn_save_via", use_container_width=True):
-            st.session_state.viaticos_custom = {
+            _saved_via = {
                 "pueblo": {
                     "hospedaje":        int(st.session_state.get("via_pueblo_hosp", 60_000)),
                     "alimentacion":     int(st.session_state.get("via_pueblo_alim", 65_000)),
@@ -5724,9 +6378,12 @@ La app multiplica estos valores por el número de personas y noches que configur
                     "transporte_local": int(st.session_state.get("via_ciudad_tran", 20_000)),
                 },
             }
+            # ── store_permanente: escritura dual ────────────────────────────────
+            _sp()["params_viaticos"] = _saved_via
+            st.session_state.viaticos_custom = _saved_via
             # [PERSISTENCIA] Guardar en Supabase
             try:
-                _guardar_config("viaticos_custom", st.session_state.viaticos_custom)
+                _guardar_config("viaticos_custom", _saved_via)
             except Exception:
                 pass
             # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
@@ -5738,6 +6395,7 @@ La app multiplica estos valores por el número de personas y noches que configur
         if _col_reset_via.button("↺ Restaurar", key="btn_reset_via", use_container_width=True,
                                   help="Vuelve a los valores por defecto de fábrica"):
             st.session_state.viaticos_custom = None
+            _sp()["params_viaticos"] = None  # store_permanente sync
             try:
                 _guardar_config("viaticos_custom", None)
             except Exception:
@@ -5867,7 +6525,7 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
         st.markdown("")
         _col_save_log, _col_reset_log = st.columns([3, 1])
         if _col_save_log.button("💾 Guardar Logística", type="primary", key="btn_save_log", use_container_width=True):
-            st.session_state.logistica_custom = {
+            _saved_log = {
                 "gasolina": int(st.session_state.get("log_gas",      16_000)),
                 "peaje":    int(st.session_state.get("log_pea",      19_500)),
                 "herram":   int(st.session_state.get("log_her",       4_500)),
@@ -5886,9 +6544,12 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                     "flete": int(st.session_state.get("log_ext_flete", 165_000)),
                 },
             }
+            # ── store_permanente: escritura dual ────────────────────────────────
+            _sp()["params_logistica"] = _saved_log
+            st.session_state.logistica_custom = _saved_log
             # [PERSISTENCIA] Guardar en Supabase
             try:
-                _guardar_config("logistica_custom", st.session_state.logistica_custom)
+                _guardar_config("logistica_custom", _saved_log)
             except Exception:
                 pass
             # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
@@ -5901,6 +6562,7 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
         if _col_reset_log.button("↺ Restaurar", key="btn_reset_log", use_container_width=True,
                                   help="Vuelve a los valores por defecto de fábrica"):
             st.session_state.logistica_custom = None
+            _sp()["params_logistica"] = None  # store_permanente sync
             try:
                 _guardar_config("logistica_custom", None)
             except Exception:
