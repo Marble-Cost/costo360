@@ -690,19 +690,21 @@ def _generar_svg_nesting(
 ) -> str:
     """Genera el SVG de nesting: fondo gris (placa virgen) + piezas de colores."""
 
-    PX_M   = 160          # píxeles por metro
-    MARG   = 70           # margen canvas
-    TITL_H = 44           # altura barra título
+    PX_M    = 160          # píxeles por metro
+    MARG    = 70           # margen canvas (espacio lateral)
+    TITL_H  = 44           # altura barra título
     PANEL_H = 52 if unplaced else 0  # panel aviso piezas que no caben
+    # Espacio extra encima/debajo para que las cotas no queden cortadas
+    COTA_ESPACIO = _COTA_GAP + _COTA_TICK + 14
 
     placa_w_px = placa_ancho * PX_M
     placa_h_px = placa_alto  * PX_M
 
-    canvas_w = max(640, placa_w_px + 2 * MARG)
-    canvas_h = TITL_H + MARG + placa_h_px + MARG + PANEL_H + 10
+    canvas_w = max(720, placa_w_px + 2 * MARG + 2 * COTA_ESPACIO)
+    canvas_h = TITL_H + MARG + COTA_ESPACIO + placa_h_px + COTA_ESPACIO + MARG + PANEL_H + 10
 
     ox = (canvas_w - placa_w_px) / 2  # origen X de la placa
-    oy = TITL_H + MARG                # origen Y de la placa
+    oy = TITL_H + MARG + COTA_ESPACIO # origen Y de la placa (desplazado para cotas superiores)
 
     parts = []
 
@@ -775,33 +777,42 @@ def _generar_svg_nesting(
 
         rot_tag = " ↺" if p.get("rotada") else ""
         nombre  = str(p["nombre"]) + rot_tag
-        fs_name = max(8, min(13, int(min(pw_, ph_) / 4.5)))
-        fs_dim  = max(7, min(10, fs_name - 2))
+        # Tamaño de fuente adaptativo — sin restricciones de visibilidad
+        fs_name = max(7, min(13, int(min(pw_, ph_) / 4.5)))
+        fs_dim  = max(6, min(10, fs_name - 1))
 
+        # Sombra y rectángulo de pieza
         parts.append(
-            # sombra
             f'<rect x="{px_+3:.1f}" y="{py_+3:.1f}" width="{pw_:.1f}" height="{ph_:.1f}" '
             f'rx="3" fill="{stroke}" opacity="0.10"/>'
-            # rectángulo
             f'<rect x="{px_:.1f}" y="{py_:.1f}" width="{pw_:.1f}" height="{ph_:.1f}" '
             f'rx="3" fill="{fill}" stroke="{stroke}" stroke-width="1.8"/>'
         )
-        # Texto solo si la pieza es visible
-        if pw_ > 28 and ph_ > 20:
-            offset_y = -(fs_dim + 3) if ph_ > 32 else 0
-            parts.append(
-                f'<text x="{cx_:.1f}" y="{cy_ + offset_y:.1f}" text-anchor="middle" '
-                f'dominant-baseline="middle" font-family="Helvetica,Arial,sans-serif" '
-                f'font-size="{fs_name}" font-weight="bold" fill="{_AZUL_OSCURO}">'
-                f'{_esc(nombre)}</text>'
-            )
-        if pw_ > 40 and ph_ > 32:
-            parts.append(
-                f'<text x="{cx_:.1f}" y="{cy_ + fs_name:.1f}" text-anchor="middle" '
-                f'font-family="Helvetica,Arial,sans-serif" font-size="{fs_dim}" '
-                f'fill="{stroke}" opacity="0.85">'
-                f'{p["w"]:.2f}×{p["h"]:.2f} m</text>'
-            )
+
+        # Nombre centrado — siempre visible, con clipPath implícito via overflow:hidden en SVG
+        # Para piezas muy delgadas se usa texto pequeño; las cotas externas dan la información
+        parts.append(
+            f'<text x="{cx_:.1f}" y="{cy_:.1f}" text-anchor="middle" '
+            f'dominant-baseline="middle" font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="{fs_name}" font-weight="bold" fill="{_AZUL_OSCURO}" '
+            f'clip-path="url(#clip_{idx})">{_esc(nombre)}</text>'
+        )
+        # clipPath para que el texto no se salga del rectángulo de la pieza
+        parts.append(
+            f'<clipPath id="clip_{idx}">'
+            f'<rect x="{px_:.1f}" y="{py_:.1f}" width="{pw_:.1f}" height="{ph_:.1f}"/>'
+            f'</clipPath>'
+        )
+
+        # ── Cotas externas doradas para CADA pieza ────────────────────────────
+        # cota_h: ancho de la pieza (horizontal), aparece DEBAJO de la pieza
+        parts.append(
+            _cota_h(px_, px_ + pw_, py_ + ph_, p["w"], abajo=True)
+        )
+        # cota_v: alto de la pieza (vertical), aparece a la DERECHA de la pieza
+        parts.append(
+            _cota_v(py_, py_ + ph_, px_ + pw_, p["h"], derecha=True)
+        )
 
     # ── Panel "piezas que no caben" ───────────────────────────────────────────
     if unplaced:
