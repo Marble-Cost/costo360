@@ -7,6 +7,10 @@
 # Salida  : string SVG completo, listo para st.markdown(..., unsafe_allow_html=True)
 #           o para descargar como archivo .svg
 
+import io
+import tempfile
+import os
+
 # ── Paleta corporativa ────────────────────────────────────────────────────────
 _AZUL_CORP   = "#1B5FA8"   # Borde y texto principal de piezas
 _AZUL_OSCURO = "#0D2137"   # Fondo título, texto cotas
@@ -458,3 +462,59 @@ def wrap_svg_streamlit(svg):
         + svg +
         '</div>'
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EXPORTACIÓN A PDF
+# ══════════════════════════════════════════════════════════════════════════════
+
+def exportar_svg_a_pdf(svg_string: str) -> bytes:
+    """
+    Convierte un string SVG en un PDF descargable usando svglib + ReportLab.
+
+    Flujo:
+      1. Escribe el SVG en un archivo temporal en disco (svglib requiere un
+         path de archivo — no acepta StringIO directamente).
+      2. svglib.svg2rlg() lee el archivo y devuelve un objeto ReportLab Drawing.
+      3. reportlab.graphics.renderPDF.drawToString() renderiza el Drawing en
+         bytes de PDF en memoria, sin tocar el disco.
+      4. El archivo temporal se borra siempre (bloque finally).
+
+    Retorna:
+        bytes — contenido PDF listo para st.download_button(data=...).
+
+    Lanza:
+        RuntimeError si svglib o ReportLab no están instalados, o si el SVG
+        no puede parsearse.
+    """
+    try:
+        from svglib.svglib import svg2rlg
+        from reportlab.graphics import renderPDF
+    except ImportError as exc:
+        raise RuntimeError(
+            "svglib o reportlab no están instalados. "
+            "Añade 'svglib>=1.5.1' a requirements.txt y reinstala."
+        ) from exc
+
+    # svglib.svg2rlg necesita un path real en disco
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".svg", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(svg_string)
+            tmp_path = tmp.name
+
+        drawing = svg2rlg(tmp_path)
+        if drawing is None:
+            raise RuntimeError(
+                "svglib no pudo interpretar el SVG. "
+                "Verifica que el plano se generó correctamente."
+            )
+
+        pdf_bytes = renderPDF.drawToString(drawing)
+        return pdf_bytes
+
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
