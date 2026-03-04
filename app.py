@@ -1600,7 +1600,8 @@ def _sp_agregar_pieza():
     """Añade una pieza nueva y persiste en BD de inmediato."""
     piezas = list(_sp().get("cdir_piezas", []))
     piezas.append({"nombre": f"Pieza {len(piezas)+1}",
-                   "ml": 1.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60})
+                   "ml": 1.0, "ml_unitario": 1.0, "cantidad": 1,
+                   "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60})
     _sp_set("cdir_piezas", piezas)
     st.session_state.piezas = piezas
     _sp_commit_borrador()
@@ -2754,24 +2755,43 @@ elif pagina == "Cotizacion Directa":
                     )
                     st.markdown(f"<div style='margin-top:-12px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(precio_m2_m)}</div>", unsafe_allow_html=True)
                 with cold:
-                    area_placa_m = st.number_input(
-                        "Área de la lámina comprada (m²)", min_value=0.01, max_value=200.0,
-                        value=float(mat_item.get("area_placa", 5.94)), step=0.1,
-                        key=f"maplaca_{midx}", format="%.3f",
-                        help="m² totales del material que compraste"
-                    )
+                    # Recuperar dimensiones guardadas (o calcularlas desde area_placa legacy)
+                    _area_leg   = float(mat_item.get("area_placa", 5.94))
+                    _cant_prev  = int(mat_item.get("placas_cant", 1))
+                    _largo_prev = float(mat_item.get("placas_largo", round(_area_leg / 0.60, 2)))
+                    _ancho_prev = float(mat_item.get("placas_ancho", 0.60))
+                    st.markdown("<div style='font-size:0.8rem;font-weight:600;opacity:0.7;margin-bottom:4px'>Dimensiones de la lámina</div>", unsafe_allow_html=True)
+                    _pcol1, _pcol2, _pcol3 = st.columns(3)
+                    with _pcol1:
+                        _cant_placas = st.number_input(
+                            "Cant. placas", min_value=1, max_value=50, value=_cant_prev, step=1,
+                            key=f"mpcant_{midx}", help="Número de láminas completas compradas"
+                        )
+                    with _pcol2:
+                        _largo_placa = st.number_input(
+                            "Largo (m)", min_value=0.10, max_value=10.0, value=_largo_prev, step=0.01,
+                            key=f"mplargo_{midx}", format="%.2f", help="Largo de cada lámina en metros"
+                        )
+                    with _pcol3:
+                        _ancho_placa = st.number_input(
+                            "Ancho (m)", min_value=0.10, max_value=5.0, value=_ancho_prev, step=0.01,
+                            key=f"mpancho_{midx}", format="%.2f", help="Ancho de cada lámina en metros"
+                        )
+                    area_placa_m = round(_cant_placas * _largo_placa * _ancho_placa, 4)
+                    st.caption(f"Área total calculada: {area_placa_m:.2f} m²")
 
                 costo_m = precio_m2_m * area_placa_m
                 st.markdown(
                     f'<div style="background:var(--secondary-background-color);border-radius:8px;'
                     f'padding:8px 14px;margin-top:4px;font-size:0.85rem">'
-                    f'<span style="opacity:0.6">{numero_completo(precio_m2_m)}/m² × {area_placa_m} m² = </span>'
+                    f'<span style="opacity:0.6">{numero_completo(precio_m2_m)}/m² × {area_placa_m:.3f} m² = </span>'
                     f'<strong style="color:#1B5FA8">{numero_completo(costo_m)}</strong></div>',
                     unsafe_allow_html=True
                 )
 
                 # Banco de Retales
-                _mat_dict = {"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m}
+                _mat_dict = {"cat": cat_sel_m, "ref": referencia_m, "precio_m2": precio_m2_m, "area_placa": area_placa_m,
+                              "placas_cant": _cant_placas, "placas_largo": _largo_placa, "placas_ancho": _ancho_placa}
                 try:
                     _usr_act = st.session_state.get("usuario_actual", {})
                     _retales_disp = _consultar_retal(
@@ -2912,7 +2932,9 @@ elif pagina == "Cotizacion Directa":
 
         # Derivar valores de materiales para pasos siguientes
         cat_sel     = mats_nuevos[0]["cat"]    if mats_nuevos else "Mármol"
-        referencia  = " + ".join([m["ref"] or m["cat"] for m in mats_nuevos]) if len(mats_nuevos) > 1 else (mats_nuevos[0]["ref"] if mats_nuevos else "")
+        _refs_raw   = [m["ref"] or m["cat"] for m in mats_nuevos]
+        _refs_unicas = list(dict.fromkeys(_refs_raw))  # Preserva orden, elimina duplicados
+        referencia  = " + ".join(_refs_unicas) if len(_refs_unicas) > 1 else (_refs_unicas[0] if _refs_unicas else "")
         precio_m2   = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
         area_placa  = sum(m["area_placa"] for m in mats_nuevos)
         precio_m2_efectivo = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
@@ -2974,8 +2996,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         _sp_eliminar_pieza(idx)
                         st.rerun()
 
-                # ── FILA 2: Tipo de elemento + Largo en ML ───────────
-                _col_tipo, _col_ml = st.columns(2)
+                # ── FILA 2: Tipo de elemento + Largo en ML + Cantidad ─
+                _col_tipo, _col_ml, _col_cant = st.columns([2, 1.5, 1])
                 with _col_tipo:
                     tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
                     ancho_tipo_p = st.selectbox(
@@ -2992,7 +3014,17 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         min_value=0.01,
                         step=0.1,
                         key=f"pml_{idx}",
-                        help="Metros lineales de esta pieza",
+                        help="Metros lineales de esta pieza (una unidad)",
+                    )
+                with _col_cant:
+                    cantidad_p = st.number_input(
+                        "Cantidad",
+                        value=int(pieza.get("cantidad", 1)),
+                        min_value=1,
+                        max_value=100,
+                        step=1,
+                        key=f"pcant_{idx}",
+                        help="Número de piezas idénticas. El total ML = Largo × Cantidad",
                     )
 
                 # ── CONDICIONAL: nombre extra si elige Personalizado ──
@@ -3017,9 +3049,11 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         key=f"panc_{idx}",
                         help="Profundidad o alto de la pieza en metros",
                     )
-                m2_p = ml_a_m2(ml_p, ancho_p)
+                ml_efectivo = ml_p * cantidad_p            # largo × cantidad
+                m2_p = ml_a_m2(ml_efectivo, ancho_p)       # m² totales de esta fila
                 total_m2_piezas += m2_p
                 with _col_m2:
+                    _m2_desc = f"{ml_p:.2f} ml × {ancho_p:.2f} m × {cantidad_p}" if cantidad_p > 1 else f"{ml_p:.2f} ml × {ancho_p:.2f} m"
                     st.markdown(
                         f"""<div style="background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.22);
                         border-radius:10px;padding:10px 14px;margin-top:4px">
@@ -3027,7 +3061,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                              letter-spacing:0.1em;color:#1B5FA8;opacity:0.8">m² calculados</div>
                         <div style="font-size:1.45rem;font-weight:900;color:#1B5FA8;
                              font-family:'Playfair Display',serif;line-height:1.2">{fmt_m2(m2_p)}</div>
-                        <div style="font-size:0.7rem;opacity:0.6;margin-top:2px">{ml_p:.2f} ml × {ancho_p:.2f} m</div>
+                        <div style="font-size:0.7rem;opacity:0.6;margin-top:2px">{_m2_desc}</div>
                         </div>""",
                         unsafe_allow_html=True,
                     )
@@ -3036,7 +3070,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
                 piezas_nuevas.append({
                     "nombre":              nombre_p,
-                    "ml":                  ml_p,
+                    "ml":                  ml_efectivo,     # largo × cantidad (total real)
+                    "ml_unitario":         ml_p,            # largo de una sola pieza
+                    "cantidad":            cantidad_p,
                     "ancho_tipo":          ancho_tipo_p,
                     "ancho_custom":        ancho_p,
                     "nombre_personalizado": _nom_personalizado,
@@ -3055,7 +3091,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 st.rerun()
         with _col_tot:
             if m2_real > 0:
-                _ml_total = sum(p.get("ml",0) for p in st.session_state.piezas)
+                _ml_total = sum(p.get("ml",0) for p in st.session_state.piezas)  # ya es ml efectivo (unitario × cantidad)
                 st.markdown(
                     f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
                     border-radius:10px;padding:12px 18px;text-align:center">
@@ -3472,7 +3508,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _piezas = st.session_state.get("piezas", pre.get("piezas", []))
 
         cat_sel            = _mats[0]["cat"]    if _mats else pre.get("categoria","Mármol")
-        referencia         = " + ".join([m["ref"] or m["cat"] for m in _mats]) if len(_mats) > 1 else (_mats[0]["ref"] if _mats else "")
+        _refs_raw2  = [m["ref"] or m["cat"] for m in _mats]
+        _refs_unicas2 = list(dict.fromkeys(_refs_raw2))  # Preserva orden, elimina duplicados
+        referencia         = " + ".join(_refs_unicas2) if len(_refs_unicas2) > 1 else (_refs_unicas2[0] if _refs_unicas2 else "")
         precio_m2          = _mats[0]["precio_m2"] if _mats else pre.get("precio_m2", 220_000)
         precio_m2_efectivo = precio_m2
         area_placa         = sum(m["area_placa"] for m in _mats) if _mats else pre.get("area_placa_comprada", 5.94)
