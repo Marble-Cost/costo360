@@ -30,7 +30,7 @@ from parametros import (
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
 import plotly.graph_objects as go
-from motor_planos import generar_plano_svg, wrap_svg_streamlit
+from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_pdf
 
 st.set_page_config(
     page_title="CostoMármol — Mármoles Collante & Castro",
@@ -2557,26 +2557,49 @@ elif pagina == "Cotizacion Directa":
         _col_nueva, _col_editar = st.columns(2)
         with _col_nueva:
             if st.button("🆕 Nueva cotización", use_container_width=True, type="primary"):
-                for k in ["cotizacion", "pre", "piezas", "materiales_proyecto",
-                          "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
-                          "_borrador_restaurado", "_sp_borrador_hash"]:
+                # --- BUG 2a FIX: full widget-cache purge so the user never sees
+                # ghost values from the previous quotation in the form fields.
+                _DATA_KEYS_NUEVA = [
+                    "cotizacion", "pre", "piezas", "materiales_proyecto",
+                    "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
+                    "_borrador_restaurado", "_sp_borrador_hash",
+                    "_cantidades_add_restauradas",
+                ]
+                for k in _DATA_KEYS_NUEVA:
                     st.session_state.pop(k, None)
-                for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
-                    del st.session_state[_wk]
-                # ── store_permanente: reset del wizard para nueva cotización ──
+
+                _WIDGET_PREFIXES_NUEVA = (
+                    "cdir_", "p1_", "p2_", "p3_", "p4_",
+                    "add_", "retal_", "mat_",
+                    "num_cot_", "num_cc_", "nom_pag_", "nit_pag_", "dir_pag_",
+                    "sim_slider",
+                )
+                for _wk in [k for k in list(st.session_state.keys())
+                             if any(k.startswith(pfx) for pfx in _WIDGET_PREFIXES_NUEVA)]:
+                    st.session_state.pop(_wk, None)
+
+                # Reset store_permanente wizard slice
                 _sp = st.session_state.get("store_permanente", {})
                 for _sk in [k for k in list(_sp.keys()) if k.startswith("cdir_")]:
                     del _sp[_sk]
-                _sp["cdir_paso"]      = 0
-                _sp["cdir_piezas"]    = []
+                _sp["cdir_paso"]       = 0
+                _sp["cdir_piezas"]     = []
                 _sp["cdir_materiales"] = []
+
+                # Hard-navigate to Step 0 (Material) and exit success screen
                 st.session_state.cdir_paso    = 0
                 st.session_state.cdir_success = False
                 st.rerun()
         with _col_editar:
             if st.button("✏️ Editar esta cotización", use_container_width=True):
+                # --- BUG 2b FIX: do NOT clear data — the user wants the form
+                # pre-filled.  Only exit the success screen and return to Step 0
+                # so the wizard renders with existing values intact.
                 st.session_state.cdir_success = False
                 st.session_state.cdir_paso    = 0
+                # Sync store_permanente so a rerun doesn't restore paso from stale store
+                _sp_edit = st.session_state.get("store_permanente", {})
+                _sp_edit["cdir_paso"] = 0
                 st.rerun()
 
         # FIN pantalla de éxito — no renderizar nada más
@@ -2604,12 +2627,37 @@ elif pagina == "Cotizacion Directa":
                 type="primary",
                 use_container_width=True,
             ):
-                for k in ["pre", "piezas", "materiales_proyecto", "cotizacion",
-                          "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
-                          "_borrador_restaurado"]:
+                # --- BUG 1 FIX: purge ALL dynamic widget keys so Streamlit
+                # re-renders inputs from scratch (no ghost values in cache).
+                _DATA_KEYS = [
+                    "pre", "piezas", "materiales_proyecto", "cotizacion",
+                    "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
+                    "_borrador_restaurado", "_sp_borrador_hash",
+                    "_cantidades_add_restauradas",
+                ]
+                for k in _DATA_KEYS:
                     st.session_state.pop(k, None)
-                for _wk in [k for k in st.session_state if k.startswith("cdir_")]:
-                    del st.session_state[_wk]
+
+                # Prefixes that identify every wizard widget key
+                _WIDGET_PREFIXES = (
+                    "cdir_", "p1_", "p2_", "p3_", "p4_",
+                    "add_", "retal_", "mat_",
+                    "num_cot_", "num_cc_", "nom_pag_", "nit_pag_", "dir_pag_",
+                    "sim_slider",
+                )
+                for _wk in [k for k in list(st.session_state.keys())
+                             if any(k.startswith(pfx) for pfx in _WIDGET_PREFIXES)]:
+                    st.session_state.pop(_wk, None)
+
+                # Also reset store_permanente wizard slice
+                _sp = st.session_state.get("store_permanente", {})
+                for _sk in [k for k in list(_sp.keys()) if k.startswith("cdir_")]:
+                    del _sp[_sk]
+                _sp["cdir_paso"]       = 0
+                _sp["cdir_piezas"]     = []
+                _sp["cdir_materiales"] = []
+
+                # Force back to step 0
                 st.session_state.cdir_paso    = 0
                 st.session_state.cdir_success = False
                 st.rerun()
@@ -7753,44 +7801,80 @@ elif pagina == "Planos de Produccion":
         )
         st.session_state.plano_descripcion = descripcion
 
-        # Ejemplos rápidos
-        with st.expander("💡 Cargar ejemplo rápido"):
-            ej_col1, ej_col2 = st.columns(2)
-            with ej_col1:
-                if st.button("📏 Mesón recto", use_container_width=True,
-                              key="plano_ej_recto"):
-                    st.session_state.plano_descripcion = (
-                        "Mesón recto de 3.00 metros de largo por 0.60 metros de ancho, "
-                        "con un lavaplatos de 0.50 m × 0.40 m ubicado a 1.20 m del extremo izquierdo."
-                    )
-                    st.rerun()
-                if st.button("🔲 Isla central", use_container_width=True,
-                              key="plano_ej_isla"):
-                    st.session_state.plano_descripcion = (
-                        "Isla de cocina de 2.00 m de largo por 1.00 m de ancho, "
-                        "con una hornilla de 0.60 m × 0.60 m centrada en la isla."
-                    )
-                    st.rerun()
-            with ej_col2:
-                if st.button("📐 Mesón en L", use_container_width=True,
-                              key="plano_ej_l"):
-                    st.session_state.plano_descripcion = (
-                        "Mesón en L: brazo largo de 2.50 metros de longitud por 0.60 metros "
-                        "de profundidad, y brazo corto de 1.20 metros de longitud por 0.60 metros "
-                        "de profundidad, unidos en la esquina derecha. "
-                        "Tiene un lavaplatos doble de 0.80 m × 0.45 m en el brazo largo, "
-                        "a 0.50 m del extremo libre."
-                    )
-                    st.rerun()
-                if st.button("🏛️ Mesón en U", use_container_width=True,
-                              key="plano_ej_u"):
-                    st.session_state.plano_descripcion = (
-                        "Mesón en U: frente de 2.40 m × 0.60 m, "
-                        "lateral izquierdo de 1.60 m × 0.60 m y "
-                        "lateral derecho de 1.60 m × 0.60 m. "
-                        "Lavaplatos de 0.50 × 0.40 m en el frente, centrado."
-                    )
-                    st.rerun()
+        # ── Plantillas de ejemplo — siempre visibles ──────────────────────
+        st.markdown(
+            "<div style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
+            "text-transform:uppercase;letter-spacing:0.07em;margin:10px 0 6px'>"
+            "📋 Plantillas de ejemplo — clic para cargar</div>",
+            unsafe_allow_html=True,
+        )
+        _ej_r1c1, _ej_r1c2 = st.columns(2)
+        with _ej_r1c1:
+            if st.button("📏 Mesón recto + lavaplatos", use_container_width=True,
+                         key="plano_ej_recto"):
+                st.session_state.plano_descripcion = (
+                    "Mesón recto de 3.00 metros de largo por 0.60 metros de profundidad. "
+                    "Tiene un lavaplatos de 0.50 m de ancho por 0.40 m de fondo, "
+                    "ubicado a 1.20 m del extremo izquierdo y centrado en la profundidad."
+                )
+                st.rerun()
+        with _ej_r1c2:
+            if st.button("📐 Mesón en L + lavaplatos doble", use_container_width=True,
+                         key="plano_ej_l"):
+                st.session_state.plano_descripcion = (
+                    "Mesón en L compuesto por dos piezas: "
+                    "Brazo Largo de 2.50 metros de longitud por 0.60 metros de profundidad, "
+                    "y Brazo Corto de 1.20 metros de longitud por 0.60 metros de profundidad, "
+                    "unidos en la esquina derecha. "
+                    "El Brazo Largo tiene un lavaplatos doble de 0.80 m × 0.45 m, "
+                    "centrado a 0.50 m del extremo libre."
+                )
+                st.rerun()
+
+        _ej_r2c1, _ej_r2c2 = st.columns(2)
+        with _ej_r2c1:
+            if st.button("🔲 Isla central + hornilla", use_container_width=True,
+                         key="plano_ej_isla"):
+                st.session_state.plano_descripcion = (
+                    "Isla de cocina de 2.00 m de largo por 1.00 m de profundidad. "
+                    "Tiene una hornilla de 0.60 m × 0.60 m centrada en la isla, "
+                    "a 0.70 m de cada extremo lateral."
+                )
+                st.rerun()
+        with _ej_r2c2:
+            if st.button("🏛️ Mesón en U completo", use_container_width=True,
+                         key="plano_ej_u"):
+                st.session_state.plano_descripcion = (
+                    "Mesón en U formado por tres piezas: "
+                    "Frente de 2.40 m × 0.60 m, "
+                    "Lateral Izquierdo de 1.60 m × 0.60 m y "
+                    "Lateral Derecho de 1.60 m × 0.60 m. "
+                    "El Frente lleva un lavaplatos de 0.50 m × 0.40 m centrado."
+                )
+                st.rerun()
+
+        _ej_r3c1, _ej_r3c2 = st.columns(2)
+        with _ej_r3c1:
+            if st.button("🪜 Escalones (3 huellas)", use_container_width=True,
+                         key="plano_ej_escalones"):
+                st.session_state.plano_descripcion = (
+                    "Escalera de 3 escalones. Cada escalón tiene una huella de "
+                    "1.20 m de ancho por 0.30 m de profundidad y una contrahuella de "
+                    "1.20 m de ancho por 0.18 m de alto. "
+                    "Los escalones se apilan uno encima del otro."
+                )
+                st.rerun()
+        with _ej_r3c2:
+            if st.button("🪟 Alféizares + repisa", use_container_width=True,
+                         key="plano_ej_alfei"):
+                st.session_state.plano_descripcion = (
+                    "Dos alféizares de ventana y una repisa. "
+                    "Alféizar 1 de 1.20 m × 0.20 m. "
+                    "Alféizar 2 de 0.90 m × 0.20 m. "
+                    "Repisa de 1.00 m × 0.25 m. "
+                    "Las tres piezas van separadas horizontalmente."
+                )
+                st.rerun()
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
@@ -7816,30 +7900,43 @@ elif pagina == "Planos de Produccion":
             st.session_state.plano_datos_json = None
 
             with st.spinner("🧠 Analizando medidas y calculando coordenadas…"):
-                datos = extraer_coordenadas_plano(descripcion.strip())
+                try:
+                    datos = extraer_coordenadas_plano(descripcion.strip())
+                except Exception:
+                    datos = None
 
             if datos is None:
                 st.session_state.plano_error_msg = (
-                    "No fue posible conectar con la IA. "
+                    "No fue posible conectar con la IA o procesar la descripción. "
                     "Verifica tu API key y la conexión a internet."
                 )
             elif not datos.get("piezas"):
                 _err_ia = datos.get("_error", "")
                 if _err_ia == "json_parse":
                     st.session_state.plano_error_msg = (
-                        "La IA devolvió una respuesta que no pudo interpretarse como coordenadas. "
-                        "Intenta reformular la descripción con medidas más explícitas."
+                        "La IA no pudo convertir la descripción en coordenadas. "
+                        "Consejo: indica cada pieza con medidas explícitas, por ejemplo: "
+                        "\"Brazo Largo de 2.50 m × 0.60 m\" y \"Brazo Corto de 1.20 m × 0.60 m\"."
                     )
                 else:
                     st.session_state.plano_error_msg = (
-                        "No se detectaron piezas en la descripción. "
-                        "Incluye dimensiones concretas: ej. '2.50 m × 0.60 m'."
+                        "No se detectaron piezas con dimensiones en la descripción. "
+                        "Incluye siempre el largo y el ancho en metros, ej: '2.50 m × 0.60 m'. "
+                        "Puedes usar una de las plantillas de ejemplo como punto de partida."
                     )
             else:
                 st.session_state.plano_datos_json = datos
                 with st.spinner("🎨 Dibujando plano técnico…"):
-                    svg = generar_plano_svg(datos)
-                st.session_state.plano_svg = svg
+                    try:
+                        svg = generar_plano_svg(datos)
+                    except Exception as _svg_err:
+                        svg = None
+                        st.session_state.plano_error_msg = (
+                            f"Error al dibujar el plano: {_svg_err}. "
+                            "Intenta con una descripción más sencilla."
+                        )
+                if svg:
+                    st.session_state.plano_svg = svg
 
         elif btn_generar and not descripcion.strip():
             st.session_state.plano_error_msg = "Escribe la descripción del proyecto antes de generar."
@@ -7880,7 +7977,7 @@ elif pagina == "Planos de Produccion":
 
             # ── Botones de acción ─────────────────────────────────────────
             st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-            _ba1, _ba2 = st.columns(2)
+            _ba1, _ba2, _ba3 = st.columns(3)
 
             with _ba1:
                 st.download_button(
@@ -7893,6 +7990,27 @@ elif pagina == "Planos de Produccion":
                 )
 
             with _ba2:
+                # ── PDF download — escudo de errores ──────────────────────
+                try:
+                    _pdf_bytes = exportar_svg_a_pdf(svg_actual)
+                    st.download_button(
+                        label="📄 Descargar PDF",
+                        data=_pdf_bytes,
+                        file_name="Plano_Produccion_MCC.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary",
+                        key="plano_btn_download_pdf",
+                    )
+                except Exception as _pdf_err:
+                    st.warning(
+                        "No se pudo generar el PDF. "
+                        "Asegúrate de que `svglib` esté instalado (`pip install svglib`). "
+                        f"Detalle técnico: {_pdf_err}",
+                        icon="⚠️",
+                    )
+
+            with _ba3:
                 if datos_json:
                     st.download_button(
                         label="📋 Descargar JSON",
