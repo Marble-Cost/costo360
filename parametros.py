@@ -184,40 +184,7 @@ ANCHOS_ESTANDAR = {
     "Personalizado":         {"ancho": None, "unidad": "m", "desc": "Ingresa el ancho manualmente"},
 }
 
-# ── CATÁLOGO ESTANDARIZADO GRAMAR 2024 ────────────────────────────────────────
-# Diccionario {categoria: [lista de referencias]}
-# Usado en el selectbox de la UI para evitar datos sucios.
-# Al final de cada lista la UI añade "Otra referencia..." como opción libre.
-MATERIALES_CATALOGO = {
-    "Mármol": [
-        "Café Pinta", "Sinú Acuamarina", "Sinú Dark", "Sinú Veta",
-        "Arabescato", "Armani Brown", "Bardiglio", "Blanco Artemisa",
-        "Blanco Carrara Extra", "Cream", "Silver Blue", "Teka Stone",
-        "Travertino Chiaro", "Vainilla", "Verde Guatemala", "Verde Mare",
-    ],
-    "Granito": [
-        "Vermont Brown", "Xiamen White", "Beige Rosa", "Blanco Atlantico",
-        "Ming Rose", "Verde Ubatuba", "Bianco Supreme", "Cream D'or",
-        "Green River", "Gris Oceano", "Infinity White", "Oberoi", "Otono", "Snow White",
-    ],
-    "Sinterizado": [
-        "Armani Silver", "Cosmopolita Ivory", "Ducal Gold", "Lassa White",
-        "Paloma Stone", "Amazonite", "Antartica White", "Arabescato Corchia",
-        "Avatar Blue", "Baobab", "White Beauty",
-    ],
-    "Quarztone": [
-        "Alpine Mist", "Aterra", "Bianco Drift", "Polar", "Raw Concrete",
-        "Rugged Concrete", "Statuario Nuvo", "Sleek Concrete",
-    ],
-    "Quarzita": [
-        "Taj Mahal", "Cristallo", "Mont Blanc", "Patagonia",
-    ],
-}
-
-# ── LISTA PLANA LEGACY — para compatibilidad con código que usa
-# [m["nombre"] for m in MATERIALES_CATALOGO if m["categoria"] == cat]
-# Conserva las fichas con precio_m2 y area_placa de la versión anterior.
-MATERIALES_CATALOGO_LEGACY = [
+MATERIALES_CATALOGO = [
     {"nombre": "Crema Marfil Clásico",  "categoria": "Mármol",      "precio_m2": 220_000, "area_placa": 5.94},
     {"nombre": "New Cremo Sicilia",     "categoria": "Mármol",      "precio_m2": 240_000, "area_placa": 2.212},
     {"nombre": "Ducal Gold 1200×2800",  "categoria": "Sinterizado", "precio_m2":  88_000, "area_placa": 3.36},
@@ -225,65 +192,6 @@ MATERIALES_CATALOGO_LEGACY = [
     {"nombre": "Alpine Premium",        "categoria": "Granito",     "precio_m2": 475_000, "area_placa": 5.12},
     {"nombre": "Calacatta Dorato",      "categoria": "Sinterizado", "precio_m2": 580_000, "area_placa": 5.12},
 ]
-
-# ── MAPA DE CROSS-SELLING ──────────────────────────────────────────────────────
-# Formato: {referencia_seleccionada: {"alternativa": str, "categoria": str, "razon": str}}
-# La UI muestra una alerta cuando el usuario elige una llave — sugiere
-# el material alternativo de mayor margen neto para la empresa.
-CROSS_SELLING_MAP = {
-    # Mármoles naturales de alto costo → Sinterizado de similar estética y +margen
-    "Blanco Carrara Extra": {
-        "alternativa": "Antartica White",
-        "categoria":   "Sinterizado",
-        "razon":       "Veta blanca idéntica, dureza superior, sin porosidad y mayor margen neto.",
-    },
-    "Arabescato": {
-        "alternativa": "Arabescato Corchia",
-        "categoria":   "Sinterizado",
-        "razon":       "Misma estética arabescato en sinterizado técnico: más resistencia, menos riesgo de rotura.",
-    },
-    "Travertino Chiaro": {
-        "alternativa": "Cosmopolita Ivory",
-        "categoria":   "Sinterizado",
-        "razon":       "Tonos cálidos travertino en sinterizado. Menor costo de instalación y mayor utilidad.",
-    },
-    "Verde Guatemala": {
-        "alternativa": "Avatar Blue",
-        "categoria":   "Sinterizado",
-        "razon":       "Alternativa premium verde/azul en sinterizado. Precio competitivo y mejor margen.",
-    },
-    "Bardiglio": {
-        "alternativa": "Armani Silver",
-        "categoria":   "Sinterizado",
-        "razon":       "Gris oscuro veteado en sinterizado técnico. Alta resistencia a manchas y mayor rentabilidad.",
-    },
-    "Café Pinta": {
-        "alternativa": "Baobab",
-        "categoria":   "Sinterizado",
-        "razon":       "Tonos cálidos en sinterizado de última generación. Menos merma y mayor utilidad.",
-    },
-    "Taj Mahal": {
-        "alternativa": "Lassa White",
-        "categoria":   "Sinterizado",
-        "razon":       "Blanco cálido veteado en sinterizado premium: menor riesgo de rotura y mayor margen neto.",
-    },
-    "Mont Blanc": {
-        "alternativa": "Statuario Nuvo",
-        "categoria":   "Quarztone",
-        "razon":       "Blanco estatuario en Quarztone. Consistencia de color perfecta y rentabilidad superior.",
-    },
-    "Cristallo": {
-        "alternativa": "Bianco Drift",
-        "categoria":   "Quarztone",
-        "razon":       "Cristalino y luminoso en cuarzo compactado. Sin porosidad, fácil mantenimiento.",
-    },
-    "Silver Blue": {
-        "alternativa": "Sleek Concrete",
-        "categoria":   "Quarztone",
-        "razon":       "Tono gris azulado moderno en Quarztone. Mayor margen y menor costo de instalación.",
-    },
-}
-
 
 # ── TOUR GUIADO — pasos del onboarding (actualizados v5) ─────────────────────
 TOUR_PASOS = [
@@ -308,7 +216,7 @@ TOUR_PASOS = [
         "etiqueta": "ML vs m2",
         "icono":    "📏",
         "titulo":   "Logica dual de cobro: ML y m2",
-        "cuerpo":   "En marboleria se trabaja en dos unidades segun el tipo de pieza. Las piezas de mesones, encimeras y baños se cobran en Metros Lineales (ML): el cliente paga por largo de pieza. Los pisos y revestimientos grandes se cobran en m2.\n\nLa app maneja las dos unidades en el mismo proyecto: cada pieza tiene su unidad de venta y el motor de calculo convierte todo a m2 internamente para costear el material.",
+        "cuerpo":   "En marmoleria se trabaja en dos unidades segun el tipo de pieza. Las piezas de mesones, encimeras y baños se cobran en Metros Lineales (ML): el cliente paga por largo de pieza. Los pisos y revestimientos grandes se cobran en m2.\n\nLa app maneja las dos unidades en el mismo proyecto: cada pieza tiene su unidad de venta y el motor de calculo convierte todo a m2 internamente para costear el material.",
         "pagina":   "Cotizacion Directa",
     },
     {
@@ -324,7 +232,7 @@ TOUR_PASOS = [
         "etiqueta": "PRODUCCION",
         "icono":    "👷",
         "titulo":   "Costo de produccion — pago por ML",
-        "cuerpo":   "La mano de obra en marboleria se paga por metro lineal cortado e instalado, no por hora. Si el operario cobra $60.000/ml y el proyecto tiene 5 ML, el costo de produccion es $300.000.\n\nEste valor lo personalizas en Parametros > Tarifas y Produccion segun lo que paga tu empresa en Barranquilla.",
+        "cuerpo":   "La mano de obra en marmoleria se paga por metro lineal cortado e instalado, no por hora. Si el operario cobra $60.000/ml y el proyecto tiene 5 ML, el costo de produccion es $300.000.\n\nEste valor lo personalizas en Parametros > Tarifas y Produccion segun lo que paga tu empresa en Barranquilla.",
         "pagina":   "Parametros",
     },
     {
@@ -334,14 +242,6 @@ TOUR_PASOS = [
         "titulo":   "Dashboard e Historial",
         "cuerpo":   "El Historial guarda cada cotizacion con su estado (Pendiente / Aprobada / Rechazada). Puedes buscar por cliente o material y editar cualquier cotizacion anterior.\n\nEl Dashboard muestra los materiales mas rentables, la facturacion mensual y el margen promedio para que tomes decisiones con datos reales.",
         "pagina":   "Dashboard",
-    },
-    {
-        "id":       "planos_ia",
-        "etiqueta": "PLANOS IA",
-        "icono":    "📐",
-        "titulo":   "Generador de Planos Automatico",
-        "cuerpo":   "Ya no necesitas dibujar a mano. Ve a 'Planos de Taller (IA)' e ingresa las medidas de tu proyecto usando el formulario rapido o describelo con tus palabras. La Inteligencia Artificial entendera las medidas y dibujara un plano tecnico a escala al instante, listo para descargar en PDF y enviar al taller.",
-        "pagina":   "Planos de Produccion",
     },
     {
         "id":       "pdf",
