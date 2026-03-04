@@ -26,7 +26,7 @@ from parametros import (
     CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA, VEHICULOS,
     ALOJAMIENTO, AIU_DEFAULTS, TARIFAS, LOGISTICA, VIATICOS,
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO, MATERIALES_CATALOGO_LEGACY,
-    ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS,
+    ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos
 import plotly.graph_objects as go
@@ -2758,6 +2758,17 @@ elif pagina == "Cotizacion Directa":
                             (m for m in MATERIALES_CATALOGO_LEGACY if m["nombre"] == ref_sel_m),
                             None
                         )
+
+                # ── Cross-selling: alerta de oportunidad de margen ────────────
+                _cs_data = CROSS_SELLING_MAP.get(referencia_m)
+                if _cs_data:
+                    st.info(
+                        f"📈 **Oportunidad de Margen:** El **{_cs_data['alternativa']}** "
+                        f"({_cs_data['categoria']}) ofrece una estética similar, pero deja "
+                        f"mayor utilidad neta. "
+                        f"*{_cs_data['razon']}* "
+                        f"¿Deseas ofrecerlo como alternativa?"
+                    )
 
                 colc, cold = st.columns(2)
                 with colc:
