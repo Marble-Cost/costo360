@@ -336,6 +336,14 @@ TOUR_PASOS = [
         "pagina":   "Dashboard",
     },
     {
+        "id":       "planos_ia",
+        "etiqueta": "PLANOS IA",
+        "icono":    "📐",
+        "titulo":   "Generador de Planos Automatico",
+        "cuerpo":   "Ya no necesitas dibujar a mano. Ve a 'Planos de Taller (IA)' e ingresa las medidas de tu proyecto usando el formulario rapido o describelo con tus palabras. La Inteligencia Artificial entendera las medidas y dibujara un plano tecnico a escala al instante, listo para descargar en PDF y enviar al taller.",
+        "pagina":   "Planos de Produccion",
+    },
+    {
         "id":       "pdf",
         "etiqueta": "DOCUMENTOS",
         "icono":    "📄",
