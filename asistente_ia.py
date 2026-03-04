@@ -201,7 +201,7 @@ PAGINAS DE LA APP:
 - Configuracion: datos de la empresa, logo, banco, condiciones de los PDFs
 - Gestion de Equipo: (solo Admin) registrar y gestionar usuarios del sistema
 
-GLOSARIO CLAVE DE MARBOLERIA:
+GLOSARIO CLAVE DE MARMOLERIA:
 - ML (Metro Lineal): unidad de medida de longitud. Un meson de 3 ML x 0,60 m de ancho = 1,80 m2.
 - Retal: sobrante de lamina que quedo tras cortar el proyecto. Puede reutilizarse.
 - Lamina / Placa: pieza completa de piedra tal como llega del proveedor.
