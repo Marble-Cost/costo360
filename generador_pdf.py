@@ -374,56 +374,65 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
         Paragraph("DESCRIPCIÓN / ÍTEM", E["th"]),
         Paragraph("UNID.", E["th_c"]),
         Paragraph("CANT.", E["th_c"]),
+        Paragraph("MEDIDA/U", E["th_c"]),
         Paragraph("P. UNIT.",  E["th_r"]),
         Paragraph("SUBTOTAL", E["th_r"]),
     ]
     filas = [hdr]
 
     if piezas:
-        total_m2 = sum(p.get("ml",1) * p.get("ancho_custom", 0.60) for p in piezas)
+        # Calcular total m² usando ml efectivo (ya absorbido cantidad × unitario)
+        total_m2 = sum(p.get("ml", 1) * p.get("ancho_custom", 0.60) for p in piezas)
         for p in piezas:
-            # FIX-2: calcular m² dinámicamente si la clave 'm2' no existe en
-            # el dict de pieza (app.py no inyecta esa clave directamente).
-            # Esto evita que piezas de piso muestren cantidad 0.00 y subtotal $0.
-            _m2_calc = p.get("m2", p.get("ml", 0) * p.get("ancho_custom", 0.60))
-            m2_p   = _m2_calc if _m2_calc > 0 else p.get("ml", 1) * p.get("ancho_custom", 0.60)
-            prop   = (m2_p / total_m2) if total_m2 > 0 else (1/len(piezas))
-            precio_p = precio_sugerido_total * prop
-            # ── Unidad dinámica: área (Fachada/Piso/Revestimiento) vs borde (ML) ──
+            # ml ya es el total efectivo (ml_unitario × cantidad) guardado por app.py
+            _ml_efectivo = p.get("ml", 1)
+            _ml_unit     = p.get("ml_unitario", _ml_efectivo)  # longitud de UNA pieza
+            _cantidad    = int(p.get("cantidad", 1))
+            _ancho       = float(p.get("ancho_custom", 0.60))
+            _m2_calc     = _ml_efectivo * _ancho                # m² total de la fila
+            m2_p         = _m2_calc if _m2_calc > 0 else _ml_efectivo * _ancho
+            prop         = (m2_p / total_m2) if total_m2 > 0 else (1 / len(piezas))
+            precio_p     = precio_sugerido_total * prop          # subtotal de la fila
+
+            # ── Unidad dinámica: área vs borde ──
             _tipo_pieza = p.get("ancho_tipo", "").lower()
             _es_area_p  = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
+
             if _es_area_p:
-                # Pieza de área: mostrar m² y precio por m² (FIX-2: usar _m2_calc)
-                _cant_str  = f"{m2_p:.2f}"
+                # Área: cantidad = nº de piezas, medida = m²/u, unidad = m²
                 _unid_str  = "m²"
-                _qty_base  = m2_p
+                _cant_str  = str(_cantidad)
+                _med_str   = f"{(_ml_unit * _ancho):.2f} m²"
+                _qty_base  = m2_p   # precio/m² = subtotal / m² total
             else:
-                # Pieza de borde: mostrar ML y precio por ML
-                ml_p       = p.get("ml", 1)
-                _cant_str  = f"{ml_p:.2f}"
+                # Borde: cantidad = nº de piezas, medida = ml/u, unidad = ml
                 _unid_str  = "ml"
-                _qty_base  = ml_p
-            pu = precio_p / _qty_base if _qty_base > 0 else 0
-            # FIX-3: alineación contable — CANT usa cell_r (TA_RIGHT),
-            # P.UNIT y SUBTOTAL ya usan cell_r/cell_br.
+                _cant_str  = str(_cantidad)
+                _med_str   = f"{_ml_unit:.2f} ml"
+                _qty_base  = _ml_efectivo   # precio/ml = subtotal / ml_efectivo
+
+            pu = precio_p / _qty_base if _qty_base > 0 else 0  # precio unitario por ml o m²
+
             filas.append([
-                Paragraph(p.get("nombre", "—"), E["cell"]),
-                Paragraph(_unid_str,             E["cell_c"]),
-                Paragraph(_cant_str,             E["cell_r"]),   # FIX-3: cantidad alineada a la derecha
-                Paragraph(_num(round(pu/1000)*1000),       E["cell_r"]),
-                Paragraph(_num(round(precio_p/1000)*1000), E["cell_br"]),
+                Paragraph(p.get("nombre", "—"),            E["cell"]),
+                Paragraph(_unid_str,                        E["cell_c"]),
+                Paragraph(_cant_str,                        E["cell_r"]),
+                Paragraph(_med_str,                         E["cell_c"]),
+                Paragraph(_num(round(pu / 1000) * 1000),    E["cell_r"]),
+                Paragraph(_num(round(precio_p / 1000) * 1000), E["cell_br"]),
             ])
     else:
-        ref_txt = r.get("referencia", r.get("categoria",""))
+        ref_txt = r.get("referencia", r.get("categoria", ""))
         filas.append([
-            Paragraph(f"{r.get('tipo_proyecto','Proyecto')} — {ref_txt}", E["cell"]),
+            Paragraph(f"{r.get('tipo_proyecto', 'Proyecto')} — {ref_txt}", E["cell"]),
             Paragraph("glb", E["cell_c"]),
-            Paragraph("1",   E["cell_c"]),
+            Paragraph("1",   E["cell_r"]),
+            Paragraph("—",   E["cell_c"]),
             Paragraph(_num(precio_sugerido_total), E["cell_r"]),
             Paragraph(_num(precio_sugerido_total), E["cell_br"]),
         ])
 
-    tbl = Table(filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm], repeatRows=1)
+    tbl = Table(filas, colWidths=[6.6*cm, 1.2*cm, 1.2*cm, 2.2*cm, 2.6*cm, 3.2*cm], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
         ("ROWBACKGROUNDS",(0,1),  (-1,-1), [C["zebra_a"], C["zebra_b"]]),
