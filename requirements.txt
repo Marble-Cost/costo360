@@ -6,3 +6,4 @@ psycopg2-binary>=2.9.0
 SQLAlchemy>=2.0.0
 plotly>=5.18.0
 st-cookies-manager>=0.1.5
+svglib>=1.5.1
