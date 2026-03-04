@@ -25,7 +25,7 @@ from calculos import (
 from parametros import (
     CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA, VEHICULOS,
     ALOJAMIENTO, AIU_DEFAULTS, TARIFAS, LOGISTICA, VIATICOS,
-    BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
+    BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO, MATERIALES_CATALOGO_LEGACY,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos
@@ -2734,16 +2734,30 @@ elif pagina == "Cotizacion Directa":
                     )
 
                 with colb:
-                    refs_m     = ["Otra referencia..."] + [m["nombre"] for m in MATERIALES_CATALOGO if m["categoria"] == cat_sel_m]
-                    pre_ref_m  = mat_item.get("ref","")
-                    idx_ref_m  = refs_m.index(pre_ref_m) if pre_ref_m in refs_m else 0
-                    ref_sel_m  = st.selectbox("Referencia del material", refs_m, index=idx_ref_m, key=f"mref_{midx}")
+                    # Catálogo GRAMAR 2024: referencias por categoría (dict)
+                    _refs_cat  = MATERIALES_CATALOGO.get(cat_sel_m, [])
+                    refs_m     = _refs_cat + ["Otra referencia..."]
+                    pre_ref_m  = mat_item.get("ref", "")
+                    # Si la ref guardada no está en el catálogo, seleccionar "Otra referencia..."
+                    idx_ref_m  = refs_m.index(pre_ref_m) if pre_ref_m in refs_m else len(refs_m) - 1
+                    ref_sel_m  = st.selectbox(
+                        "Referencia del material", refs_m,
+                        index=idx_ref_m, key=f"mref_{midx}",
+                        help="Catálogo GRAMAR 2024 — selecciona tu referencia o elige \"Otra referencia...\"",
+                    )
                     if ref_sel_m == "Otra referencia...":
-                        referencia_m = st.text_input("Nombre de la referencia", value=pre_ref_m if pre_ref_m not in refs_m else "",
-                                                     key=f"mrefcust_{midx}", placeholder="Ej: Calacatta Gold")
+                        referencia_m = st.text_input(
+                            "Nombre de la referencia", key=f"mrefcust_{midx}",
+                            value=pre_ref_m if pre_ref_m not in refs_m else "",
+                            placeholder="Ej: Calacatta Gold, Nero Marquina…",
+                        )
                     else:
                         referencia_m = ref_sel_m
-                        m_cat_data   = next((m for m in MATERIALES_CATALOGO if m["nombre"] == ref_sel_m), None)
+                        # Lookup en lista legacy para autocompletar precio/área si hay ficha
+                        m_cat_data = next(
+                            (m for m in MATERIALES_CATALOGO_LEGACY if m["nombre"] == ref_sel_m),
+                            None
+                        )
 
                 colc, cold = st.columns(2)
                 with colc:
