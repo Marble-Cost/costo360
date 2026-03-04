@@ -261,3 +261,120 @@ def chat_sos(pregunta: str, contexto_actual: str = "Inicio", contexto_form: str 
         return response.content[0].text
     except Exception as e:
         return f"No pude consultar la IA en este momento. ({type(e).__name__})"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MOTOR DE DESPIECE PARAMÉTRICO — Traductor de lenguaje natural a coordenadas
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SYSTEM_CAD = """Eres un motor CAD especializado en marmolería y proyectos de piedra natural.
+Tu ÚNICA tarea es convertir la descripción textual de un proyecto en un JSON de coordenadas 2D.
+
+REGLAS ABSOLUTAS:
+1. Devuelve ÚNICAMENTE el JSON. Sin texto introductorio, sin explicaciones, sin markdown, sin backticks.
+2. El primer carácter de tu respuesta debe ser '{' y el último '}'.
+3. Coordenadas en metros (float con 2 decimales). Usa el origen (0,0) en la esquina superior izquierda.
+4. Para proyectos en L, T o U: calcula las coordenadas de cada brazo para que encajen sin solapamientos.
+5. Para mesones: alto = profundidad (ej: 0.60 m es estándar). ancho = largo del brazo.
+6. Las perforaciones (lavaplatos, lavamanos, hornilla) se posicionan relativas al origen global, no a la pieza.
+7. Si la descripción no indica perforaciones, devuelve "perforaciones": [].
+8. Si hay ambigüedad en las medidas, usa el valor más lógico para un mesón de cocina colombiano.
+
+ESTRUCTURA JSON OBLIGATORIA:
+{
+  "piezas": [
+    {"id": "Nombre descriptivo", "x": 0.00, "y": 0.00, "ancho": 0.00, "alto": 0.00}
+  ],
+  "perforaciones": [
+    {"pieza_id": "Nombre descriptivo", "x": 0.00, "y": 0.00, "ancho": 0.00, "alto": 0.00, "tipo": "Lavaplatos"}
+  ]
+}
+
+EJEMPLOS DE CÁLCULO DE COORDENADAS:
+- Mesón recto 2.50 m x 0.60 m:
+  piezas: [{"id":"Mesón","x":0,"y":0,"ancho":2.50,"alto":0.60}]
+
+- Mesón en L (brazo largo horizontal + brazo corto vertical que sale desde el extremo derecho):
+  Brazo Largo 2.50×0.60: x=0, y=0
+  Brazo Corto 0.60×1.20 adosado al extremo derecho del brazo largo (x avanza 2.50, pero el ancho del corto es 0.60 y el brazo largo ya tiene 0.60 de profundidad, así que el corto empieza en x=2.50-0.60=1.90 o en x=2.50 según la geometría descrita):
+  → Si el brazo corto baja hacia abajo desde el extremo derecho: {"id":"Brazo Corto","x":1.90,"y":0.60,"ancho":0.60,"alto":1.20}
+"""
+
+
+def extraer_coordenadas_plano(descripcion_texto: str) -> dict | None:
+    """
+    Interpreta la descripción libre de un proyecto y extrae las coordenadas
+    de cada pieza y perforación para el Motor de Despiece Paramétrico.
+
+    Args:
+        descripcion_texto: Descripción en lenguaje natural del proyecto.
+            Ej: "Mesón en L, brazo largo de 2.50m x 0.60m y brazo corto
+                 de 1.20m x 0.60m con lavaplatos de 0.50x0.40m centrado."
+
+    Returns:
+        dict con keys "piezas" y "perforaciones", o None si la IA falla.
+        En caso de fallo parcial devuelve la estructura vacía más informativa posible.
+    """
+    client = get_client()
+    if client is None:
+        return None
+
+    try:
+        response = client.messages.create(
+            model="claude-opus-4-6",
+            max_tokens=1200,
+            system=_SYSTEM_CAD,
+            messages=[{"role": "user", "content": descripcion_texto}],
+        )
+        raw = response.content[0].text.strip()
+
+        # Limpiar si la IA devolvió backticks a pesar de la instrucción
+        if raw.startswith("```"):
+            # extraer contenido entre los backticks
+            partes = raw.split("```")
+            for parte in partes:
+                parte = parte.strip()
+                if parte.startswith("json"):
+                    parte = parte[4:].strip()
+                if parte.startswith("{"):
+                    raw = parte
+                    break
+
+        datos = json.loads(raw)
+
+        # Validación y normalización defensiva de la estructura
+        if "piezas" not in datos:
+            datos["piezas"] = []
+        if "perforaciones" not in datos:
+            datos["perforaciones"] = []
+
+        # Asegurar que los campos numéricos sean float y existan
+        campos_pieza = {"x": 0.0, "y": 0.0, "ancho": 1.0, "alto": 0.6}
+        for p in datos["piezas"]:
+            for campo, default in campos_pieza.items():
+                try:
+                    p[campo] = float(p.get(campo, default))
+                except (TypeError, ValueError):
+                    p[campo] = default
+            if not p.get("id"):
+                p["id"] = "Pieza"
+
+        campos_perf = {"x": 0.0, "y": 0.0, "ancho": 0.5, "alto": 0.4}
+        for pf in datos["perforaciones"]:
+            for campo, default in campos_perf.items():
+                try:
+                    pf[campo] = float(pf.get(campo, default))
+                except (TypeError, ValueError):
+                    pf[campo] = default
+            if not pf.get("tipo"):
+                pf["tipo"] = "Perforación"
+            if not pf.get("pieza_id"):
+                pf["pieza_id"] = ""
+
+        return datos
+
+    except json.JSONDecodeError:
+        # La IA devolvió algo que no es JSON válido
+        return {"piezas": [], "perforaciones": [], "_error": "json_parse"}
+    except Exception:
+        return None
