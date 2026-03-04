@@ -7764,6 +7764,10 @@ elif pagina == "Planos de Taller (IA)":
     .plano-error      { background:#FEF2F2; border:1px solid #FECACA;
                         border-radius:6px; padding:10px 14px;
                         font-size:0.84rem; color:#7F1D1D; margin-top:8px; }
+    .pieza-card-header {
+        font-size:0.72rem; font-weight:700; color:#1B5FA8;
+        text-transform:uppercase; letter-spacing:0.07em; margin:0 0 6px 0;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -7778,9 +7782,18 @@ elif pagina == "Planos de Taller (IA)":
     """, unsafe_allow_html=True)
 
     # ── Session state ─────────────────────────────────────────────────────────
-    if "nesting_svg"      not in st.session_state: st.session_state.nesting_svg      = None
-    if "nesting_metricas" not in st.session_state: st.session_state.nesting_metricas = None
-    if "nesting_error"    not in st.session_state: st.session_state.nesting_error    = ""
+    if "nesting_svg"        not in st.session_state:
+        st.session_state.nesting_svg        = None
+    if "nesting_metricas"   not in st.session_state:
+        st.session_state.nesting_metricas   = None
+    if "nesting_error"      not in st.session_state:
+        st.session_state.nesting_error      = ""
+    if "nesting_piezas"     not in st.session_state:
+        st.session_state.nesting_piezas     = [
+            {"id": 1, "nombre": "Mesón", "largo": 2.50, "ancho": 0.60, "cantidad": 1}
+        ]
+    if "nesting_id_counter" not in st.session_state:
+        st.session_state.nesting_id_counter = 2
 
     # ── Layout ────────────────────────────────────────────────────────────────
     col_inp, col_out = st.columns([1, 1.6], gap="large")
@@ -7789,13 +7802,14 @@ elif pagina == "Planos de Taller (IA)":
     # COLUMNA IZQUIERDA — Entrada
     # ══════════════════════════════════════════════════════════════════════════
     with col_inp:
+
+        # ── Dimensiones de la placa ───────────────────────────────────────────
         st.markdown("#### 🪨 Dimensiones de la Placa")
         st.markdown(
             "<div class='plano-tip'>Introduce el tamaño de la lámina virgen "
             "tal como la compras al proveedor.</div>",
             unsafe_allow_html=True,
         )
-
         with st.container(border=True):
             _pc1, _pc2 = st.columns(2)
             with _pc1:
@@ -7815,40 +7829,116 @@ elif pagina == "Planos de Taller (IA)":
                     help="Dimensión más corta de la lámina, ej: 1.60 m",
                 )
 
+        # ── Tarjetas dinámicas de piezas ──────────────────────────────────────
         st.markdown("#### ✂️ Piezas a Cortar")
         st.markdown(
-            "<div class='plano-tip'>Agrega una fila por cada pieza. "
-            "El algoritmo permite rotar 90° para aprovechar mejor la placa.</div>",
+            "<div class='plano-tip'>"
+            "Completa cada pieza. Usa ➕ para agregar más y 🗑️ para eliminar. "
+            "El algoritmo rota 90° automáticamente para aprovechar mejor la placa."
+            "</div>",
             unsafe_allow_html=True,
         )
 
-        import pandas as pd
-        _df_default = pd.DataFrame([
-            {"Nombre": "Mesón cocina",  "Largo (m)": 2.40, "Ancho (m)": 0.60, "Cantidad": 1},
-            {"Nombre": "Baño 1",        "Largo (m)": 1.00, "Ancho (m)": 0.45, "Cantidad": 1},
-            {"Nombre": "Lateral",       "Largo (m)": 0.60, "Ancho (m)": 0.60, "Cantidad": 2},
-        ])
+        # Cabecera de columnas (etiquetas visuales, no widgets)
+        _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([3, 2, 2, 2, 1])
+        _hc1.markdown("<p class='pieza-card-header'>Nombre</p>",    unsafe_allow_html=True)
+        _hc2.markdown("<p class='pieza-card-header'>Largo (m)</p>", unsafe_allow_html=True)
+        _hc3.markdown("<p class='pieza-card-header'>Ancho (m)</p>", unsafe_allow_html=True)
+        _hc4.markdown("<p class='pieza-card-header'>Cant.</p>",     unsafe_allow_html=True)
+        _hc5.markdown("<p class='pieza-card-header'>&nbsp;</p>",    unsafe_allow_html=True)
 
-        _df_editor = st.data_editor(
-            _df_default,
-            num_rows="dynamic",
+        # Iterar sobre las piezas y renderizar una tarjeta por pieza
+        _id_a_eliminar = None
+
+        for _p in st.session_state.nesting_piezas:
+            _pid = _p["id"]
+            with st.container(border=True):
+                _c1, _c2, _c3, _c4, _c5 = st.columns([3, 2, 2, 2, 1])
+
+                with _c1:
+                    _nom = st.text_input(
+                        "Nombre",
+                        value=_p["nombre"],
+                        key=f"nest_nom_{_pid}",
+                        label_visibility="collapsed",
+                        placeholder="ej: Mesón, Baño…",
+                    )
+                    _p["nombre"] = _nom
+
+                with _c2:
+                    _lar = st.number_input(
+                        "Largo (m)",
+                        min_value=0.0, max_value=10.0,
+                        value=float(_p["largo"]),
+                        step=0.05, format="%.2f",
+                        key=f"nest_lar_{_pid}",
+                        label_visibility="collapsed",
+                    )
+                    _p["largo"] = _lar
+
+                with _c3:
+                    _anc = st.number_input(
+                        "Ancho (m)",
+                        min_value=0.0, max_value=5.0,
+                        value=float(_p["ancho"]),
+                        step=0.05, format="%.2f",
+                        key=f"nest_anc_{_pid}",
+                        label_visibility="collapsed",
+                    )
+                    _p["ancho"] = _anc
+
+                with _c4:
+                    _can = st.number_input(
+                        "Cant.",
+                        min_value=1, max_value=20,
+                        value=int(_p["cantidad"]),
+                        step=1,
+                        key=f"nest_can_{_pid}",
+                        label_visibility="collapsed",
+                    )
+                    _p["cantidad"] = _can
+
+                with _c5:
+                    # Solo permitir eliminar si hay más de 1 pieza
+                    _btn_del_disabled = len(st.session_state.nesting_piezas) <= 1
+                    if st.button(
+                        "🗑️",
+                        key=f"nest_del_{_pid}",
+                        disabled=_btn_del_disabled,
+                        help="Eliminar esta pieza" if not _btn_del_disabled else "Debe haber al menos una pieza",
+                    ):
+                        _id_a_eliminar = _pid
+
+        # Procesar eliminación FUERA del bucle para evitar mutación durante iteración
+        if _id_a_eliminar is not None:
+            st.session_state.nesting_piezas = [
+                p for p in st.session_state.nesting_piezas if p["id"] != _id_a_eliminar
+            ]
+            st.rerun()
+
+        # ── Botón agregar pieza ───────────────────────────────────────────────
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+        if st.button(
+            "➕ Agregar otra pieza",
             use_container_width=True,
-            column_config={
-                "Nombre":    st.column_config.TextColumn("Nombre", width="medium"),
-                "Largo (m)": st.column_config.NumberColumn("Largo (m)", min_value=0.05,
-                             max_value=10.0, step=0.05, format="%.2f"),
-                "Ancho (m)": st.column_config.NumberColumn("Ancho (m)", min_value=0.05,
-                             max_value=5.0,  step=0.05, format="%.2f"),
-                "Cantidad":  st.column_config.NumberColumn("Cantidad", min_value=1,
-                             max_value=20, step=1, format="%d"),
-            },
-            key="nesting_tabla_piezas",
-        )
+            key="nesting_btn_agregar",
+        ):
+            _nuevo_id = st.session_state.nesting_id_counter
+            st.session_state.nesting_piezas.append({
+                "id":       _nuevo_id,
+                "nombre":   f"Pieza {_nuevo_id}",
+                "largo":    0.60,
+                "ancho":    0.45,
+                "cantidad": 1,
+            })
+            st.session_state.nesting_id_counter += 1
+            st.rerun()
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
+        # ── Botón principal Optimizar ─────────────────────────────────────────
         btn_optimizar = st.button(
-            "⚡ Optimizar Corte y Generar Plano",
+            "✂️ Optimizar Corte y Generar Plano",
             use_container_width=True,
             type="primary",
             key="nesting_btn_optimizar",
@@ -7859,17 +7949,16 @@ elif pagina == "Planos de Taller (IA)":
             st.session_state.nesting_svg      = None
             st.session_state.nesting_metricas = None
 
-            # Validar tabla
-            _piezas_raw = _df_editor.to_dict(orient="records") if _df_editor is not None else []
+            # Tomar piezas con largo y ancho válidos
             _piezas_validas = [
                 {
-                    "nombre":   str(r.get("Nombre") or "Pieza"),
-                    "largo":    float(r.get("Largo (m)") or 0),
-                    "ancho":    float(r.get("Ancho (m)") or 0),
-                    "cantidad": int(r.get("Cantidad") or 1),
+                    "nombre":   str(p.get("nombre") or "Pieza"),
+                    "largo":    float(p.get("largo") or 0),
+                    "ancho":    float(p.get("ancho") or 0),
+                    "cantidad": int(p.get("cantidad") or 1),
                 }
-                for r in _piezas_raw
-                if float(r.get("Largo (m)") or 0) > 0 and float(r.get("Ancho (m)") or 0) > 0
+                for p in st.session_state.nesting_piezas
+                if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
             ]
 
             if not _piezas_validas:
@@ -7984,8 +8073,8 @@ elif pagina == "Planos de Taller (IA)":
                     El plano de nesting aparecerá aquí
                 </div>
                 <div style="font-size: 0.80rem; line-height: 1.5">
-                    Define las dimensiones de la placa y las piezas,<br>
-                    luego presiona <strong>Optimizar Corte y Generar Plano</strong>.<br><br>
+                    Completa las medidas de la placa y las piezas,<br>
+                    luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.<br><br>
                     El algoritmo 2D acomoda las piezas automáticamente,<br>
                     permite rotación de 90° y calcula el % de retal.
                 </div>
