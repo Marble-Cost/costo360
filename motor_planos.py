@@ -518,3 +518,321 @@ def exportar_svg_a_pdf(svg_string: str) -> bytes:
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ALGORITMO NESTING 2D — Bin Packing con Guillotine Cut + rotación 90°
+# ══════════════════════════════════════════════════════════════════════════════
+# Implementa el algoritmo Guillotine 2D (variante Best Short Side Fit).
+# Referencia clásica: Jukka Jylanki, "A Thousand Ways to Pack the Bin" (2010).
+#
+# Entrada:
+#   placa_ancho  float  — ancho de la lámina en metros (eje X)
+#   placa_alto   float  — alto  de la lámina en metros (eje Y)
+#   lista_piezas list   — [{"nombre": str, "largo": float, "ancho": float}, ...]
+#
+# Salida:
+#   (svg_string, metricas)
+#   metricas = {
+#       "area_placa":           float,
+#       "area_utilizada":       float,
+#       "porcentaje_desperdicio": float,   # retal %
+#       "piezas_colocadas":     int,
+#       "piezas_no_caben":      list[str], # nombres de piezas que no cupieron
+#   }
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _guillotine_pack(bin_w: float, bin_h: float, items: list[dict]):
+    """
+    Guillotine 2D bin packing con Best Short Side Fit y rotación libre.
+    Devuelve (placed, unplaced).
+      placed   = [{"nombre":str, "x":float, "y":float, "w":float, "h":float}, ...]
+      unplaced = [nombre, ...]
+    """
+    # Espacios libres: lista de rectángulos disponibles
+    free_rects = [{"x": 0.0, "y": 0.0, "w": bin_w, "h": bin_h}]
+    placed  = []
+    unplaced = []
+
+    # Ordenar de mayor a menor área para mejor aprovechamiento
+    sorted_items = sorted(
+        items,
+        key=lambda it: it.get("largo", 0) * it.get("ancho", 0),
+        reverse=True,
+    )
+
+    for item in sorted_items:
+        iw = float(item.get("largo", 0))
+        ih = float(item.get("ancho", 0))
+        if iw <= 0 or ih <= 0:
+            unplaced.append(item.get("nombre", "?"))
+            continue
+
+        best_rect  = None
+        best_score = float("inf")
+        best_rotated = False
+
+        for fr in free_rects:
+            for rotado, (pw, ph) in enumerate([(iw, ih), (ih, iw)]):
+                if pw <= fr["w"] + 1e-9 and ph <= fr["h"] + 1e-9:
+                    # Short side fit score
+                    score = min(fr["w"] - pw, fr["h"] - ph)
+                    if score < best_score:
+                        best_score = score
+                        best_rect  = fr
+                        best_rotated = bool(rotado)
+
+        if best_rect is None:
+            unplaced.append(item.get("nombre", "?"))
+            continue
+
+        # Colocar la pieza
+        pw, ph = (ih, iw) if best_rotated else (iw, ih)
+        placed.append({
+            "nombre":   item.get("nombre", "Pieza"),
+            "x":        best_rect["x"],
+            "y":        best_rect["y"],
+            "w":        pw,
+            "h":        ph,
+            "rotada":   best_rotated,
+        })
+
+        # Guillotine split: dividir el espacio libre en dos nuevos rectángulos
+        bx, by, bw, bh = best_rect["x"], best_rect["y"], best_rect["w"], best_rect["h"]
+
+        # Regla de corte: eje más corto primero (mejor para cuadrados)
+        if bw - pw < bh - ph:
+            # Corte horizontal (arriba de la pieza)
+            r1 = {"x": bx,      "y": by + ph, "w": pw,      "h": bh - ph}
+            r2 = {"x": bx + pw, "y": by,      "w": bw - pw, "h": bh}
+        else:
+            # Corte vertical (a la derecha de la pieza)
+            r1 = {"x": bx + pw, "y": by, "w": bw - pw, "h": ph}
+            r2 = {"x": bx,      "y": by + ph, "w": bw,  "h": bh - ph}
+
+        free_rects.remove(best_rect)
+        for nr in (r1, r2):
+            if nr["w"] > 1e-4 and nr["h"] > 1e-4:
+                free_rects.append(nr)
+
+    return placed, unplaced
+
+
+# ── Paleta nesting ────────────────────────────────────────────────────────────
+_NEST_FILLS = [
+    "#D6E8FA", "#D6F5E3", "#FFF3CD", "#F5D6FA",
+    "#FAD6D6", "#D6F0FA", "#E8FAD6", "#FAF0D6",
+    "#D6DAFA", "#FAD6F0",
+]
+_NEST_STROKES = [
+    "#1B5FA8", "#1A7A3C", "#A07C00", "#7A1A8A",
+    "#8A1A1A", "#1A7A8A", "#4A8A1A", "#8A6A1A",
+    "#2A1A8A", "#8A1A5A",
+]
+
+
+def optimizar_corte_2d(placa_ancho: float, placa_alto: float, lista_piezas: list) -> tuple:
+    """
+    Ejecuta el algoritmo Guillotine 2D sobre la lámina indicada y genera el SVG.
+
+    Parámetros:
+        placa_ancho   float  — ancho de la placa (eje X), en metros
+        placa_alto    float  — alto de la placa (eje Y), en metros
+        lista_piezas  list   — [{"nombre": str, "largo": float, "ancho": float}, ...]
+                               (puede incluir "cantidad": int, default 1)
+
+    Retorna:
+        (svg_string: str, metricas: dict)
+        metricas = {
+            "area_placa":             float,
+            "area_utilizada":         float,
+            "porcentaje_desperdicio": float,
+            "piezas_colocadas":       int,
+            "piezas_no_caben":        list[str],
+        }
+    """
+    # Expandir por cantidad
+    items_expandidos = []
+    for p in lista_piezas:
+        cant = int(p.get("cantidad", 1)) or 1
+        for i in range(cant):
+            sufijo = f" ({i+1})" if cant > 1 else ""
+            items_expandidos.append({
+                "nombre": str(p.get("nombre", "Pieza")) + sufijo,
+                "largo":  float(p.get("largo", 0)),
+                "ancho":  float(p.get("ancho", 0)),
+            })
+
+    placed, unplaced = _guillotine_pack(placa_ancho, placa_alto, items_expandidos)
+
+    area_placa    = placa_ancho * placa_alto
+    area_utilizada = sum(p["w"] * p["h"] for p in placed)
+    pct_retal     = max(0.0, (1 - area_utilizada / area_placa) * 100) if area_placa > 0 else 0.0
+
+    metricas = {
+        "area_placa":             round(area_placa, 4),
+        "area_utilizada":         round(area_utilizada, 4),
+        "porcentaje_desperdicio": round(pct_retal, 1),
+        "piezas_colocadas":       len(placed),
+        "piezas_no_caben":        unplaced,
+    }
+
+    svg = _generar_svg_nesting(placa_ancho, placa_alto, placed, unplaced, metricas)
+    return svg, metricas
+
+
+def _generar_svg_nesting(
+    placa_ancho: float,
+    placa_alto: float,
+    placed: list,
+    unplaced: list,
+    metricas: dict,
+) -> str:
+    """Genera el SVG de nesting: fondo gris (placa virgen) + piezas de colores."""
+
+    PX_M   = 160          # píxeles por metro
+    MARG   = 70           # margen canvas
+    TITL_H = 44           # altura barra título
+    PANEL_H = 52 if unplaced else 0  # panel aviso piezas que no caben
+
+    placa_w_px = placa_ancho * PX_M
+    placa_h_px = placa_alto  * PX_M
+
+    canvas_w = max(640, placa_w_px + 2 * MARG)
+    canvas_h = TITL_H + MARG + placa_h_px + MARG + PANEL_H + 10
+
+    ox = (canvas_w - placa_w_px) / 2  # origen X de la placa
+    oy = TITL_H + MARG                # origen Y de la placa
+
+    parts = []
+
+    # ── Cabecera SVG ─────────────────────────────────────────────────────────
+    parts.append(
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'width="{canvas_w:.0f}" height="{canvas_h:.0f}" '
+        f'viewBox="0 0 {canvas_w:.0f} {canvas_h:.0f}" '
+        f'style="display:block;border-radius:8px;box-shadow:0 2px 16px rgba(13,33,55,0.14);">'
+    )
+
+    # ── Fondo canvas ─────────────────────────────────────────────────────────
+    parts.append(f'<rect width="{canvas_w:.0f}" height="{canvas_h:.0f}" fill="#F8FAFD" rx="6"/>')
+
+    # ── Barra título ─────────────────────────────────────────────────────────
+    pct_uso = 100 - metricas["porcentaje_desperdicio"]
+    parts.append(
+        f'<rect x="0" y="0" width="{canvas_w:.0f}" height="{TITL_H}" fill="{_AZUL_OSCURO}" rx="6"/>'
+        f'<rect x="0" y="{TITL_H//2}" width="{canvas_w:.0f}" height="{TITL_H//2}" fill="{_AZUL_OSCURO}"/>'
+        f'<text x="14" y="28" font-family="Helvetica,Arial,sans-serif" font-size="13" '
+        f'font-weight="bold" fill="#FFFFFF">NESTING 2D  ·  Placa {placa_ancho:.2f}×{placa_alto:.2f} m  '
+        f'·  Uso: {pct_uso:.1f}%  ·  Retal: {metricas["porcentaje_desperdicio"]:.1f}%</text>'
+        f'<text x="{canvas_w - 12:.0f}" y="28" text-anchor="end" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="9" fill="{_DORADO}">'
+        f'MÁRMOLES COLLANTE &amp; CASTRO · Optimización de Corte</text>'
+    )
+
+    # ── Fondo placa (lámina virgen — gris) ───────────────────────────────────
+    parts.append(
+        f'<rect x="{ox:.1f}" y="{oy:.1f}" '
+        f'width="{placa_w_px:.1f}" height="{placa_h_px:.1f}" '
+        f'rx="4" fill="#D1D5DB" stroke="#6B7280" stroke-width="2"/>'
+    )
+
+    # ── Etiqueta placa ────────────────────────────────────────────────────────
+    parts.append(
+        f'<text x="{ox + 6:.1f}" y="{oy + 14:.1f}" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+        f'fill="#374151" opacity="0.70">Placa {placa_ancho:.2f}×{placa_alto:.2f} m  '
+        f'({metricas["area_placa"]:.2f} m²)</text>'
+    )
+
+    # ── Cuadrícula 0.25 m sobre la placa ─────────────────────────────────────
+    paso_px = 0.25 * PX_M
+    x = paso_px
+    while x < placa_w_px - 1:
+        parts.append(
+            f'<line x1="{ox+x:.1f}" y1="{oy:.1f}" x2="{ox+x:.1f}" y2="{oy+placa_h_px:.1f}" '
+            f'stroke="#9CA3AF" stroke-width="0.5" opacity="0.40"/>'
+        )
+        x += paso_px
+    y = paso_px
+    while y < placa_h_px - 1:
+        parts.append(
+            f'<line x1="{ox:.1f}" y1="{oy+y:.1f}" x2="{ox+placa_w_px:.1f}" y2="{oy+y:.1f}" '
+            f'stroke="#9CA3AF" stroke-width="0.5" opacity="0.40"/>'
+        )
+        y += paso_px
+
+    # ── Piezas colocadas ──────────────────────────────────────────────────────
+    for idx, p in enumerate(placed):
+        fill   = _NEST_FILLS[idx % len(_NEST_FILLS)]
+        stroke = _NEST_STROKES[idx % len(_NEST_STROKES)]
+        px_ = ox + p["x"] * PX_M
+        py_ = oy + p["y"] * PX_M
+        pw_ = p["w"] * PX_M
+        ph_ = p["h"] * PX_M
+        cx_ = px_ + pw_ / 2
+        cy_ = py_ + ph_ / 2
+
+        rot_tag = " ↺" if p.get("rotada") else ""
+        nombre  = str(p["nombre"]) + rot_tag
+        fs_name = max(8, min(13, int(min(pw_, ph_) / 4.5)))
+        fs_dim  = max(7, min(10, fs_name - 2))
+
+        parts.append(
+            # sombra
+            f'<rect x="{px_+3:.1f}" y="{py_+3:.1f}" width="{pw_:.1f}" height="{ph_:.1f}" '
+            f'rx="3" fill="{stroke}" opacity="0.10"/>'
+            # rectángulo
+            f'<rect x="{px_:.1f}" y="{py_:.1f}" width="{pw_:.1f}" height="{ph_:.1f}" '
+            f'rx="3" fill="{fill}" stroke="{stroke}" stroke-width="1.8"/>'
+        )
+        # Texto solo si la pieza es visible
+        if pw_ > 28 and ph_ > 20:
+            offset_y = -(fs_dim + 3) if ph_ > 32 else 0
+            parts.append(
+                f'<text x="{cx_:.1f}" y="{cy_ + offset_y:.1f}" text-anchor="middle" '
+                f'dominant-baseline="middle" font-family="Helvetica,Arial,sans-serif" '
+                f'font-size="{fs_name}" font-weight="bold" fill="{_AZUL_OSCURO}">'
+                f'{_esc(nombre)}</text>'
+            )
+        if pw_ > 40 and ph_ > 32:
+            parts.append(
+                f'<text x="{cx_:.1f}" y="{cy_ + fs_name:.1f}" text-anchor="middle" '
+                f'font-family="Helvetica,Arial,sans-serif" font-size="{fs_dim}" '
+                f'fill="{stroke}" opacity="0.85">'
+                f'{p["w"]:.2f}×{p["h"]:.2f} m</text>'
+            )
+
+    # ── Panel "piezas que no caben" ───────────────────────────────────────────
+    if unplaced:
+        py_panel = oy + placa_h_px + 10
+        nombres_str = ", ".join(str(n) for n in unplaced[:6])
+        if len(unplaced) > 6:
+            nombres_str += f" (+{len(unplaced)-6} más)"
+        parts.append(
+            f'<rect x="{ox:.1f}" y="{py_panel:.1f}" '
+            f'width="{placa_w_px:.1f}" height="38" '
+            f'rx="4" fill="#FEF2F2" stroke="#FCA5A5" stroke-width="1.2"/>'
+            f'<text x="{ox+10:.1f}" y="{py_panel+14:.1f}" '
+            f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
+            f'font-weight="bold" fill="#B91C1C">⚠ No caben en esta placa:</text>'
+            f'<text x="{ox+10:.1f}" y="{py_panel+30:.1f}" '
+            f'font-family="Helvetica,Arial,sans-serif" font-size="9" '
+            f'fill="#7F1D1D">{_esc(nombres_str)}</text>'
+        )
+
+    # ── Escala 1 m ────────────────────────────────────────────────────────────
+    ey = oy + placa_h_px + (PANEL_H or 0) + 20
+    parts.append(
+        f'<line x1="{ox:.1f}" y1="{ey:.1f}" x2="{ox+PX_M:.1f}" y2="{ey:.1f}" '
+        f'stroke="{_AZUL_CORP}" stroke-width="1.5"/>'
+        f'<line x1="{ox:.1f}" y1="{ey-5:.1f}" x2="{ox:.1f}" y2="{ey+5:.1f}" '
+        f'stroke="{_AZUL_CORP}" stroke-width="1.5"/>'
+        f'<line x1="{ox+PX_M:.1f}" y1="{ey-5:.1f}" x2="{ox+PX_M:.1f}" y2="{ey+5:.1f}" '
+        f'stroke="{_AZUL_CORP}" stroke-width="1.5"/>'
+        f'<text x="{ox + PX_M/2:.1f}" y="{ey-8:.1f}" text-anchor="middle" '
+        f'font-family="Helvetica,Arial,sans-serif" font-size="9" fill="{_AZUL_CORP}">↔ 1 m</text>'
+    )
+
+    parts.append("</svg>")
+    return "\n".join(parts)
