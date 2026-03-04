@@ -130,10 +130,8 @@ def _fecha_es():
 
 
 def _fecha_hasta(dias):
-    f = date.today() + timedelta(days=dias)
-    meses = ["enero","febrero","marzo","abril","mayo","junio",
-             "julio","agosto","septiembre","octubre","noviembre","diciembre"]
-    return f"{f.day}/{f.month}/{f.year}"
+    f = date.today() + timedelta(days=int(dias))
+    return f.strftime("%d/%m/%Y")
 
 
 def _logo_img(logo_bytes, max_h=1.4*cm):
@@ -240,7 +238,8 @@ def _estilos(C):
         "inc_hdr":     ParagraphStyle("inc_hdr", fontSize=7, fontName="Helvetica-Bold",
                                        leading=9, textColor=C["white"]),
         "inc_row":     ParagraphStyle("inc_row", fontSize=6.5, fontName="Helvetica",
-                                       leading=9, textColor=C["text"]),
+                                       leading=9, textColor=C["text"],
+                                       leftIndent=14, firstLineIndent=-14),
         "white_s":     ParagraphStyle("white_s", fontSize=7.5, fontName="Helvetica",
                                        leading=10, textColor=C["white"]),
         "accent_s":    ParagraphStyle("accent_s", fontSize=7, fontName="Helvetica-Bold",
@@ -628,17 +627,17 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
     Texto en gris oscuro legible, fuente 6.5 pt, al final del documento.
     """
     story = []
-    story += _seccion_header("Terminos y Condiciones Comerciales", E)
+    story += _seccion_header("Términos y Condiciones Comerciales", E)
     condiciones = (
         nota_iva +
         "Esta propuesta abarca exclusivamente los materiales, servicios y alcances detallados "
-        "en la seccion de Inclusiones. Cualquier requerimiento adicional, modificacion de diseno "
-        "posterior a la rectificacion de medidas, o trabajo no especificado en este documento, "
-        "sera considerado un servicio extra y requerira una recotizacion y aprobacion previa. "
-        f"El inicio de la obra esta condicionado al pago del anticipo del {anticipo_pct}% del valor total. "
-        "Los precios cotizados son validos durante el periodo indicado en el encabezado. "
-        "El prestador se reserva el derecho de ajustar precios por variacion superior al 5%% "
-        "en los materiales durante el periodo de validez. Barranquilla, Colombia."
+        "en la sección de Inclusiones. Cualquier requerimiento adicional, modificación de diseño "
+        "posterior a la rectificación de medidas, o trabajo no especificado en este documento, "
+        "será considerado un servicio extra y requerirá una recotización y aprobación previa. "
+        f"El inicio de la obra está condicionado al pago del anticipo del {anticipo_pct}% del valor total. "
+        "Los precios cotizados son válidos durante el período indicado en el encabezado. "
+        "El prestador se reserva el derecho de ajustar precios por variación superior al 5% "
+        "en los materiales durante el período de validez. Barranquilla, Colombia."
     )
     tbl_tc = Table(
         [[Paragraph("CONDICIONES", E["terms_title"]),
@@ -688,11 +687,12 @@ def _bloque_firma_cliente(E, C):
         ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
         ("TOPPADDING",    (0, 0), (-1,  0), 7),
         ("BOTTOMPADDING", (0, 0), (-1,  0), 7),
-        ("TOPPADDING",    (0, 1), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
+        # Espacio físico amplio en campos de firma para escritura a bolígrafo
+        ("TOPPADDING",    (0, 1), (-1, -1), 14),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 14),
         ("LEFTPADDING",   (0, 0), (-1, -1), 10),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN",        (0, 0), (-1, -1), "BOTTOM"),
     ]))
 
     return [
@@ -742,7 +742,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
                                   emp, _lb, valido_hasta))
     story.append(Spacer(1, 7))
     story.append(Table([[Paragraph(
-        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Valida hasta: {valido_hasta}  ·  "
+        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  "
         f"Material: {r.get('categoria','')}  ·  m² instalados: {r.get('m2_real',0):.2f}",
         ParagraphStyle("badge",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
     )]], colWidths=[17*cm], style=TableStyle([
@@ -763,7 +763,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
         ("Proyecto",      r.get("tipo_proyecto","—")),
         ("Material",      f"{r.get('categoria','')} — {r.get('referencia','')}"),
         ("Forma de pago", f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra entrega"),
-        ("Condiciones",   f"Validez: {dias_validez} dias  ·  Entrega estimada: {dias_entrega} dias"),
+        ("Condiciones",   f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
     ]
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
@@ -801,9 +801,9 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 
     # ⑥ TÉRMINOS Y CONDICIONES
     nota_iva = (
-        "Propuesta con IVA del 19%% (Art. 468 E.T.) — Responsable de IVA — Regimen Comun. "
+        "Propuesta con IVA del 19% (Art. 468 E.T.) — Responsable de IVA — Régimen Común. "
         if incluir_iva else
-        "Propuesta sin IVA — Regimen Simplificado (Art. 499 E.T.). "
+        "Propuesta sin IVA — Régimen Simplificado (Art. 499 E.T.). "
     )
     story += _seccion_terminos(E, C, nota_iva, anticipo_pct)
     # Bloque contractual de aceptación con KeepTogether
@@ -820,7 +820,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 # ══════════════════════════════════════════════════════════════════════════════
 
 def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None, incluir_iva=True):
-    """PDF AIU. IVA (19%%) SOLO sobre Utilidad (U) — Decreto 1372/92.
+    """PDF AIU. IVA (19%) SOLO sobre Utilidad (U) — Decreto 1372/92.
     Si incluir_iva=False (o resultado['incluir_iva']==False), la fila IVA
     muestra 'Exento' y $0 — sin alterar el diseño premium.
     """
@@ -853,8 +853,8 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
                                   emp, _lb, valido_hasta))
     story.append(Spacer(1, 7))
     story.append(Table([[Paragraph(
-        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Valida hasta: {valido_hasta}  ·  "
-        "Tipo: AIU — Administracion, Imprevistos y Utilidad",
+        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  "
+        "Tipo: AIU — Administración, Imprevistos y Utilidad",
         ParagraphStyle("badge2",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
     )]], colWidths=[17*cm], style=TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
@@ -872,9 +872,9 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         datos_filas.append(("Para", cliente_nombre))
     datos_filas += [
         ("Ciudad",           emp.get("ciudad","Barranquilla")),
-        ("Tipo de contrato", "Licitacion / Proyecto Constructora — Estructura AIU"),
-        ("Forma de pago",    f"{anticipo_pct}%% anticipo  ·  {100-anticipo_pct}%% contra acta de entrega"),
-        ("Condiciones",      f"Validez: {dias_validez} dias  ·  Entrega estimada: {dias_entrega} dias"),
+        ("Tipo de contrato", "Licitación / Proyecto Constructora — Estructura AIU"),
+        ("Forma de pago",    f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra acta de entrega"),
+        ("Condiciones",      f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
     ]
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
@@ -988,7 +988,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     # ── BLOQUE 1: COSTO DIRECTO (CD) ─────────────────────────────────────────
     tbl_cd_hdr = Table([[
         Paragraph("COSTO DIRECTO (CD)", s_cd_lbl),
-        Paragraph("100%%", s_aiu_pct),
+        Paragraph("100%", s_aiu_pct),
         Paragraph(_num(cd), s_cd_val),
     ]], colWidths=COL_W)
     tbl_cd_hdr.setStyle(TableStyle([
@@ -1006,22 +1006,22 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
 
     # ── BLOQUE 2: COMPONENTES A / I / U + IVA ────────────────────────────────
     filas_aiu_comp = [
-        [Paragraph(f"A — Administración  ({pct_a:.1f}%% sobre CD)", s_aiu_lbl),
-         Paragraph(f"{pct_a:.1f}%%", s_aiu_pct),
+        [Paragraph(f"A — Administración  ({pct_a:.1f}% sobre CD)", s_aiu_lbl),
+         Paragraph(f"{pct_a:.1f}%", s_aiu_pct),
          Paragraph(_num(val_a), s_aiu_val)],
-        [Paragraph(f"I — Imprevistos  ({pct_i:.1f}%% sobre CD)", s_aiu_lbl),
-         Paragraph(f"{pct_i:.1f}%%", s_aiu_pct),
+        [Paragraph(f"I — Imprevistos  ({pct_i:.1f}% sobre CD)", s_aiu_lbl),
+         Paragraph(f"{pct_i:.1f}%", s_aiu_pct),
          Paragraph(_num(val_i), s_aiu_val)],
-        [Paragraph(f"U — Utilidad  ({pct_u:.1f}%% sobre CD)", s_aiu_lbl),
-         Paragraph(f"{pct_u:.1f}%%", s_aiu_pct),
+        [Paragraph(f"U — Utilidad  ({pct_u:.1f}% sobre CD)", s_aiu_lbl),
+         Paragraph(f"{pct_u:.1f}%", s_aiu_pct),
          Paragraph(_num(val_u), s_aiu_val)],
         # Fila IVA — visualmente separada dentro del mismo bloque
         # Label y valor cambian dinámicamente según si IVA aplica o no
         [Paragraph(
-            "IVA 19%%  (Sólo sobre Utilidad — Decreto 1372/92)" if incluir_iva
+            "IVA 19%  (Sólo sobre Utilidad — Decreto 1372/92)" if incluir_iva
             else "IVA  (Exento — Régimen Simplificado Art. 499 E.T.)",
             s_iva_lbl),
-         Paragraph("19%%" if incluir_iva else "0%%", s_iva_val),
+         Paragraph("19%" if incluir_iva else "0%", s_iva_val),
          Paragraph(_num(val_iva), s_iva_val)],
     ]
     # Tinte de la fila IVA: azul claro si gravado, verde muy suave si exento
@@ -1057,8 +1057,8 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
             Paragraph(_num(viaticos), s_log_val),
         ])
     filas_extra.append([
-        Paragraph(f"ANTICIPO A PAGAR  ({anticipo_pct}%% del total)", s_ant_lbl),
-        Paragraph(f"{anticipo_pct}%%", s_ant_val),
+        Paragraph(f"ANTICIPO A PAGAR  ({anticipo_pct}% del total)", s_ant_lbl),
+        Paragraph(f"{anticipo_pct}%", s_ant_val),
         Paragraph(_num(anticipo_val), s_ant_val),
     ])
     # Fila TOTAL — tipografía máxima + fondo corporativo oscuro #1A252C
@@ -1099,10 +1099,10 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
 
     # ④ NOTA TRIBUTARIA + T&C
     nota_aiu = (
-        "En contratos bajo estructura AIU, el IVA (19%%) aplica exclusivamente sobre la "
+        "En contratos bajo estructura AIU, el IVA (19%) aplica exclusivamente sobre la "
         "Utilidad (U), conforme al Art. 3 del Decreto 1372/1992 y conceptos DIAN. "
-        "El IVA NO se aplica sobre Costo Directo (CD), Administracion (A) ni Imprevistos (I). "
-        f"Anticipo requerido: {anticipo_pct}%% del total al inicio de la obra. "
+        "El IVA NO se aplica sobre Costo Directo (CD), Administración (A) ni Imprevistos (I). "
+        f"Anticipo requerido: {anticipo_pct}% del total al inicio de la obra. "
         "Barranquilla, Colombia."
     )
     story += _seccion_terminos(E, C, nota_aiu, anticipo_pct)
@@ -1196,9 +1196,9 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
             cn = resultado.get("_estado_guardado", {}).get("nombre_cliente", "")
             rt = f" para {cn}" if cn else ""
             descripcion_servicio = (
-                f"Cobro del {anticipo_pct}%% de anticipo en cotizacion AIU{rt}. "
-                f"Suministro, fabricacion e instalacion de materiales petreos segun especificaciones. "
-                f"Saldo {100-anticipo_pct}%% contra acta de entrega."
+                f"Cobro del {anticipo_pct}% de anticipo en cotización AIU{rt}. "
+                f"Suministro, fabricación e instalación de materiales pétreos según especificaciones. "
+                f"Saldo {100-anticipo_pct}% contra acta de entrega."
             )
         else:
             m2   = resultado.get("m2_real", 0)
@@ -1207,9 +1207,9 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
             ref  = resultado.get("referencia","")
             rt   = f" referencia {ref}" if ref else ""
             descripcion_servicio = (
-                f"Cobro del {anticipo_pct}%% de anticipo para: suministro, fabricacion e instalacion "
+                f"Cobro del {anticipo_pct}% de anticipo para: suministro, fabricación e instalación "
                 f"de {tipo} en {cat}{rt}. Area instalada: {m2:.2f} m2. "
-                f"Saldo {100-anticipo_pct}%% contra entrega a satisfaccion."
+                f"Saldo {100-anticipo_pct}% contra entrega a satisfacción."
             )
 
     story += _seccion_header("Descripcion del Servicio / Concepto", E)
@@ -1228,10 +1228,10 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     if incluir_iva and not es_aiu:
         filas_val = [
             [Paragraph("Valor total del servicio (sin IVA)",       E["cell_b"]),   Paragraph(_num(precio_base),      E["cell_br"])],
-            [Paragraph("IVA 19%% (Art. 468 E.T.)",                  E["iva_l"]),    Paragraph(_num(iva),              E["iva_v"])],
+            [Paragraph("IVA 19% (Art. 468 E.T.)",                   E["iva_l"]),    Paragraph(_num(iva),              E["iva_v"])],
             [Paragraph("Total (IVA incluido)",                      E["subtotal_l"]),Paragraph(_num(valor_total),     E["subtotal_v"])],
-            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%%)",      E["anticipo_l"]),Paragraph(_num(valor_anticipo), E["anticipo_v"])],
-            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%%)",
+            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%)",       E["anticipo_l"]),Paragraph(_num(valor_anticipo), E["anticipo_v"])],
+            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
                 ParagraphStyle("sl1",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"])),
              Paragraph(_num(valor_saldo),
                 ParagraphStyle("slv1",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT))],
@@ -1241,8 +1241,8 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     else:
         filas_val = [
             [Paragraph("Valor total de la cotizacion",              E["subtotal_l"]),Paragraph(_num(valor_total),   E["subtotal_v"])],
-            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%%)",      E["anticipo_l"]),Paragraph(_num(valor_anticipo),E["anticipo_v"])],
-            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%%)",
+            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%)",       E["anticipo_l"]),Paragraph(_num(valor_anticipo),E["anticipo_v"])],
+            [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
                 ParagraphStyle("sl2",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"])),
              Paragraph(_num(valor_saldo),
                 ParagraphStyle("slv2",fontSize=7.5,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT))],
