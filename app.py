@@ -7884,34 +7884,33 @@ elif pagina == "Planos de Taller (IA)":
                 unsafe_allow_html=True,
             )
 
-            st.markdown("<div class='plano-form-box'>", unsafe_allow_html=True)
-            st.markdown(
-                "<div class='plano-form-label'>📏 Dimensiones de la pieza</div>",
-                unsafe_allow_html=True,
-            )
-            _fg_c1, _fg_c2 = st.columns(2)
-            with _fg_c1:
-                _fg_largo = st.number_input(
-                    "Largo total (m)",
-                    min_value=0.10, max_value=20.0,
-                    value=st.session_state.get("plano_fg_largo", 2.40),
-                    step=0.05, format="%.2f",
-                    key="plano_fg_largo",
-                    help="Longitud de la pieza en metros, ej: 2.40",
+            with st.container(border=True):
+                st.markdown(
+                    "<p style='font-size:0.74rem;font-weight:700;color:#1B5FA8;"
+                    "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px'>📏 Dimensiones de la pieza</p>",
+                    unsafe_allow_html=True,
                 )
-            with _fg_c2:
-                _fg_ancho = st.number_input(
-                    "Ancho / Profundidad (m)",
-                    min_value=0.05, max_value=5.0,
-                    value=st.session_state.get("plano_fg_ancho", 0.60),
-                    step=0.05, format="%.2f",
-                    key="plano_fg_ancho",
-                    help="Profundidad de la pieza en metros, ej: 0.60",
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
+                _fg_c1, _fg_c2 = st.columns(2)
+                with _fg_c1:
+                    _fg_largo = st.number_input(
+                        "Largo total (m)",
+                        min_value=0.10, max_value=20.0,
+                        value=st.session_state.get("plano_fg_largo", 2.40),
+                        step=0.05, format="%.2f",
+                        key="plano_fg_largo",
+                        help="Longitud de la pieza en metros, ej: 2.40",
+                    )
+                with _fg_c2:
+                    _fg_ancho = st.number_input(
+                        "Ancho / Profundidad (m)",
+                        min_value=0.05, max_value=5.0,
+                        value=st.session_state.get("plano_fg_ancho", 0.60),
+                        step=0.05, format="%.2f",
+                        key="plano_fg_ancho",
+                        help="Profundidad de la pieza en metros, ej: 0.60",
+                    )
 
             # ── Perforación opcional ──────────────────────────────────────
-            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
             _fg_perf = st.checkbox(
                 "¿Lleva perforación para lavamanos / lavaplatos?",
                 value=st.session_state.get("plano_fg_perf", False),
@@ -7923,37 +7922,37 @@ elif pagina == "Planos de Taller (IA)":
             _fg_perf_tipo  = "Lavaplatos"
 
             if _fg_perf:
-                st.markdown("<div class='plano-form-box'>", unsafe_allow_html=True)
-                st.markdown(
-                    "<div class='plano-form-label'>🕳️ Medidas de la perforación</div>",
-                    unsafe_allow_html=True,
-                )
-                _fp_c1, _fp_c2 = st.columns(2)
-                with _fp_c1:
-                    _fg_perf_ancho = st.number_input(
-                        "Ancho perforación (m)",
-                        min_value=0.10, max_value=2.0,
-                        value=st.session_state.get("plano_fg_perf_ancho", 0.50),
-                        step=0.05, format="%.2f",
-                        key="plano_fg_perf_ancho",
-                        help="Ancho de la perforación, ej: 0.50",
+                with st.container(border=True):
+                    st.markdown(
+                        "<p style='font-size:0.74rem;font-weight:700;color:#1B5FA8;"
+                        "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px'>🕳️ Medidas de la perforación</p>",
+                        unsafe_allow_html=True,
                     )
-                with _fp_c2:
-                    _fg_perf_alto = st.number_input(
-                        "Fondo perforación (m)",
-                        min_value=0.05, max_value=2.0,
-                        value=st.session_state.get("plano_fg_perf_alto", 0.40),
-                        step=0.05, format="%.2f",
-                        key="plano_fg_perf_alto",
-                        help="Fondo de la perforación, ej: 0.40",
+                    _fp_c1, _fp_c2 = st.columns(2)
+                    with _fp_c1:
+                        _fg_perf_ancho = st.number_input(
+                            "Ancho perforación (m)",
+                            min_value=0.10, max_value=2.0,
+                            value=st.session_state.get("plano_fg_perf_ancho", 0.50),
+                            step=0.05, format="%.2f",
+                            key="plano_fg_perf_ancho",
+                            help="Ancho de la perforación, ej: 0.50",
+                        )
+                    with _fp_c2:
+                        _fg_perf_alto = st.number_input(
+                            "Fondo perforación (m)",
+                            min_value=0.05, max_value=2.0,
+                            value=st.session_state.get("plano_fg_perf_alto", 0.40),
+                            step=0.05, format="%.2f",
+                            key="plano_fg_perf_alto",
+                            help="Fondo de la perforación, ej: 0.40",
+                        )
+                    _fg_perf_tipo = st.selectbox(
+                        "Tipo de perforación",
+                        ["Lavaplatos", "Lavamanos", "Hornilla", "Otra"],
+                        index=0,
+                        key="plano_fg_perf_tipo",
                     )
-                _fg_perf_tipo = st.selectbox(
-                    "Tipo de perforación",
-                    ["Lavaplatos", "Lavamanos", "Hornilla", "Otra"],
-                    index=0,
-                    key="plano_fg_perf_tipo",
-                )
-                st.markdown("</div>", unsafe_allow_html=True)
 
             # ── Nombre de la pieza ────────────────────────────────────────
             _fg_nombre = st.text_input(
