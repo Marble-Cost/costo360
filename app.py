@@ -2500,7 +2500,7 @@ elif pagina == "Cotizacion Directa":
                 unsafe_allow_html=True
             )
 
-        st.markdown("---")
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
         # ── Exportar PDFs ────────────────────────────────────────────
         st.markdown("### 📄 Documentos para el cliente")
@@ -2553,10 +2553,10 @@ elif pagina == "Cotizacion Directa":
                     use_container_width=True, key="dl_pdf_cc"
                 )
 
-        st.markdown("---")
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
         _col_nueva, _col_editar = st.columns(2)
         with _col_nueva:
-            if st.button("🆕 Nueva cotización", use_container_width=True, type="primary"):
+            if st.button("🆕 Nueva cotización", use_container_width=True, type="primary", key="btn_nueva_cot_success"):
                 # --- BUG 2a FIX: full widget-cache purge so the user never sees
                 # ghost values from the previous quotation in the form fields.
                 _DATA_KEYS_NUEVA = [
@@ -2591,7 +2591,7 @@ elif pagina == "Cotizacion Directa":
                 st.session_state.cdir_success = False
                 st.rerun()
         with _col_editar:
-            if st.button("✏️ Editar esta cotización", use_container_width=True):
+            if st.button("✏️ Editar esta cotización", use_container_width=True, type="secondary", key="btn_editar_cot_success"):
                 # --- BUG 2b FIX: do NOT clear data — the user wants the form
                 # pre-filled.  Only exit the success screen and return to Step 0
                 # so the wizard renders with existing values intact.
@@ -2739,6 +2739,8 @@ elif pagina == "Cotizacion Directa":
     # PASO 0 — MATERIAL(ES)
     # ════════════════════════════════════════════════════════════════════
     if paso == 0:
+        _c_paso = st.container(border=True)
+        _c_paso.__enter__()
         seccion_titulo("¿Qué material vas a instalar?",
                        "Puedes agregar varios materiales si el proyecto mezcla referencias")
 
@@ -3016,10 +3018,13 @@ elif pagina == "Cotizacion Directa":
         precio_m2_efectivo = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
         costo_material_total = sum(m["precio_m2"] * m["area_placa"] for m in mats_nuevos)
 
+        _c_paso.__exit__(None, None, None)
     # ════════════════════════════════════════════════════════════════════
     # PASO 1 — DIMENSIONES
     # ════════════════════════════════════════════════════════════════════
     elif paso == 1:
+        _c_paso = st.container(border=True)
+        _c_paso.__enter__()
         # Recuperar materiales del paso anterior
         _mats_p1    = st.session_state.get("materiales_proyecto", [])
         cat_sel     = _mats_p1[0]["cat"]    if _mats_p1 else pre.get("categoria","Mármol")
@@ -3176,7 +3181,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     <div style="font-size:0.85rem;opacity:0.7">{fmt_m2(m2_real)} de material</div>
                     </div>''', unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ── Margen y m² usados ────────────────────────────────────────
         st.markdown("**Margen de ganancia y uso del material**")
@@ -3220,10 +3225,13 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _sp_set("cdir_margen_pct", margen_pct)
         _sp_set("cdir_m2_usados", m2_usados)
 
+        _c_paso.__exit__(None, None, None)
     # ════════════════════════════════════════════════════════════════════
     # PASO 2 — PROYECTO (tipo, etapa, días, personas, zócalos, desperdicio)
     # ════════════════════════════════════════════════════════════════════
     elif paso == 2:
+        _c_paso = st.container(border=True)
+        _c_paso.__enter__()
         _mats_p2    = st.session_state.get("materiales_proyecto", [])
         cat_sel     = _mats_p2[0]["cat"] if _mats_p2 else pre.get("categoria","Mármol")
         area_placa  = sum(m["area_placa"] for m in _mats_p2) if _mats_p2 else pre.get("area_placa_comprada", 5.94)
@@ -3262,7 +3270,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             on_change=_cb_cdir_nombre_cliente,
         )
 
-        st.markdown("---")
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ── Días y personas — segmented controls ─────────────────────
         st.markdown("**¿Cuántos días dura la instalación y cuántas personas van?**")
@@ -3290,7 +3298,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             else:
                 personas = int(_pers_sel)
 
-        st.markdown("---")
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ── Zócalos ──────────────────────────────────────────────────
         st.markdown("**¿El proyecto lleva zócalos?**")
@@ -3307,7 +3315,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             else:
                 zocalo_ml = float(_zoc_sel.replace(" ml",""))
 
-        st.markdown("---")
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ── Desperdicio visual (conservado del original) ──────────────
         desperdicio_sugerido_15 = round(m2_real * 0.15, 2)
@@ -3391,10 +3399,13 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             "m2_proyecto": m2_real, "m2_cortados_input": m2_cortados_total,
         }
 
+        _c_paso.__exit__(None, None, None)
     # ════════════════════════════════════════════════════════════════════
     # PASO 3 — LOGÍSTICA + ADICIONALES + IVA
     # ════════════════════════════════════════════════════════════════════
     elif paso == 3:
+        _c_paso = st.container(border=True)
+        _c_paso.__enter__()
         _mats_p3    = st.session_state.get("materiales_proyecto", [])
         cat_sel     = _mats_p3[0]["cat"] if _mats_p3 else pre.get("categoria","Mármol")
         area_placa  = sum(m["area_placa"] for m in _mats_p3) if _mats_p3 else pre.get("area_placa_comprada", 5.94)
@@ -3575,6 +3586,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _sp_set("cdir_cantidades_add", cantidades_add)
         _sp_set("cdir_incluir_iva", incluir_iva)
 
+        _c_paso.__exit__(None, None, None)
     # ════════════════════════════════════════════════════════════════════
     # PASO 4 — CALCULAR (trigger automático al llegar a este paso)
     # ════════════════════════════════════════════════════════════════════
@@ -3713,9 +3725,17 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
           {"" if not _iva_act else f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.2)"><span style="color:#C9A84C;font-weight:700">+ IVA 19%: {numero_completo(_iva_mont)}</span> &nbsp;→&nbsp; <span style="font-weight:900">Total: {numero_completo(_pf)}</span></div>'}
         </div>""", unsafe_allow_html=True)
 
-        # Desglose rápido
-        _col_d, _col_m = st.columns([1, 1])
-        with _col_d:
+        # ── Resultados en dos columnas ────────────────────────────────
+        col_izq, col_der = st.columns([1.2, 1])
+
+        with col_izq:
+            # Métricas financieras
+            _m1, _m2_met = st.columns(2)
+            _m1.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {fmt_m2(r['retal'])}")
+            _m2_met.metric("Costo/m²", numero_completo(r["costo_total"] / max(r["m2_real"], 0.001)))
+
+            # Desglose de costos de producción
+            st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
             _items_d = [
                 ("Material",    r["c1_material"]),
                 ("Producción",  r["c2_mano_obra"]),
@@ -3728,10 +3748,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             if _iva_act:
                 _items_d.append(("IVA 19%", _iva_mont))
             bloque_costos(_items_d, "TOTAL CON IVA" if _iva_act else "PRECIO TOTAL", _pf)
-        with _col_m:
-            c1m, c2m = st.columns(2)
-            c1m.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {fmt_m2(r['retal'])}")
-            c2m.metric("Costo/m²", numero_completo(r["costo_total"] / max(r["m2_real"], 0.001)))
+
+            # Simulador de margen (bloque AIU / complementario)
             st.markdown("<div style='font-weight:700;margin:14px 0 8px'>Simulador de margen</div>", unsafe_allow_html=True)
             _sim_m = st.slider("Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
             _sim_p = r["costo_total"] / (1 - _sim_m / 100)
@@ -3750,7 +3768,39 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 unsafe_allow_html=True
             )
 
-        st.markdown("---")
+        with col_der:
+            # Gráfico de pastel de márgenes
+            _labels_pie = ["Material", "Producción", "Zócalos", "Insumos", "Logística", "Viáticos", "Adicionales"]
+            _values_pie = [
+                r["c1_material"], r["c2_mano_obra"], r["c3_zocalos"],
+                r["c4_insumos"],  r["c5_logistica"], r["c6_viaticos"], r["c7_adicionales"],
+            ]
+            # Filter zero-value slices for cleaner chart
+            _lv = [(l, v) for l, v in zip(_labels_pie, _values_pie) if v > 0]
+            if _lv:
+                _labels_pie_f, _values_pie_f = zip(*_lv)
+                _fig_pie = go.Figure(go.Pie(
+                    labels=list(_labels_pie_f),
+                    values=list(_values_pie_f),
+                    hole=0.42,
+                    textinfo="percent",
+                    textfont_size=11,
+                    marker=dict(colors=[
+                        "#1B5FA8", "#C9A84C", "#2E86AB", "#A23B72",
+                        "#F18F01", "#C73E1D", "#3B1F2B",
+                    ][:len(_values_pie_f)]),
+                ))
+                _fig_pie.update_layout(
+                    margin=dict(t=10, b=10, l=10, r=10),
+                    height=240,
+                    showlegend=True,
+                    legend=dict(font=dict(size=10), orientation="v"),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                )
+                st.plotly_chart(_fig_pie, use_container_width=True, config={"displayModeBar": False})
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ── Guardar en historial ───────────────────────────────────────
         _ya_guardada = st.session_state.get("_cotiz_guardada", False)
@@ -3835,7 +3885,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
     # NAVEGACIÓN — botones Atrás / Siguiente (solo pasos 0-3)
     # ════════════════════════════════════════════════════════════════════
     if not st.session_state.get("cdir_success") and paso < N_PASOS - 1:
-        st.markdown("---")
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
         _nav_l, _nav_r = st.columns([1, 1])
 
         # Validaciones mínimas por paso
@@ -5400,7 +5450,7 @@ elif pagina == "Dashboard":
                 border: 1px solid rgba(201,168,76,0.45);
                 border-left: 5px solid #C9A84C;
                 border-radius: 12px;
-                padding: 20px 24px;
+                padding: 16px 20px;
                 margin: 4px 0 20px 0;
             ">
                 <div style="
@@ -5408,7 +5458,7 @@ elif pagina == "Dashboard":
                     text-transform: uppercase; color: #C9A84C; margin-bottom: 6px;
                 ">💎 Capital Inmovilizado Recuperable</div>
                 <div style="
-                    font-size: 2.1rem; font-weight: 900;
+                    font-size: 1.8rem; font-weight: 900;
                     font-family: 'Playfair Display', serif;
                     color: var(--text-color); line-height: 1.1; margin-bottom: 4px;
                 ">{numero_completo(_valor_ret)}</div>
