@@ -30,7 +30,7 @@ from parametros import (
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
 import plotly.graph_objects as go
-from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_pdf
+from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_pdf, optimizar_corte_2d
 
 st.set_page_config(
     page_title="CostoMármol — Mármoles Collante & Castro",
@@ -7744,7 +7744,7 @@ elif pagina == "Gestion de Equipo":
 
 elif pagina == "Planos de Taller (IA)":
 
-    # ── Estilos de la página ──────────────────────────────────────────────────
+    # ── Estilos ───────────────────────────────────────────────────────────────
     st.markdown("""
     <style>
     .plano-header {
@@ -7753,621 +7753,241 @@ elif pagina == "Planos de Taller (IA)":
         padding: 22px 24px 18px;
         margin-bottom: 18px;
     }
-    .plano-header h2 {
-        color: #FFFFFF;
-        font-size: 1.35rem;
-        font-weight: 700;
-        margin: 0 0 4px 0;
-    }
-    .plano-header p {
-        color: #B8D4F0;
-        font-size: 0.82rem;
-        margin: 0;
-    }
-    .plano-badge {
-        display: inline-block;
-        background: rgba(201,168,76,0.18);
-        border: 1px solid rgba(201,168,76,0.40);
-        color: #C9A84C;
-        font-size: 0.70rem;
-        font-weight: 700;
-        border-radius: 4px;
-        padding: 2px 9px;
-        margin-top: 8px;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-    }
-    .plano-tip {
-        background: #EBF3FB;
-        border-left: 3px solid #1B5FA8;
-        border-radius: 0 6px 6px 0;
-        padding: 10px 14px;
-        font-size: 0.80rem;
-        color: #1C2B3A;
-        margin-bottom: 10px;
-    }
-    .plano-form-box {
-        background: #F0F6FF;
-        border: 1px solid #C0D8F0;
-        border-radius: 8px;
-        padding: 16px 18px 10px;
-        margin-bottom: 10px;
-    }
-    .plano-form-label {
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: #1B5FA8;
-        text-transform: uppercase;
-        letter-spacing: 0.07em;
-        margin-bottom: 8px;
-    }
-    .plano-error {
-        background: #FEF2F2;
-        border-left: 3px solid #EF4444;
-        border-radius: 0 6px 6px 0;
-        padding: 10px 14px;
-        font-size: 0.80rem;
-        color: #7F1D1D;
-        margin-top: 8px;
-    }
+    .plano-header h2  { color:#FFFFFF; font-size:1.35rem; font-weight:700; margin:0 0 4px 0; }
+    .plano-header p   { color:#B8D4F0; font-size:0.88rem; margin:0 0 10px 0; }
+    .plano-badge      { background:#C9A84C; color:#0D2137; font-size:0.72rem;
+                        font-weight:700; border-radius:4px; padding:3px 10px;
+                        letter-spacing:0.06em; text-transform:uppercase; }
+    .plano-tip        { background:#EFF6FF; border-left:3px solid #1B5FA8;
+                        border-radius:0 6px 6px 0; padding:8px 12px;
+                        font-size:0.82rem; color:#1E3A5F; margin-bottom:10px; }
+    .plano-error      { background:#FEF2F2; border:1px solid #FECACA;
+                        border-radius:6px; padding:10px 14px;
+                        font-size:0.84rem; color:#7F1D1D; margin-top:8px; }
     </style>
     """, unsafe_allow_html=True)
 
     # ── Encabezado ────────────────────────────────────────────────────────────
     st.markdown("""
     <div class="plano-header">
-        <h2>📐 Planos de Taller (IA)</h2>
-        <p>Genera planos técnicos 2D con cotas y escala — listos para producción, sin necesidad de CAD.
-        Usa el formulario rápido o describe el proyecto con tus palabras.</p>
-        <span class="plano-badge">✦ IA + SVG · Descarga PDF</span>
+        <h2>📐 Planos de Taller &amp; Optimizador de Corte</h2>
+        <p>Ingresa las medidas de la placa y las piezas a cortar.
+        El algoritmo 2D acomoda automáticamente todas las piezas dentro de la lámina.</p>
+        <span class="plano-badge">✦ Nesting 2D · Descarga PDF</span>
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Inicializar session_state ─────────────────────────────────────────────
-    if "plano_datos_json"    not in st.session_state:
-        st.session_state.plano_datos_json    = None
-    if "plano_svg"           not in st.session_state:
-        st.session_state.plano_svg           = None
-    if "plano_descripcion"   not in st.session_state:
-        st.session_state.plano_descripcion   = ""
-    if "plano_error_msg"     not in st.session_state:
-        st.session_state.plano_error_msg     = ""
-    if "plano_modo_entrada"  not in st.session_state:
-        st.session_state.plano_modo_entrada  = "Formulario Guiado (Rápido)"
+    # ── Session state ─────────────────────────────────────────────────────────
+    if "nesting_svg"      not in st.session_state: st.session_state.nesting_svg      = None
+    if "nesting_metricas" not in st.session_state: st.session_state.nesting_metricas = None
+    if "nesting_error"    not in st.session_state: st.session_state.nesting_error    = ""
 
-    # ── Selector de modo de entrada ───────────────────────────────────────────
-    _MODOS = ["Formulario Guiado (Rápido)", "Descripción Libre (Texto)"]
-    # st.segmented_control está disponible en Streamlit ≥ 1.40; usamos
-    # st.radio horizontal como fallback universal sin romper versiones previas.
-    try:
-        _modo_sel = st.segmented_control(
-            label="Modo de entrada",
-            options=_MODOS,
-            default=st.session_state.plano_modo_entrada,
-            key="plano_modo_ctrl",
-            label_visibility="collapsed",
-        )
-    except AttributeError:
-        _modo_sel = st.radio(
-            "Modo de entrada",
-            _MODOS,
-            index=_MODOS.index(st.session_state.plano_modo_entrada),
-            horizontal=True,
-            key="plano_modo_radio",
-            label_visibility="collapsed",
-        )
-
-    if _modo_sel:
-        st.session_state.plano_modo_entrada = _modo_sel
-    modo = st.session_state.plano_modo_entrada
-
-    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-
-    # ── Layout dos columnas ───────────────────────────────────────────────────
+    # ── Layout ────────────────────────────────────────────────────────────────
     col_inp, col_out = st.columns([1, 1.6], gap="large")
 
-    # ╔══════════════════════════════════════════════════════════════════════╗
-    # ║  COLUMNA IZQUIERDA — Entrada                                        ║
-    # ╚══════════════════════════════════════════════════════════════════════╝
+    # ══════════════════════════════════════════════════════════════════════════
+    # COLUMNA IZQUIERDA — Entrada
+    # ══════════════════════════════════════════════════════════════════════════
     with col_inp:
+        st.markdown("#### 🪨 Dimensiones de la Placa")
+        st.markdown(
+            "<div class='plano-tip'>Introduce el tamaño de la lámina virgen "
+            "tal como la compras al proveedor.</div>",
+            unsafe_allow_html=True,
+        )
 
-        # ════════════════════════════════════════════════════════════════════
-        # MODO A — FORMULARIO GUIADO
-        # ════════════════════════════════════════════════════════════════════
-        if modo == "Formulario Guiado (Rápido)":
-            st.markdown("#### 🗂️ Formulario Guiado")
-            st.markdown(
-                "<div class='plano-tip'>"
-                "Ingresa las medidas en metros. La IA armará la descripción exacta "
-                "y generará el plano automáticamente."
-                "</div>",
-                unsafe_allow_html=True,
-            )
-
-            with st.container(border=True):
-                st.markdown(
-                    "<p style='font-size:0.74rem;font-weight:700;color:#1B5FA8;"
-                    "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px'>📏 Dimensiones de la pieza</p>",
-                    unsafe_allow_html=True,
+        with st.container(border=True):
+            _pc1, _pc2 = st.columns(2)
+            with _pc1:
+                placa_largo = st.number_input(
+                    "Largo de la Placa (m)",
+                    min_value=0.20, max_value=10.0,
+                    value=2.80, step=0.05, format="%.2f",
+                    key="nesting_placa_largo",
+                    help="Dimensión más larga de la lámina, ej: 2.80 m",
                 )
-                _fg_c1, _fg_c2 = st.columns(2)
-                with _fg_c1:
-                    _fg_largo = st.number_input(
-                        "Largo total (m)",
-                        min_value=0.10, max_value=20.0,
-                        value=st.session_state.get("plano_fg_largo", 2.40),
-                        step=0.05, format="%.2f",
-                        key="plano_fg_largo",
-                        help="Longitud de la pieza en metros, ej: 2.40",
-                    )
-                with _fg_c2:
-                    _fg_ancho = st.number_input(
-                        "Ancho / Profundidad (m)",
-                        min_value=0.05, max_value=5.0,
-                        value=st.session_state.get("plano_fg_ancho", 0.60),
-                        step=0.05, format="%.2f",
-                        key="plano_fg_ancho",
-                        help="Profundidad de la pieza en metros, ej: 0.60",
-                    )
-
-            # ── Perforación opcional ──────────────────────────────────────
-            _fg_perf = st.checkbox(
-                "¿Lleva perforación para lavamanos / lavaplatos?",
-                value=st.session_state.get("plano_fg_perf", False),
-                key="plano_fg_perf",
-            )
-
-            _fg_perf_ancho = 0.50
-            _fg_perf_alto  = 0.40
-            _fg_perf_tipo  = "Lavaplatos"
-
-            if _fg_perf:
-                with st.container(border=True):
-                    st.markdown(
-                        "<p style='font-size:0.74rem;font-weight:700;color:#1B5FA8;"
-                        "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px'>🕳️ Medidas de la perforación</p>",
-                        unsafe_allow_html=True,
-                    )
-                    _fp_c1, _fp_c2 = st.columns(2)
-                    with _fp_c1:
-                        _fg_perf_ancho = st.number_input(
-                            "Ancho perforación (m)",
-                            min_value=0.10, max_value=2.0,
-                            value=st.session_state.get("plano_fg_perf_ancho", 0.50),
-                            step=0.05, format="%.2f",
-                            key="plano_fg_perf_ancho",
-                            help="Ancho de la perforación, ej: 0.50",
-                        )
-                    with _fp_c2:
-                        _fg_perf_alto = st.number_input(
-                            "Fondo perforación (m)",
-                            min_value=0.05, max_value=2.0,
-                            value=st.session_state.get("plano_fg_perf_alto", 0.40),
-                            step=0.05, format="%.2f",
-                            key="plano_fg_perf_alto",
-                            help="Fondo de la perforación, ej: 0.40",
-                        )
-                    _fg_perf_tipo = st.selectbox(
-                        "Tipo de perforación",
-                        ["Lavaplatos", "Lavamanos", "Hornilla", "Otra"],
-                        index=0,
-                        key="plano_fg_perf_tipo",
-                    )
-
-            # ── Nombre de la pieza ────────────────────────────────────────
-            _fg_nombre = st.text_input(
-                "Nombre de la pieza (opcional)",
-                value=st.session_state.get("plano_fg_nombre", "Mesón"),
-                placeholder="ej: Mesón cocina, Encimera, Baño...",
-                key="plano_fg_nombre",
-            )
-            _nombre_pieza = _fg_nombre.strip() or "Pieza"
-
-            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-
-            btn_generar = st.button(
-                "🔬 Generar Plano",
-                use_container_width=True,
-                type="primary",
-                key="plano_btn_generar_fg",
-                disabled=not ia_disponible(),
-            )
-
-            if not ia_disponible():
-                st.warning(
-                    "⚠️ Configura tu API key en `.streamlit/secrets.toml` "
-                    "para activar la generación de planos.",
-                    icon="🔑",
+            with _pc2:
+                placa_ancho = st.number_input(
+                    "Ancho de la Placa (m)",
+                    min_value=0.10, max_value=5.0,
+                    value=1.60, step=0.05, format="%.2f",
+                    key="nesting_placa_ancho",
+                    help="Dimensión más corta de la lámina, ej: 1.60 m",
                 )
 
-            if btn_generar:
-                # Ensamblar descripción perfecta a partir de los inputs
-                _desc_partes = [
-                    f"{_nombre_pieza} de {_fg_largo:.2f} m de largo "
-                    f"por {_fg_ancho:.2f} m de ancho."
-                ]
-                if _fg_perf:
-                    _centro_x = round(_fg_largo / 2 - _fg_perf_ancho / 2, 2)
-                    _centro_x = max(0.05, _centro_x)
-                    _desc_partes.append(
-                        f"Lleva una perforación de tipo {_fg_perf_tipo} "
-                        f"de {_fg_perf_ancho:.2f} m de ancho por {_fg_perf_alto:.2f} m de fondo, "
-                        f"ubicada a {_centro_x:.2f} m del extremo izquierdo "
-                        f"y centrada en la profundidad."
-                    )
-                descripcion_ensamblada = " ".join(_desc_partes)
+        st.markdown("#### ✂️ Piezas a Cortar")
+        st.markdown(
+            "<div class='plano-tip'>Agrega una fila por cada pieza. "
+            "El algoritmo permite rotar 90° para aprovechar mejor la placa.</div>",
+            unsafe_allow_html=True,
+        )
 
-                # Guardar en session_state para referencia y cambiar al modo libre
-                st.session_state.plano_descripcion = descripcion_ensamblada
-                st.session_state.plano_error_msg   = ""
-                st.session_state.plano_svg         = None
-                st.session_state.plano_datos_json  = None
+        import pandas as pd
+        _df_default = pd.DataFrame([
+            {"Nombre": "Mesón cocina",  "Largo (m)": 2.40, "Ancho (m)": 0.60, "Cantidad": 1},
+            {"Nombre": "Baño 1",        "Largo (m)": 1.00, "Ancho (m)": 0.45, "Cantidad": 1},
+            {"Nombre": "Lateral",       "Largo (m)": 0.60, "Ancho (m)": 0.60, "Cantidad": 2},
+        ])
 
-                with st.spinner("🧠 Interpretando medidas…"):
+        _df_editor = st.data_editor(
+            _df_default,
+            num_rows="dynamic",
+            use_container_width=True,
+            column_config={
+                "Nombre":    st.column_config.TextColumn("Nombre", width="medium"),
+                "Largo (m)": st.column_config.NumberColumn("Largo (m)", min_value=0.05,
+                             max_value=10.0, step=0.05, format="%.2f"),
+                "Ancho (m)": st.column_config.NumberColumn("Ancho (m)", min_value=0.05,
+                             max_value=5.0,  step=0.05, format="%.2f"),
+                "Cantidad":  st.column_config.NumberColumn("Cantidad", min_value=1,
+                             max_value=20, step=1, format="%d"),
+            },
+            key="nesting_tabla_piezas",
+        )
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        btn_optimizar = st.button(
+            "⚡ Optimizar Corte y Generar Plano",
+            use_container_width=True,
+            type="primary",
+            key="nesting_btn_optimizar",
+        )
+
+        if btn_optimizar:
+            st.session_state.nesting_error    = ""
+            st.session_state.nesting_svg      = None
+            st.session_state.nesting_metricas = None
+
+            # Validar tabla
+            _piezas_raw = _df_editor.to_dict(orient="records") if _df_editor is not None else []
+            _piezas_validas = [
+                {
+                    "nombre":   str(r.get("Nombre") or "Pieza"),
+                    "largo":    float(r.get("Largo (m)") or 0),
+                    "ancho":    float(r.get("Ancho (m)") or 0),
+                    "cantidad": int(r.get("Cantidad") or 1),
+                }
+                for r in _piezas_raw
+                if float(r.get("Largo (m)") or 0) > 0 and float(r.get("Ancho (m)") or 0) > 0
+            ]
+
+            if not _piezas_validas:
+                st.session_state.nesting_error = (
+                    "Agrega al menos una pieza con largo y ancho mayores a 0."
+                )
+            else:
+                with st.spinner("🔢 Calculando disposición óptima de corte…"):
                     try:
-                        datos = extraer_coordenadas_plano(descripcion_ensamblada)
-                    except Exception:
-                        datos = None
-
-                if datos is None:
-                    st.session_state.plano_error_msg = (
-                        "No fue posible conectar con la IA. "
-                        "Verifica tu API key y la conexión a internet."
-                    )
-                elif not datos.get("piezas"):
-                    st.session_state.plano_error_msg = (
-                        "La IA no pudo generar coordenadas a partir del formulario. "
-                        "Intenta ajustar las medidas o usa el modo 'Descripción Libre'."
-                    )
-                else:
-                    st.session_state.plano_datos_json = datos
-                    with st.spinner("🎨 Dibujando plano técnico…"):
-                        try:
-                            svg = generar_plano_svg(datos)
-                        except Exception as _svg_err:
-                            svg = None
-                            st.session_state.plano_error_msg = (
-                                f"Error al dibujar: {_svg_err}. "
-                                "Intenta con medidas más pequeñas."
-                            )
-                    if svg:
-                        st.session_state.plano_svg = svg
-
-            # ── Vista previa de la descripción ensamblada ─────────────────
-            if ia_disponible() and (_fg_largo or _fg_ancho):
-                _prev_text = (
-                    f'"{_nombre_pieza} de {_fg_largo:.2f} m x {_fg_ancho:.2f} m.'
-                )
-                if _fg_perf:
-                    _prev_text += (
-                        f' Perforacion {_fg_perf_tipo} '
-                        f'{_fg_perf_ancho:.2f} m x {_fg_perf_alto:.2f} m"'
-                    )
-                else:
-                    _prev_text += '"'
-                st.markdown(
-                    "<div style='background:#F8FAFD;border:1px dashed #B0C8E8;"
-                    "border-radius:6px;padding:8px 12px;font-size:0.76rem;"
-                    "color:#374151;margin-top:8px'>"
-                    "<strong style='color:#1B5FA8'>Vista previa:</strong><br>"
-                    + _prev_text +
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-
-        # ════════════════════════════════════════════════════════════════════
-        # MODO B — DESCRIPCIÓN LIBRE
-        # ════════════════════════════════════════════════════════════════════
-        else:
-            st.markdown("#### ✍️ Descripción Libre")
-
-            st.markdown("""
-            <div class="plano-tip">
-            <strong>Cómo describir:</strong> menciona cada pieza con sus dimensiones en metros.
-            Ejemplo: <em>"Mesón en L, brazo largo de 2.50 m × 0.60 m y brazo corto de
-            1.20 m × 0.60 m con lavaplatos de 0.50 × 0.40 m"</em>
-            </div>
-            """, unsafe_allow_html=True)
-
-            descripcion = st.text_area(
-                label="Descripción del proyecto",
-                value=st.session_state.plano_descripcion,
-                height=180,
-                placeholder=(
-                    "Ejemplos:\n"
-                    "• Mesón recto de 3.00 m × 0.60 m con lavaplatos centrado\n"
-                    "• Mesón en L: brazo largo 2.50 m × 0.60 m, brazo corto 1.20 m × 0.60 m\n"
-                    "• Mesón en U: frente 2.40 m, laterales 1.80 m, profundidad 0.60 m\n"
-                    "• Piso 4.00 m × 3.50 m"
-                ),
-                label_visibility="collapsed",
-                key="plano_textarea",
-            )
-            st.session_state.plano_descripcion = descripcion
-
-            # ── Plantillas de ejemplo — siempre visibles ──────────────────
-            st.markdown(
-                "<div style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
-                "text-transform:uppercase;letter-spacing:0.07em;margin:10px 0 6px'>"
-                "📋 Plantillas — clic para cargar</div>",
-                unsafe_allow_html=True,
-            )
-            _ej_r1c1, _ej_r1c2 = st.columns(2)
-            with _ej_r1c1:
-                if st.button("📏 Mesón recto + lavaplatos", use_container_width=True,
-                             key="plano_ej_recto"):
-                    st.session_state.plano_descripcion = (
-                        "Mesón recto de 3.00 metros de largo por 0.60 metros de profundidad. "
-                        "Tiene un lavaplatos de 0.50 m de ancho por 0.40 m de fondo, "
-                        "ubicado a 1.20 m del extremo izquierdo y centrado en la profundidad."
-                    )
-                    st.rerun()
-            with _ej_r1c2:
-                if st.button("📐 Mesón en L + lavaplatos doble", use_container_width=True,
-                             key="plano_ej_l"):
-                    st.session_state.plano_descripcion = (
-                        "Mesón en L compuesto por dos piezas: "
-                        "Brazo Largo de 2.50 metros de longitud por 0.60 metros de profundidad, "
-                        "y Brazo Corto de 1.20 metros de longitud por 0.60 metros de profundidad, "
-                        "unidos en la esquina derecha. "
-                        "El Brazo Largo tiene un lavaplatos doble de 0.80 m × 0.45 m, "
-                        "centrado a 0.50 m del extremo libre."
-                    )
-                    st.rerun()
-
-            _ej_r2c1, _ej_r2c2 = st.columns(2)
-            with _ej_r2c1:
-                if st.button("🔲 Isla central + hornilla", use_container_width=True,
-                             key="plano_ej_isla"):
-                    st.session_state.plano_descripcion = (
-                        "Isla de cocina de 2.00 m de largo por 1.00 m de profundidad. "
-                        "Tiene una hornilla de 0.60 m × 0.60 m centrada en la isla, "
-                        "a 0.70 m de cada extremo lateral."
-                    )
-                    st.rerun()
-            with _ej_r2c2:
-                if st.button("🏛️ Mesón en U completo", use_container_width=True,
-                             key="plano_ej_u"):
-                    st.session_state.plano_descripcion = (
-                        "Mesón en U formado por tres piezas: "
-                        "Frente de 2.40 m × 0.60 m, "
-                        "Lateral Izquierdo de 1.60 m × 0.60 m y "
-                        "Lateral Derecho de 1.60 m × 0.60 m. "
-                        "El Frente lleva un lavaplatos de 0.50 m × 0.40 m centrado."
-                    )
-                    st.rerun()
-
-            _ej_r3c1, _ej_r3c2 = st.columns(2)
-            with _ej_r3c1:
-                if st.button("🪜 Escalones (3 huellas)", use_container_width=True,
-                             key="plano_ej_escalones"):
-                    st.session_state.plano_descripcion = (
-                        "Escalera de 3 escalones. Cada escalón tiene una huella de "
-                        "1.20 m de ancho por 0.30 m de profundidad y una contrahuella de "
-                        "1.20 m de ancho por 0.18 m de alto. "
-                        "Los escalones se apilan uno encima del otro."
-                    )
-                    st.rerun()
-            with _ej_r3c2:
-                if st.button("🪟 Alféizares + repisa", use_container_width=True,
-                             key="plano_ej_alfei"):
-                    st.session_state.plano_descripcion = (
-                        "Dos alféizares de ventana y una repisa. "
-                        "Alféizar 1 de 1.20 m × 0.20 m. "
-                        "Alféizar 2 de 0.90 m × 0.20 m. "
-                        "Repisa de 1.00 m × 0.25 m. "
-                        "Las tres piezas van separadas horizontalmente."
-                    )
-                    st.rerun()
-
-            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-
-            btn_generar = st.button(
-                "🔬 Generar Plano Paramétrico",
-                use_container_width=True,
-                type="primary",
-                key="plano_btn_generar_dl",
-                disabled=not ia_disponible(),
-            )
-
-            if not ia_disponible():
-                st.warning(
-                    "⚠️ Configura tu API key de Anthropic en `.streamlit/secrets.toml` "
-                    "para activar la generación de planos.",
-                    icon="🔑",
-                )
-
-            # ── Acción al presionar el botón ──────────────────────────────
-            if btn_generar and descripcion.strip():
-                st.session_state.plano_error_msg  = ""
-                st.session_state.plano_svg        = None
-                st.session_state.plano_datos_json = None
-
-                with st.spinner("🧠 Analizando medidas y calculando coordenadas…"):
-                    try:
-                        datos = extraer_coordenadas_plano(descripcion.strip())
-                    except Exception:
-                        datos = None
-
-                if datos is None:
-                    st.session_state.plano_error_msg = (
-                        "No fue posible conectar con la IA o procesar la descripción. "
-                        "Verifica tu API key y la conexión a internet."
-                    )
-                elif not datos.get("piezas"):
-                    _err_ia = datos.get("_error", "")
-                    if _err_ia == "json_parse":
-                        st.session_state.plano_error_msg = (
-                            "La IA no pudo convertir la descripción en coordenadas. "
-                            "Consejo: indica cada pieza con medidas explícitas, por ejemplo: "
-                            "\"Brazo Largo de 2.50 m × 0.60 m\" y \"Brazo Corto de 1.20 m × 0.60 m\"."
+                        _svg, _metricas = optimizar_corte_2d(
+                            placa_largo, placa_ancho, _piezas_validas
                         )
-                    else:
-                        st.session_state.plano_error_msg = (
-                            "No se detectaron piezas con dimensiones en la descripción. "
-                            "Incluye siempre el largo y el ancho en metros, ej: '2.50 m × 0.60 m'. "
-                            "Puedes usar una de las plantillas de ejemplo como punto de partida."
-                        )
-                else:
-                    st.session_state.plano_datos_json = datos
-                    with st.spinner("🎨 Dibujando plano técnico…"):
-                        try:
-                            svg = generar_plano_svg(datos)
-                        except Exception as _svg_err:
-                            svg = None
-                            st.session_state.plano_error_msg = (
-                                f"Error al dibujar el plano: {_svg_err}. "
-                                "Intenta con una descripción más sencilla."
-                            )
-                    if svg:
-                        st.session_state.plano_svg = svg
+                        st.session_state.nesting_svg      = _svg
+                        st.session_state.nesting_metricas = _metricas
+                    except Exception as _e:
+                        st.session_state.nesting_error = f"Error en el cálculo: {_e}"
 
-            elif btn_generar and not descripcion.strip():
-                st.session_state.plano_error_msg = (
-                    "Escribe la descripción del proyecto antes de generar."
-                )
-
-        # ── Mostrar error (ambos modos) ───────────────────────────────────
-        if st.session_state.get("plano_error_msg"):
+        if st.session_state.get("nesting_error"):
             st.markdown(
-                f'<div class="plano-error">⚠️ {st.session_state.plano_error_msg}</div>',
+                f'<div class="plano-error">⚠️ {st.session_state.nesting_error}</div>',
                 unsafe_allow_html=True,
             )
 
-    # ╔══════════════════════════════════════════════════════════════════════╗
-    # ║  COLUMNA DERECHA — Visualización del plano                         ║
-    # ╚══════════════════════════════════════════════════════════════════════╝
+    # ══════════════════════════════════════════════════════════════════════════
+    # COLUMNA DERECHA — Resultado
+    # ══════════════════════════════════════════════════════════════════════════
     with col_out:
-        st.markdown("#### 🗺️ Plano Técnico 2D")
+        st.markdown("#### 📊 Resultado del Nesting")
 
-        datos_json = st.session_state.get("plano_datos_json")
-        svg_actual = st.session_state.get("plano_svg")
+        _svg_act = st.session_state.get("nesting_svg")
+        _met     = st.session_state.get("nesting_metricas")
 
-        if svg_actual:
-            # ── Métricas rápidas ──────────────────────────────────────────
-            if datos_json and datos_json.get("piezas"):
-                piezas = datos_json["piezas"]
-                n_piezas   = len(piezas)
-                area_total = sum(p.get("ancho", 0) * p.get("alto", 0) for p in piezas)
-                n_perfs    = len(datos_json.get("perforaciones", []))
-                _mc1, _mc2, _mc3 = st.columns(3)
-                _mc1.metric("Piezas", n_piezas)
-                _mc2.metric("Área total", f"{area_total:.2f} m²")
-                _mc3.metric("Perforaciones", n_perfs)
+        if _svg_act and _met:
+            # ── Métricas en tarjetas ──────────────────────────────────────
+            _mc1, _mc2, _mc3 = st.columns(3)
+            _mc1.metric(
+                "Área Total Placa",
+                f'{_met["area_placa"]:.2f} m²',
+            )
+            _mc2.metric(
+                "Área Utilizada",
+                f'{_met["area_utilizada"]:.2f} m²',
+                delta=f'{100 - _met["porcentaje_desperdicio"]:.1f}% aprovechado',
+                delta_color="normal",
+            )
+            _mc3.metric(
+                "% Retal (Desperdicio)",
+                f'{_met["porcentaje_desperdicio"]:.1f}%',
+                delta=f'{_met["piezas_colocadas"]} piezas colocadas',
+                delta_color="off",
+            )
 
-            # ── Render SVG ────────────────────────────────────────────────
+            # ── Aviso piezas que no caben ─────────────────────────────────
+            if _met.get("piezas_no_caben"):
+                _names = ", ".join(str(n) for n in _met["piezas_no_caben"])
+                st.warning(
+                    f"⚠️ Las siguientes piezas **no caben** en la placa actual: **{_names}**. "
+                    "Considera aumentar las dimensiones de la placa o dividir el proyecto.",
+                    icon="📐",
+                )
+
+            # ── SVG ───────────────────────────────────────────────────────
             st.markdown(
-                wrap_svg_streamlit(svg_actual),
+                wrap_svg_streamlit(_svg_act),
                 unsafe_allow_html=True,
             )
 
-            # ── Botones de acción ─────────────────────────────────────────
             st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-            _ba1, _ba2, _ba3 = st.columns(3)
+
+            # ── Botones descarga ──────────────────────────────────────────
+            _ba1, _ba2 = st.columns(2)
 
             with _ba1:
                 st.download_button(
                     label="⬇️ Descargar SVG",
-                    data=svg_actual.encode("utf-8"),
-                    file_name="plano_produccion.svg",
+                    data=_svg_act.encode("utf-8"),
+                    file_name="nesting_corte.svg",
                     mime="image/svg+xml",
                     use_container_width=True,
-                    key="plano_btn_download_svg",
+                    key="nesting_dl_svg",
                 )
 
             with _ba2:
-                # ── PDF download — escudo de errores ──────────────────────
                 try:
-                    _pdf_bytes = exportar_svg_a_pdf(svg_actual)
+                    _pdf_bytes = exportar_svg_a_pdf(_svg_act)
                     st.download_button(
                         label="📄 Descargar PDF",
                         data=_pdf_bytes,
-                        file_name="Plano_Produccion_MCC.pdf",
+                        file_name="Plano_Nesting_MCC.pdf",
                         mime="application/pdf",
                         use_container_width=True,
                         type="primary",
-                        key="plano_btn_download_pdf",
+                        key="nesting_dl_pdf",
                     )
                 except Exception as _pdf_err:
                     st.warning(
-                        "No se pudo generar el PDF. "
-                        "Asegúrate de que `svglib` esté instalado (`pip install svglib`). "
-                        f"Detalle técnico: {_pdf_err}",
+                        f"PDF no disponible en este momento. SVG descargable arriba. "
+                        f"(Detalle: {_pdf_err})",
                         icon="⚠️",
                     )
 
-            with _ba3:
-                if datos_json:
-                    st.download_button(
-                        label="📋 Descargar JSON",
-                        data=json.dumps(datos_json, ensure_ascii=False, indent=2),
-                        file_name="coordenadas_plano.json",
-                        mime="application/json",
-                        use_container_width=True,
-                        key="plano_btn_download_json",
-                    )
-
-            # ── Detalle de piezas ─────────────────────────────────────────
-            if datos_json and datos_json.get("piezas"):
-                with st.expander("📊 Detalle de piezas y áreas"):
-                    _filas_detalle = []
-                    for p in datos_json["piezas"]:
-                        _filas_detalle.append({
-                            "Pieza":      p.get("id", "—"),
-                            "Ancho (m)":  f'{p.get("ancho", 0):.2f}',
-                            "Alto (m)":   f'{p.get("alto",  0):.2f}',
-                            "Área (m²)":  f'{p.get("ancho",0)*p.get("alto",0):.3f}',
-                            "X (m)":      f'{p.get("x", 0):.2f}',
-                            "Y (m)":      f'{p.get("y", 0):.2f}',
-                        })
-                    st.dataframe(
-                        _filas_detalle,
-                        use_container_width=True,
-                        hide_index=True,
-                    )
-                    if datos_json.get("perforaciones"):
-                        st.markdown("**Perforaciones:**")
-                        _filas_perf = []
-                        for pf in datos_json["perforaciones"]:
-                            _filas_perf.append({
-                                "Tipo":        pf.get("tipo", "—"),
-                                "Pieza":       pf.get("pieza_id", "—"),
-                                "Ancho (m)":   f'{pf.get("ancho", 0):.2f}',
-                                "Alto (m)":    f'{pf.get("alto",  0):.2f}',
-                                "X (m)":       f'{pf.get("x", 0):.2f}',
-                                "Y (m)":       f'{pf.get("y", 0):.2f}',
-                            })
-                        st.dataframe(
-                            _filas_perf,
-                            use_container_width=True,
-                            hide_index=True,
-                        )
-
         else:
-            # Estado vacío: instrucciones visuales
-            _modo_hint = (
-                "Completa el formulario de medidas en el panel izquierdo"
-                if modo == "Formulario Guiado (Rápido)"
-                else "Escribe la descripción de tu proyecto en el panel izquierdo"
-            )
-            st.markdown(f"""
+            # Estado vacío
+            st.markdown("""
             <div style="
-                border: 2px dashed #C8D8E8;
-                border-radius: 10px;
-                padding: 48px 24px;
-                text-align: center;
-                background: #F8FAFD;
-                color: #6B85A0;
+                border: 2px dashed #C8D8E8; border-radius: 10px;
+                padding: 48px 24px; text-align: center;
+                background: #F8FAFD; color: #6B85A0;
             ">
                 <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
                 <div style="font-size: 1.0rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
-                    Tu plano técnico aparecerá aquí
+                    El plano de nesting aparecerá aquí
                 </div>
                 <div style="font-size: 0.80rem; line-height: 1.5">
-                    {_modo_hint}<br>
-                    y presiona <strong>Generar Plano</strong>.<br><br>
-                    El plano incluirá <strong>cotas</strong>, <strong>escala gráfica</strong>,
-                    <strong>cuadrícula de referencia</strong> y <strong>leyenda de piezas</strong>.
+                    Define las dimensiones de la placa y las piezas,<br>
+                    luego presiona <strong>Optimizar Corte y Generar Plano</strong>.<br><br>
+                    El algoritmo 2D acomoda las piezas automáticamente,<br>
+                    permite rotación de 90° y calcula el % de retal.
                 </div>
             </div>
             """, unsafe_allow_html=True)
