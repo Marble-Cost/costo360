@@ -23,7 +23,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, Image, KeepTogether,
+    HRFlowable, Image, KeepTogether, PageBreak,
 )
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
@@ -471,24 +471,41 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
 
 # ── Módulo: Resumen Financiero ────────────────────────────────────────────────
 
-def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, incluir_iva):
+def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
+                                 c7_adicionales=0.0):
     """
     SECCIÓN 3 — Resumen Financiero.
-    Total con fondo oscuro (máxima jerarquía), anticipo con fondo dorado tenue.
-    Borde superior dorado en la fila Total.
+    Incluye fila discriminada de Costos Adicionales (c7_adicionales) cuando > 0,
+    antes del bloque IVA/Total, para que el cliente vea exactamente qué paga por extras.
     Devuelve (story_list, precio_final_doc, anticipo_val).
     """
     story = []
     story += _seccion_header("Resumen Financiero", E)
 
+    _s_adic_l = ParagraphStyle("adic_l", fontSize=8, fontName="Helvetica-Bold",
+                                leading=11, textColor=colors.HexColor("#1B5FA8"))
+    _s_adic_v = ParagraphStyle("adic_v", fontSize=8, fontName="Helvetica-Bold",
+                                leading=11, textColor=colors.HexColor("#1B5FA8"), alignment=TA_RIGHT)
+
     filas_fin = []
+
+    # Fila de Adicionales discriminada (visible solo si hay adicionales > 0)
+    _tiene_adicionales = c7_adicionales and c7_adicionales > 0
 
     if incluir_iva:
         iva_val          = precio_sugerido_total * 0.19
         precio_final_doc = precio_sugerido_total + iva_val
         anticipo_val     = precio_final_doc * (anticipo_pct / 100)
         saldo_val        = precio_final_doc - anticipo_val
-        filas_fin = [
+
+        # Construir filas base con adicionales opcionalmente discriminado
+        filas_fin = []
+        if _tiene_adicionales:
+            filas_fin.append([
+                Paragraph("Servicios y Costos Adicionales", _s_adic_l),
+                Paragraph(_num(c7_adicionales),              _s_adic_v),
+            ])
+        filas_fin += [
             [Paragraph("Subtotal (sin IVA)",                        E["cell_b"]),
              Paragraph(_num(precio_sugerido_total),                  E["cell_br"])],
             [Paragraph("IVA 19% (Art. 468 E.T.)",                   E["iva_l"]),
@@ -504,13 +521,21 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
             [Paragraph("TOTAL PROPUESTA (IVA INCLUIDO)", E["total_label"]),
              Paragraph(_num(precio_final_doc),            E["total_val"])],
         ]
-        idx_ant = 3
-        idx_tot = 5
+        _offset  = 1 if _tiene_adicionales else 0
+        idx_ant  = 3 + _offset
+        idx_tot  = 5 + _offset
     else:
         precio_final_doc = precio_sugerido_total
         anticipo_val     = precio_final_doc * (anticipo_pct / 100)
         saldo_val        = precio_final_doc - anticipo_val
-        filas_fin = [
+
+        filas_fin = []
+        if _tiene_adicionales:
+            filas_fin.append([
+                Paragraph("Servicios y Costos Adicionales", _s_adic_l),
+                Paragraph(_num(c7_adicionales),              _s_adic_v),
+            ])
+        filas_fin += [
             [Paragraph("Subtotal",                                   E["subtotal_l"]),
              Paragraph(_num(precio_final_doc),                       E["subtotal_v"])],
             [Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]),
@@ -522,13 +547,23 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
             [Paragraph("TOTAL PROPUESTA (SIN IVA)", E["total_label"]),
              Paragraph(_num(precio_final_doc),       E["total_val"])],
         ]
-        idx_ant = 1
-        idx_tot = 3
+        _offset  = 1 if _tiene_adicionales else 0
+        idx_ant  = 1 + _offset
+        idx_tot  = 3 + _offset
 
-    n = len(filas_fin)
+    _adic_styles = []
+    if _tiene_adicionales:
+        # Fondo azul muy tenue para la fila de adicionales
+        _adic_styles = [
+            ("BACKGROUND",  (0,0), (-1,0), colors.HexColor("#EBF3FB")),
+            ("LINEABOVE",   (0,0), (-1,0), 1.2, colors.HexColor("#1B5FA8")),
+            ("LINEBELOW",   (0,0), (-1,0), 1.2, colors.HexColor("#1B5FA8")),
+        ]
+
     tbl_fin = Table(filas_fin, colWidths=[12.5*cm, 4.5*cm])
-    tbl_fin.setStyle(TableStyle([
-        ("ROWBACKGROUNDS", (0,0), (-1, idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
+    tbl_fin.setStyle(TableStyle(
+        _adic_styles + [
+        ("ROWBACKGROUNDS", (0, _offset), (-1, idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
         ("BACKGROUND",     (0,idx_ant), (-1,idx_ant), C["anticipo_bg"]),
         ("BACKGROUND",     (0,idx_tot), (-1,idx_tot), C["total_bg"]),
         ("LINEABOVE",      (0,idx_tot), (-1,idx_tot), 2.5, C["accent"]),
@@ -694,6 +729,12 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
         title=f"Propuesta Comercial {numero}")
 
     r = resultado
+    # Extraer c7_adicionales para discriminarlo en el Resumen Financiero
+    _c7_adicionales = float(r.get("c7_adicionales", 0) or 0)
+
+    # ══════════════════════════════════════════════════════════════════
+    # PÁGINA 1 — Encabezado · Datos del Cliente · Despiece Técnico
+    # ══════════════════════════════════════════════════════════════════
     story = []
 
     # ① ENCABEZADO
@@ -712,7 +753,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     ])))
     story.append(Spacer(1, 7))
 
-    # Datos cliente
+    # ② DATOS DEL CLIENTE
     story += _seccion_header("Datos del Cliente y Condiciones", E)
     datos_filas = []
     if r.get("nombre_cliente"):
@@ -727,14 +768,23 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
 
-    # ② DESPIECE TÉCNICO
+    # ③ DESPIECE TÉCNICO
     precio_sugerido_total = r.get("precio_sugerido", 0)
     story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
-    story.append(Spacer(1, 7))
 
-    # ③ RESUMEN FINANCIERO
+    # ══════════════════════════════════════════════════════════════════
+    # SALTO DE PÁGINA — Página 2 inicia con Resumen Financiero
+    # ══════════════════════════════════════════════════════════════════
+    story.append(PageBreak())
+
+    # ══════════════════════════════════════════════════════════════════
+    # PÁGINA 2 — Resumen Financiero · Alcance · Términos · Firma
+    # ══════════════════════════════════════════════════════════════════
+
+    # ④ RESUMEN FINANCIERO (con adicionales discriminados)
     fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
-        E, C, precio_sugerido_total, anticipo_pct, incluir_iva)
+        E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
+        c7_adicionales=_c7_adicionales)
     story += fin_story
     valor_letras = _numero_a_letras(int(round(precio_final_doc)))
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
@@ -743,20 +793,20 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
         ])))
-    story.append(Spacer(1, 7))
+    story.append(Spacer(1, 10))
 
-    # Alcance
+    # ⑤ ALCANCE
     story += _seccion_alcance(E, C)
     story.append(Spacer(1, 7))
 
-    # ④ TÉRMINOS Y CONDICIONES
+    # ⑥ TÉRMINOS Y CONDICIONES
     nota_iva = (
         "Propuesta con IVA del 19%% (Art. 468 E.T.) — Responsable de IVA — Regimen Comun. "
         if incluir_iva else
         "Propuesta sin IVA — Regimen Simplificado (Art. 499 E.T.). "
     )
     story += _seccion_terminos(E, C, nota_iva, anticipo_pct)
-    # FIX-3: Bloque contractual de aceptación con KeepTogether
+    # Bloque contractual de aceptación con KeepTogether
     story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
     story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero)
