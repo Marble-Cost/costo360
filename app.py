@@ -7993,6 +7993,7 @@ elif pagina == "Planos de Taller (IA)":
 
         if _svg_act and _met:
             # ── Métricas en tarjetas ──────────────────────────────────────
+            _area_retal = _met["area_placa"] - _met["area_utilizada"]
             _mc1, _mc2, _mc3 = st.columns(3)
             _mc1.metric(
                 "Área Total Placa",
@@ -8005,10 +8006,10 @@ elif pagina == "Planos de Taller (IA)":
                 delta_color="normal",
             )
             _mc3.metric(
-                "% Retal (Desperdicio)",
-                f'{_met["porcentaje_desperdicio"]:.1f}%',
-                delta=f'{_met["piezas_colocadas"]} piezas colocadas',
-                delta_color="off",
+                "Retal Sobrante",
+                f'{_area_retal:.2f} m²',
+                delta=f'{_met["porcentaje_desperdicio"]:.1f}% de merma',
+                delta_color="inverse",
             )
 
             # ── Aviso piezas que no caben ─────────────────────────────────
