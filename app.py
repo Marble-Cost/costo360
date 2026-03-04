@@ -28,8 +28,9 @@ from parametros import (
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO, MATERIALES_CATALOGO_LEGACY,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
 )
-from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos
+from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
 import plotly.graph_objects as go
+from motor_planos import generar_plano_svg, wrap_svg_streamlit
 
 st.set_page_config(
     page_title="CostoMármol — Mármoles Collante & Castro",
@@ -1831,7 +1832,8 @@ with st.sidebar:
     # Historial: redirección legacy si alguien tenía ruta guardada sin "Historial"
     _paginas_validas = ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
                         "Historial", "Dashboard", "Banco de Retales",
-                        "Parametros", "Asistente IA", "Configuracion", "Gestion de Equipo"]
+                        "Parametros", "Asistente IA", "Planos de Produccion",
+                        "Configuracion", "Gestion de Equipo"]
     if st.session_state.get("nav_radio") not in _paginas_validas:
         st.session_state.nav_radio = "Inicio"
         st.session_state.radio_ui = "Inicio"
@@ -1839,7 +1841,8 @@ with st.sidebar:
     # Menú dinámico: "Gestión de Equipo" solo visible para rol Admin
     _rol_nav = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
     opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard",
-                     "Banco de Retales", "Parametros", "Asistente IA", "Configuracion"]
+                     "Banco de Retales", "Parametros", "Asistente IA",
+                     "Planos de Produccion", "Configuracion"]
     if _rol_nav == "Admin":
         opciones_menu.append("Gestion de Equipo")
 
@@ -7636,3 +7639,326 @@ elif pagina == "Gestion de Equipo":
             "💡 No puedes eliminar tu propio usuario. "
             "Para transferir el rol Admin, primero registra otro usuario Admin."
         )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PLANOS DE PRODUCCIÓN — Motor de Despiece Paramétrico
+# ═══════════════════════════════════════════════════════════════════════════════
+
+elif pagina == "Planos de Produccion":
+
+    # ── Estilos de la página ──────────────────────────────────────────────────
+    st.markdown("""
+    <style>
+    .plano-header {
+        background: linear-gradient(135deg, #0D2137 0%, #1B5FA8 100%);
+        border-radius: 10px;
+        padding: 22px 24px 18px;
+        margin-bottom: 18px;
+    }
+    .plano-header h2 {
+        color: #FFFFFF;
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin: 0 0 4px 0;
+    }
+    .plano-header p {
+        color: #B8D4F0;
+        font-size: 0.82rem;
+        margin: 0;
+    }
+    .plano-badge {
+        display: inline-block;
+        background: rgba(201,168,76,0.18);
+        border: 1px solid rgba(201,168,76,0.40);
+        color: #C9A84C;
+        font-size: 0.70rem;
+        font-weight: 700;
+        border-radius: 4px;
+        padding: 2px 9px;
+        margin-top: 8px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+    .plano-tip {
+        background: #EBF3FB;
+        border-left: 3px solid #1B5FA8;
+        border-radius: 0 6px 6px 0;
+        padding: 10px 14px;
+        font-size: 0.80rem;
+        color: #1C2B3A;
+        margin-bottom: 10px;
+    }
+    .plano-error {
+        background: #FEF2F2;
+        border-left: 3px solid #EF4444;
+        border-radius: 0 6px 6px 0;
+        padding: 10px 14px;
+        font-size: 0.80rem;
+        color: #7F1D1D;
+        margin-top: 8px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Encabezado ────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="plano-header">
+        <h2>📐 Motor de Despiece Paramétrico</h2>
+        <p>Describe tu proyecto en lenguaje natural y obtendrás un plano técnico 2D
+        con cotas, escala y leyenda — listo para producción, sin necesidad de CAD.</p>
+        <span class="plano-badge">✦ Fase Premium · IA + SVG</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Inicializar session_state para esta página ────────────────────────────
+    if "plano_datos_json" not in st.session_state:
+        st.session_state.plano_datos_json = None
+    if "plano_svg" not in st.session_state:
+        st.session_state.plano_svg        = None
+    if "plano_descripcion" not in st.session_state:
+        st.session_state.plano_descripcion = ""
+    if "plano_error_msg" not in st.session_state:
+        st.session_state.plano_error_msg  = ""
+
+    # ── Layout dos columnas ───────────────────────────────────────────────────
+    col_inp, col_out = st.columns([1, 1.6], gap="large")
+
+    # ╔══════════════════════════════════════════════════════════════════════╗
+    # ║  COLUMNA IZQUIERDA — Entrada de descripción                        ║
+    # ╚══════════════════════════════════════════════════════════════════════╝
+    with col_inp:
+        st.markdown("#### ✍️ Descripción del Proyecto")
+
+        st.markdown("""
+        <div class="plano-tip">
+        <strong>Cómo describir:</strong> menciona cada pieza con sus dimensiones en metros.
+        Ejemplo: <em>"Mesón en L, brazo largo de 2.50 m × 0.60 m y brazo corto de
+        1.20 m × 0.60 m con lavaplatos de 0.50 × 0.40 m"</em>
+        </div>
+        """, unsafe_allow_html=True)
+
+        descripcion = st.text_area(
+            label="Descripción del proyecto",
+            value=st.session_state.plano_descripcion,
+            height=200,
+            placeholder=(
+                "Ejemplos:\n"
+                "• Mesón recto de 3.00 m × 0.60 m con lavaplatos centrado\n"
+                "• Mesón en L: brazo largo 2.50 m × 0.60 m, brazo corto 1.20 m × 0.60 m\n"
+                "• Mesón en U: frente 2.40 m, laterales 1.80 m cada uno, profundidad 0.60 m\n"
+                "• Piso 4.00 m × 3.50 m con zócalo de 0.10 m de alto alrededor"
+            ),
+            label_visibility="collapsed",
+            key="plano_textarea",
+        )
+        st.session_state.plano_descripcion = descripcion
+
+        # Ejemplos rápidos
+        with st.expander("💡 Cargar ejemplo rápido"):
+            ej_col1, ej_col2 = st.columns(2)
+            with ej_col1:
+                if st.button("📏 Mesón recto", use_container_width=True,
+                              key="plano_ej_recto"):
+                    st.session_state.plano_descripcion = (
+                        "Mesón recto de 3.00 metros de largo por 0.60 metros de ancho, "
+                        "con un lavaplatos de 0.50 m × 0.40 m ubicado a 1.20 m del extremo izquierdo."
+                    )
+                    st.rerun()
+                if st.button("🔲 Isla central", use_container_width=True,
+                              key="plano_ej_isla"):
+                    st.session_state.plano_descripcion = (
+                        "Isla de cocina de 2.00 m de largo por 1.00 m de ancho, "
+                        "con una hornilla de 0.60 m × 0.60 m centrada en la isla."
+                    )
+                    st.rerun()
+            with ej_col2:
+                if st.button("📐 Mesón en L", use_container_width=True,
+                              key="plano_ej_l"):
+                    st.session_state.plano_descripcion = (
+                        "Mesón en L: brazo largo de 2.50 metros de longitud por 0.60 metros "
+                        "de profundidad, y brazo corto de 1.20 metros de longitud por 0.60 metros "
+                        "de profundidad, unidos en la esquina derecha. "
+                        "Tiene un lavaplatos doble de 0.80 m × 0.45 m en el brazo largo, "
+                        "a 0.50 m del extremo libre."
+                    )
+                    st.rerun()
+                if st.button("🏛️ Mesón en U", use_container_width=True,
+                              key="plano_ej_u"):
+                    st.session_state.plano_descripcion = (
+                        "Mesón en U: frente de 2.40 m × 0.60 m, "
+                        "lateral izquierdo de 1.60 m × 0.60 m y "
+                        "lateral derecho de 1.60 m × 0.60 m. "
+                        "Lavaplatos de 0.50 × 0.40 m en el frente, centrado."
+                    )
+                    st.rerun()
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        btn_generar = st.button(
+            "🔬 Generar Plano Paramétrico",
+            use_container_width=True,
+            type="primary",
+            key="plano_btn_generar",
+            disabled=not ia_disponible(),
+        )
+
+        if not ia_disponible():
+            st.warning(
+                "⚠️ Configura tu API key de Anthropic en `.streamlit/secrets.toml` "
+                "para activar la generación de planos.",
+                icon="🔑",
+            )
+
+        # ── Acción al presionar el botón ──────────────────────────────────
+        if btn_generar and descripcion.strip():
+            st.session_state.plano_error_msg = ""
+            st.session_state.plano_svg       = None
+            st.session_state.plano_datos_json = None
+
+            with st.spinner("🧠 Analizando medidas y calculando coordenadas…"):
+                datos = extraer_coordenadas_plano(descripcion.strip())
+
+            if datos is None:
+                st.session_state.plano_error_msg = (
+                    "No fue posible conectar con la IA. "
+                    "Verifica tu API key y la conexión a internet."
+                )
+            elif not datos.get("piezas"):
+                _err_ia = datos.get("_error", "")
+                if _err_ia == "json_parse":
+                    st.session_state.plano_error_msg = (
+                        "La IA devolvió una respuesta que no pudo interpretarse como coordenadas. "
+                        "Intenta reformular la descripción con medidas más explícitas."
+                    )
+                else:
+                    st.session_state.plano_error_msg = (
+                        "No se detectaron piezas en la descripción. "
+                        "Incluye dimensiones concretas: ej. '2.50 m × 0.60 m'."
+                    )
+            else:
+                st.session_state.plano_datos_json = datos
+                with st.spinner("🎨 Dibujando plano técnico…"):
+                    svg = generar_plano_svg(datos)
+                st.session_state.plano_svg = svg
+
+        elif btn_generar and not descripcion.strip():
+            st.session_state.plano_error_msg = "Escribe la descripción del proyecto antes de generar."
+
+        # Mostrar error en la columna de entrada
+        if st.session_state.get("plano_error_msg"):
+            st.markdown(
+                f'<div class="plano-error">⚠️ {st.session_state.plano_error_msg}</div>',
+                unsafe_allow_html=True,
+            )
+
+    # ╔══════════════════════════════════════════════════════════════════════╗
+    # ║  COLUMNA DERECHA — Visualización del plano                         ║
+    # ╚══════════════════════════════════════════════════════════════════════╝
+    with col_out:
+        st.markdown("#### 🗺️ Plano Técnico 2D")
+
+        datos_json = st.session_state.get("plano_datos_json")
+        svg_actual = st.session_state.get("plano_svg")
+
+        if svg_actual:
+            # ── Métricas rápidas ──────────────────────────────────────────
+            if datos_json and datos_json.get("piezas"):
+                piezas = datos_json["piezas"]
+                n_piezas   = len(piezas)
+                area_total = sum(p.get("ancho", 0) * p.get("alto", 0) for p in piezas)
+                n_perfs    = len(datos_json.get("perforaciones", []))
+                _mc1, _mc2, _mc3 = st.columns(3)
+                _mc1.metric("Piezas", n_piezas)
+                _mc2.metric("Área total", f"{area_total:.2f} m²")
+                _mc3.metric("Perforaciones", n_perfs)
+
+            # ── Render SVG ────────────────────────────────────────────────
+            st.markdown(
+                wrap_svg_streamlit(svg_actual),
+                unsafe_allow_html=True,
+            )
+
+            # ── Botones de acción ─────────────────────────────────────────
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+            _ba1, _ba2 = st.columns(2)
+
+            with _ba1:
+                st.download_button(
+                    label="⬇️ Descargar SVG",
+                    data=svg_actual.encode("utf-8"),
+                    file_name="plano_produccion.svg",
+                    mime="image/svg+xml",
+                    use_container_width=True,
+                    key="plano_btn_download_svg",
+                )
+
+            with _ba2:
+                if datos_json:
+                    st.download_button(
+                        label="📋 Descargar JSON",
+                        data=json.dumps(datos_json, ensure_ascii=False, indent=2),
+                        file_name="coordenadas_plano.json",
+                        mime="application/json",
+                        use_container_width=True,
+                        key="plano_btn_download_json",
+                    )
+
+            # ── Detalle de piezas ─────────────────────────────────────────
+            if datos_json and datos_json.get("piezas"):
+                with st.expander("📊 Detalle de piezas y áreas"):
+                    _filas_detalle = []
+                    for p in datos_json["piezas"]:
+                        _filas_detalle.append({
+                            "Pieza":      p.get("id", "—"),
+                            "Ancho (m)":  f'{p.get("ancho", 0):.2f}',
+                            "Alto (m)":   f'{p.get("alto",  0):.2f}',
+                            "Área (m²)":  f'{p.get("ancho",0)*p.get("alto",0):.3f}',
+                            "X (m)":      f'{p.get("x", 0):.2f}',
+                            "Y (m)":      f'{p.get("y", 0):.2f}',
+                        })
+                    st.dataframe(
+                        _filas_detalle,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                    if datos_json.get("perforaciones"):
+                        st.markdown("**Perforaciones:**")
+                        _filas_perf = []
+                        for pf in datos_json["perforaciones"]:
+                            _filas_perf.append({
+                                "Tipo":        pf.get("tipo", "—"),
+                                "Pieza":       pf.get("pieza_id", "—"),
+                                "Ancho (m)":   f'{pf.get("ancho", 0):.2f}',
+                                "Alto (m)":    f'{pf.get("alto",  0):.2f}',
+                                "X (m)":       f'{pf.get("x", 0):.2f}',
+                                "Y (m)":       f'{pf.get("y", 0):.2f}',
+                            })
+                        st.dataframe(
+                            _filas_perf,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+        else:
+            # Estado vacío: instrucciones visuales
+            st.markdown("""
+            <div style="
+                border: 2px dashed #C8D8E8;
+                border-radius: 10px;
+                padding: 48px 24px;
+                text-align: center;
+                background: #F8FAFD;
+                color: #6B85A0;
+            ">
+                <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
+                <div style="font-size: 1.0rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
+                    Tu plano técnico aparecerá aquí
+                </div>
+                <div style="font-size: 0.80rem; line-height: 1.5">
+                    Escribe la descripción de tu proyecto en el panel izquierdo<br>
+                    y presiona <strong>Generar Plano Paramétrico</strong>.<br><br>
+                    El plano incluirá <strong>cotas</strong>, <strong>escala gráfica</strong>,
+                    <strong>cuadrícula de referencia</strong> y <strong>leyenda de piezas</strong>.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
