@@ -47,6 +47,8 @@ def calcular_totales_piezas(piezas: list) -> dict:
         largo = float(p.get("largo", p.get("ml", 0.0)))
         ancho = float(p.get("ancho", 0.60))
         uv    = p.get("unidad_venta", "ml")
+        # "ml" ya viene como el total efectivo (ml_unitario × cantidad) desde app.py
+        # "largo" es el valor escalado. La cantidad ya está absorbida en "ml".
         m2_p  = ml_a_m2(largo, ancho)
         m2_material += m2_p
         if uv == "ml":
@@ -181,6 +183,8 @@ def calcular_cotizacion_directa(
     # El tipo_proyecto actúa como tiebreaker en el fallback sin piezas.
     piezas = kwargs.get("piezas", [])
 
+    # p["ml"] ya viene escalado (ml_unitario × cantidad) desde app.py
+    # → no se necesita multiplicar aquí; la cantidad ya está absorbida.
     ml_piezas = sum(
         float(p.get("largo", p.get("ml", 0)))
         for p in piezas if p.get("unidad_venta", "ml") == "ml"
