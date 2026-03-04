@@ -226,6 +226,65 @@ MATERIALES_CATALOGO_LEGACY = [
     {"nombre": "Calacatta Dorato",      "categoria": "Sinterizado", "precio_m2": 580_000, "area_placa": 5.12},
 ]
 
+# ── MAPA DE CROSS-SELLING ──────────────────────────────────────────────────────
+# Formato: {referencia_seleccionada: {"alternativa": str, "categoria": str, "razon": str}}
+# La UI muestra una alerta cuando el usuario elige una llave — sugiere
+# el material alternativo de mayor margen neto para la empresa.
+CROSS_SELLING_MAP = {
+    # Mármoles naturales de alto costo → Sinterizado de similar estética y +margen
+    "Blanco Carrara Extra": {
+        "alternativa": "Antartica White",
+        "categoria":   "Sinterizado",
+        "razon":       "Veta blanca idéntica, dureza superior, sin porosidad y mayor margen neto.",
+    },
+    "Arabescato": {
+        "alternativa": "Arabescato Corchia",
+        "categoria":   "Sinterizado",
+        "razon":       "Misma estética arabescato en sinterizado técnico: más resistencia, menos riesgo de rotura.",
+    },
+    "Travertino Chiaro": {
+        "alternativa": "Cosmopolita Ivory",
+        "categoria":   "Sinterizado",
+        "razon":       "Tonos cálidos travertino en sinterizado. Menor costo de instalación y mayor utilidad.",
+    },
+    "Verde Guatemala": {
+        "alternativa": "Avatar Blue",
+        "categoria":   "Sinterizado",
+        "razon":       "Alternativa premium verde/azul en sinterizado. Precio competitivo y mejor margen.",
+    },
+    "Bardiglio": {
+        "alternativa": "Armani Silver",
+        "categoria":   "Sinterizado",
+        "razon":       "Gris oscuro veteado en sinterizado técnico. Alta resistencia a manchas y mayor rentabilidad.",
+    },
+    "Café Pinta": {
+        "alternativa": "Baobab",
+        "categoria":   "Sinterizado",
+        "razon":       "Tonos cálidos en sinterizado de última generación. Menos merma y mayor utilidad.",
+    },
+    "Taj Mahal": {
+        "alternativa": "Lassa White",
+        "categoria":   "Sinterizado",
+        "razon":       "Blanco cálido veteado en sinterizado premium: menor riesgo de rotura y mayor margen neto.",
+    },
+    "Mont Blanc": {
+        "alternativa": "Statuario Nuvo",
+        "categoria":   "Quarztone",
+        "razon":       "Blanco estatuario en Quarztone. Consistencia de color perfecta y rentabilidad superior.",
+    },
+    "Cristallo": {
+        "alternativa": "Bianco Drift",
+        "categoria":   "Quarztone",
+        "razon":       "Cristalino y luminoso en cuarzo compactado. Sin porosidad, fácil mantenimiento.",
+    },
+    "Silver Blue": {
+        "alternativa": "Sleek Concrete",
+        "categoria":   "Quarztone",
+        "razon":       "Tono gris azulado moderno en Quarztone. Mayor margen y menor costo de instalación.",
+    },
+}
+
+
 # ── TOUR GUIADO — pasos del onboarding (actualizados v5) ─────────────────────
 TOUR_PASOS = [
     {
