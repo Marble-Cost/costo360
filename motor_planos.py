@@ -690,10 +690,11 @@ def _generar_svg_nesting(
 ) -> str:
     """
     Genera el SVG de Nesting 2D con estándar industrial B2B:
-      1. Etiquetas numéricas grandes dentro de cada pieza (sin texto de nombre)
-      2. Margen de corte (kerf) de 2 px visual entre piezas
-      3. Leyenda de despiece detallada debajo del dibujo
-      4. Cotas de la placa virgen (ancho y alto totales)
+      1. Fondo rayado (hatch) sobre la placa para indicar zona de retal
+      2. Número grande + medidas exactas dentro de cada pieza; sin texto "Pieza"
+      3. Banda roja "⚠ ROTADA" en piezas rotadas
+      4. Leyenda inferior con checklist imprimible (casilla □ por fila)
+      5. Cotas de la placa virgen (ancho y alto totales)
     """
 
     # ── Constantes de layout ─────────────────────────────────────────────────
@@ -724,19 +725,20 @@ def _generar_svg_nesting(
                 + LEY_H + MARG)
 
     # Origen de la placa dentro del canvas
-    # Desplazada a la derecha para dejar espacio a la cota vertical izquierda
     ox = MARG + COTA_PLACA
-    oy = TITL_H + MARG + COTA_PLACA   # desplazada abajo para cota horizontal superior
+    oy = TITL_H + MARG + COTA_PLACA
 
     parts = []
 
-    # ── Definiciones: marcadores de flecha ───────────────────────────────────
+    # ── Apertura SVG ─────────────────────────────────────────────────────────
     parts.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'width="{canvas_w:.0f}" height="{canvas_h:.0f}" '
         f'viewBox="0 0 {canvas_w:.0f} {canvas_h:.0f}" '
         f'style="display:block;border-radius:8px;box-shadow:0 2px 16px rgba(13,33,55,0.14);">'
     )
+
+    # ── CAMBIO 1: defs con marcadores de flecha + patrón hatch obligatorio ───
     parts.append(
         '<defs>'
         f'<marker id="na" markerWidth="7" markerHeight="7" refX="3.5" refY="2" '
@@ -745,15 +747,17 @@ def _generar_svg_nesting(
         f'<marker id="na_r" markerWidth="7" markerHeight="7" refX="2" refY="2" '
         f'orient="auto" markerUnits="strokeWidth">'
         f'<path d="M5.5,0 L5.5,4 L0,2 z" fill="{_DORADO}"/></marker>'
-        '<pattern id="retal_hatch" width="12" height="12" '
+        '<pattern id="retal_hatch" width="15" height="15" '
         'patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">'
-        '<line x1="0" y1="0" x2="0" y2="12" stroke="#9CA3AF" stroke-width="1" opacity="0.3"/>'
+        '<line x1="0" y1="0" x2="0" y2="15" stroke="#9CA3AF" stroke-width="1.5" opacity="0.4"/>'
         '</pattern>'
         '</defs>'
     )
 
     # ── Fondo canvas ─────────────────────────────────────────────────────────
-    parts.append(f'<rect width="{canvas_w:.0f}" height="{canvas_h:.0f}" fill="#F8FAFD" rx="6"/>')
+    parts.append(
+        f'<rect width="{canvas_w:.0f}" height="{canvas_h:.0f}" fill="#F8FAFD" rx="6"/>'
+    )
 
     # ── Barra título ─────────────────────────────────────────────────────────
     pct_uso = 100 - metricas["porcentaje_desperdicio"]
@@ -779,20 +783,17 @@ def _generar_svg_nesting(
     # — Cota horizontal superior: ancho total de la placa ────────────────────
     _cx1     = ox
     _cx2     = ox + placa_w_px
-    _cy_cota = oy - _COTA_GAP           # encima de la placa
-    _cy_tick = oy - _COTA_TICK          # líneas testigo salen del borde superior
+    _cy_cota = oy - _COTA_GAP
+    _cy_tick = oy - _COTA_TICK
     _mid_cx  = (_cx1 + _cx2) / 2
     parts.append(
-        # líneas testigo
         f'<line x1="{_cx1:.1f}" y1="{_cy_tick:.1f}" x2="{_cx1:.1f}" y2="{_cy_cota:.1f}" '
         f'stroke="{_DORADO}" stroke-width="1.0" opacity="0.80"/>'
         f'<line x1="{_cx2:.1f}" y1="{_cy_tick:.1f}" x2="{_cx2:.1f}" y2="{_cy_cota:.1f}" '
         f'stroke="{_DORADO}" stroke-width="1.0" opacity="0.80"/>'
-        # línea de cota con flechas
         f'<line x1="{_cx1:.1f}" y1="{_cy_cota:.1f}" x2="{_cx2:.1f}" y2="{_cy_cota:.1f}" '
         f'stroke="{_DORADO}" stroke-width="1.5" '
         f'marker-start="url(#na_r)" marker-end="url(#na)"/>'
-        # texto con fondo blanco
         f'<rect x="{_mid_cx - 36:.1f}" y="{_cy_cota - 8:.1f}" width="72" height="16" '
         f'rx="2" fill="#FFFFFF" opacity="0.93"/>'
         f'<text x="{_mid_cx:.1f}" y="{_cy_cota + 4:.1f}" text-anchor="middle" '
@@ -801,22 +802,19 @@ def _generar_svg_nesting(
     )
 
     # — Cota vertical izquierda: alto total de la placa ──────────────────────
-    _cy1      = oy
-    _cy2      = oy + placa_h_px
-    _cx_cota  = ox - _COTA_GAP          # a la izquierda de la placa
-    _cx_tick  = ox - _COTA_TICK
-    _mid_cy   = (_cy1 + _cy2) / 2
+    _cy1     = oy
+    _cy2     = oy + placa_h_px
+    _cx_cota = ox - _COTA_GAP
+    _cx_tick = ox - _COTA_TICK
+    _mid_cy  = (_cy1 + _cy2) / 2
     parts.append(
-        # líneas testigo
         f'<line x1="{_cx_tick:.1f}" y1="{_cy1:.1f}" x2="{_cx_cota:.1f}" y2="{_cy1:.1f}" '
         f'stroke="{_DORADO}" stroke-width="1.0" opacity="0.80"/>'
         f'<line x1="{_cx_tick:.1f}" y1="{_cy2:.1f}" x2="{_cx_cota:.1f}" y2="{_cy2:.1f}" '
         f'stroke="{_DORADO}" stroke-width="1.0" opacity="0.80"/>'
-        # línea de cota con flechas
         f'<line x1="{_cx_cota:.1f}" y1="{_cy1:.1f}" x2="{_cx_cota:.1f}" y2="{_cy2:.1f}" '
         f'stroke="{_DORADO}" stroke-width="1.5" '
         f'marker-start="url(#na_r)" marker-end="url(#na)"/>'
-        # texto rotado con fondo blanco
         f'<rect x="{_cx_cota - 8:.1f}" y="{_mid_cy - 36:.1f}" width="16" height="72" '
         f'rx="2" fill="#FFFFFF" opacity="0.93" '
         f'transform="rotate(-90,{_cx_cota:.1f},{_mid_cy:.1f})"/>'
@@ -829,14 +827,17 @@ def _generar_svg_nesting(
     )
 
     # ════════════════════════════════════════════════════════════════════════
-    # PLACA VIRGEN (fondo gris con cuadrícula)
+    # CAMBIO 1 (cont.): PLACA VIRGEN — rect gris + rect hatch superpuesto
+    # El hatch cubre toda la placa; las piezas colocadas encima la tapan,
+    # dejando visualmente rayado solo el retal sobrante.
     # ════════════════════════════════════════════════════════════════════════
+    # Rect 1: fondo gris sólido
     parts.append(
         f'<rect x="{ox:.1f}" y="{oy:.1f}" '
         f'width="{placa_w_px:.1f}" height="{placa_h_px:.1f}" '
         f'rx="3" fill="#CDD3DA" stroke="#6B7280" stroke-width="2"/>'
     )
-    # Patrón de rayado diagonal sobre la placa virgen — indica zona de retal/sobrante
+    # Rect 2: mismas dimensiones, relleno con patrón hatch (retal rayado)
     parts.append(
         f'<rect x="{ox:.1f}" y="{oy:.1f}" '
         f'width="{placa_w_px:.1f}" height="{placa_h_px:.1f}" '
@@ -876,10 +877,14 @@ def _generar_svg_nesting(
     )
 
     # ════════════════════════════════════════════════════════════════════════
-    # PIEZAS COLOCADAS — Número secuencial + kerf visual
+    # CAMBIO 2: PIEZAS COLOCADAS
+    # — Número grande centrado arriba
+    # — Medidas exactas debajo del número (siempre, fs 10-11, color #0D2137)
+    # — Nombre real solo si no es "Pieza" ni vacío
+    # — Banda roja "⚠ ROTADA" en el borde superior si p["rotada"]
     # ════════════════════════════════════════════════════════════════════════
     for idx, p in enumerate(placed):
-        num    = idx + 1                          # número secuencial 1, 2, 3…
+        num    = idx + 1
         fill   = _NEST_FILLS[idx % len(_NEST_FILLS)]
         stroke = _NEST_STROKES[idx % len(_NEST_STROKES)]
 
@@ -889,7 +894,7 @@ def _generar_svg_nesting(
         pw_real = p["w"] * PX_M
         ph_real = p["h"] * PX_M
 
-        # Coordenadas con kerf (reducción visual para simular canal de disco)
+        # Coordenadas con kerf visual
         px_ = px_real + KERF
         py_ = py_real + KERF
         pw_ = pw_real - 2 * KERF
@@ -898,98 +903,97 @@ def _generar_svg_nesting(
         cx_ = px_ + pw_ / 2
         cy_ = py_ + ph_ / 2
 
-        # Tamaño de fuente del número: grande, adaptativo al espacio de la pieza
+        # Tamaño de fuente del número: grande, adaptativo
         fs_num = max(11, min(36, int(min(pw_, ph_) / 2.2)))
 
-        # Rectángulo de pieza con kerf aplicado
+        # ── Rectángulo de pieza ───────────────────────────────────────────────
         parts.append(
             f'<rect x="{px_:.1f}" y="{py_:.1f}" '
             f'width="{max(1, pw_):.1f}" height="{max(1, ph_):.1f}" '
             f'rx="2" fill="{fill}" stroke="{stroke}" stroke-width="1.6"/>'
         )
 
-        # ── Alerta de Rotación Crítica (Control de Vetas) ────────────────────
-        # Franja amarilla-naranja en la parte superior de la pieza con texto
-        # de advertencia para prevenir errores de veta en el taller.
+        # ── Banda roja "⚠ ROTADA" en borde superior (si rotada) ──────────────
         if p.get("rotada"):
-            _rot_banner_h = min(22, max(14, ph_ * 0.18))   # altura proporcional al rect
-            _rot_banner_w = max(1, pw_)
-            # Franja de fondo amarillo-naranja, clippeada al rectángulo de la pieza
+            _rot_h = min(18, max(12, ph_ * 0.16))   # altura de la banda, proporcional
+            # clipPath para no salir del rect de la pieza
             parts.append(
                 f'<clipPath id="rot_clip_{idx}">'
                 f'<rect x="{px_:.1f}" y="{py_:.1f}" '
-                f'width="{_rot_banner_w:.1f}" height="{_rot_banner_h:.1f}" rx="2"/>'
+                f'width="{max(1, pw_):.1f}" height="{_rot_h:.1f}"/>'
                 f'</clipPath>'
+            )
+            # Rect rojo delgado en la parte superior
+            parts.append(
                 f'<rect x="{px_:.1f}" y="{py_:.1f}" '
-                f'width="{_rot_banner_w:.1f}" height="{_rot_banner_h:.1f}" '
-                f'rx="2" fill="#FEF3C7" stroke="#F59E0B" stroke-width="1.2" '
+                f'width="{max(1, pw_):.1f}" height="{_rot_h:.1f}" '
+                f'fill="#DC2626" stroke="none" '
                 f'clip-path="url(#rot_clip_{idx})"/>'
             )
-            # Texto de advertencia centrado en la franja, solo si hay espacio
-            if pw_ > 60 and _rot_banner_h >= 14:
-                _rot_fs   = max(6, min(10, int(_rot_banner_h * 0.62)))
-                _rot_cx   = px_ + pw_ / 2
-                _rot_cy   = py_ + _rot_banner_h / 2
-                _rot_txt  = "⚠ ROTADA — Cuidado con Veta"
+            # Texto blanco minúsculo centrado en la banda
+            if pw_ > 40:
+                _rot_fs = max(6, min(9, int(_rot_h * 0.65)))
                 parts.append(
-                    f'<text x="{_rot_cx:.1f}" y="{_rot_cy + _rot_fs * 0.35:.1f}" '
+                    f'<text x="{cx_:.1f}" y="{py_ + _rot_h * 0.68:.1f}" '
                     f'text-anchor="middle" dominant-baseline="middle" '
                     f'font-family="Helvetica,Arial,sans-serif" '
-                    f'font-size="{_rot_fs}" font-weight="700" fill="#B91C1C" '
-                    f'clip-path="url(#rot_clip_{idx})">{_rot_txt}</text>'
+                    f'font-size="{_rot_fs}" font-weight="700" fill="#FFFFFF" '
+                    f'clip-path="url(#rot_clip_{idx})">&#9888; ROTADA</text>'
                 )
 
-        # Número secuencial centrado, grande, con clipPath de seguridad
+        # ── clipPath de seguridad para todos los textos de la pieza ──────────
         parts.append(
             f'<clipPath id="nc_{idx}">'
             f'<rect x="{px_:.1f}" y="{py_:.1f}" '
             f'width="{max(1, pw_):.1f}" height="{max(1, ph_):.1f}"/>'
             f'</clipPath>'
-            f'<text x="{cx_:.1f}" y="{cy_:.1f}" text-anchor="middle" '
-            f'dominant-baseline="middle" font-family="Helvetica,Arial,sans-serif" '
-            f'font-size="{fs_num}" font-weight="bold" fill="{_AZUL_OSCURO}" '
-            f'opacity="0.75" clip-path="url(#nc_{idx})">{num}</text>'
         )
 
-        # ── Dimensiones In-Situ ───────────────────────────────────────────────
-        # Muestra: nombre real (si no es "Pieza"/vacío) + dimensiones exactas
-        # en fuente legible directamente sobre la pieza, para evitar que el
-        # operario tenga que consultar la tabla inferior.
-        if ph_ > 45 and pw_ > 70:
-            _nombre_raw = str(p.get("nombre", "")).strip()
-            _mostrar_nombre = _nombre_raw and _nombre_raw.lower() != "pieza"
-            _dims_is    = f'{p["w"]:.3f} \u00d7 {p["h"]:.3f} m'
-            _fs_is_dim  = max(8, min(11, int(min(pw_, ph_) / 6.0)))
-            _fs_is_nom  = max(7, min(10, _fs_is_dim - 1))
+        # ── Número grande centrado arriba ─────────────────────────────────────
+        # Si hay banda de rotación, desplazar el número debajo de ella
+        _rot_offset = 0.0
+        if p.get("rotada"):
+            _rot_offset = min(18, max(12, ph_ * 0.16))
+        _num_cy = py_ + _rot_offset + (ph_ - _rot_offset) * 0.42
+        parts.append(
+            f'<text x="{cx_:.1f}" y="{_num_cy:.1f}" '
+            f'text-anchor="middle" dominant-baseline="middle" '
+            f'font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="{fs_num}" font-weight="bold" fill="{_AZUL_OSCURO}" '
+            f'opacity="0.80" clip-path="url(#nc_{idx})">{num}</text>'
+        )
 
-            # Posición Y base: justo debajo del número grande
-            _cy_base = cy_ + fs_num * 0.55
+        # ── Medidas exactas justo debajo del número (siempre obligatorio) ─────
+        _dims_txt = f'{p["w"]:.2f} \u00d7 {p["h"]:.2f} m'
+        _fs_dim   = max(8, min(11, int(min(pw_, ph_) / 7.0)))
+        _dim_cy   = _num_cy + fs_num * 0.52 + _fs_dim + 1
+        parts.append(
+            f'<text x="{cx_:.1f}" y="{_dim_cy:.1f}" '
+            f'text-anchor="middle" dominant-baseline="middle" '
+            f'font-family="Helvetica,Arial,sans-serif" '
+            f'font-size="{_fs_dim}" font-weight="700" fill="#0D2137" '
+            f'clip-path="url(#nc_{idx})">{_dims_txt}</text>'
+        )
 
-            if _mostrar_nombre:
-                _nombre_trunc = _nombre_raw[:14]
-                _cy_nom = _cy_base + _fs_is_nom + 1
-                _cy_dim = _cy_nom + _fs_is_dim + 2
-                parts.append(
-                    f'<text x="{cx_:.1f}" y="{_cy_nom:.1f}" text-anchor="middle" '
-                    f'font-family="Helvetica,Arial,sans-serif" font-size="{_fs_is_nom}" '
-                    f'font-weight="600" fill="{_AZUL_OSCURO}" opacity="0.72" '
-                    f'clip-path="url(#nc_{idx})">{_esc(_nombre_trunc)}</text>'
-                )
-                parts.append(
-                    f'<text x="{cx_:.1f}" y="{_cy_dim:.1f}" text-anchor="middle" '
-                    f'font-family="Helvetica,Arial,sans-serif" font-size="{_fs_is_dim}" '
-                    f'font-weight="700" fill="{_AZUL_OSCURO}" '
-                    f'clip-path="url(#nc_{idx})">{_dims_is}</text>'
-                )
-            else:
-                # Sin nombre significativo → dimensiones ocupan el lugar de honor
-                _cy_dim = _cy_base + _fs_is_dim + 2
-                parts.append(
-                    f'<text x="{cx_:.1f}" y="{_cy_dim:.1f}" text-anchor="middle" '
-                    f'font-family="Helvetica,Arial,sans-serif" font-size="{_fs_is_dim}" '
-                    f'font-weight="700" fill="{_AZUL_OSCURO}" '
-                    f'clip-path="url(#nc_{idx})">{_dims_is}</text>'
-                )
+        # ── Nombre real de la pieza (solo si no es "Pieza" ni vacío) ─────────
+        _nombre_raw = str(p.get("nombre", "")).strip()
+        _mostrar_nombre = (
+            bool(_nombre_raw)
+            and _nombre_raw.lower() != "pieza"
+            and ph_ > 55
+            and pw_ > 70
+        )
+        if _mostrar_nombre:
+            _fs_nom  = max(7, min(9, _fs_dim - 1))
+            _nom_cy  = _dim_cy + _fs_dim * 0.6 + _fs_nom + 1
+            parts.append(
+                f'<text x="{cx_:.1f}" y="{_nom_cy:.1f}" '
+                f'text-anchor="middle" dominant-baseline="middle" '
+                f'font-family="Helvetica,Arial,sans-serif" '
+                f'font-size="{_fs_nom}" font-weight="400" fill="{_AZUL_OSCURO}" '
+                f'opacity="0.60" clip-path="url(#nc_{idx})">'
+                f'{_esc(_nombre_raw[:14])}</text>'
+            )
 
     # ════════════════════════════════════════════════════════════════════════
     # PANEL "PIEZAS QUE NO CABEN"
@@ -1006,7 +1010,7 @@ def _generar_svg_nesting(
             f'rx="4" fill="#FEF2F2" stroke="#FCA5A5" stroke-width="1.2"/>'
             f'<text x="{ox+10:.1f}" y="{_yp+14:.1f}" '
             f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
-            f'font-weight="bold" fill="#B91C1C">⚠ No caben en esta placa:</text>'
+            f'font-weight="bold" fill="#B91C1C">&#9888; No caben en esta placa:</text>'
             f'<text x="{ox+10:.1f}" y="{_yp+30:.1f}" '
             f'font-family="Helvetica,Arial,sans-serif" font-size="9" '
             f'fill="#7F1D1D">{_esc(_nombres_u)}</text>'
@@ -1025,15 +1029,18 @@ def _generar_svg_nesting(
         f'stroke="{_AZUL_CORP}" stroke-width="1.8"/>'
         f'<text x="{ox + PX_M/2:.1f}" y="{_ey - 10:.1f}" text-anchor="middle" '
         f'font-family="Helvetica,Arial,sans-serif" font-size="10" '
-        f'font-weight="bold" fill="{_AZUL_CORP}">↔ 1 m (escala real)</text>'
+        f'font-weight="bold" fill="{_AZUL_CORP}">&#8596; 1 m (escala real)</text>'
     )
 
     # ════════════════════════════════════════════════════════════════════════
-    # LEYENDA DE DESPIECE — tabla detallada debajo de la escala
+    # CAMBIO 3: LEYENDA DE DESPIECE con checklist operativo
+    # — Cabecera primera columna: "[ ] Check"
+    # — Cada fila: casilla imprimible □ (rect blanco borde gris) + pastilla + número
     # ════════════════════════════════════════════════════════════════════════
-    _ly_top  = _ey + ESCALA_H - 14       # Y de inicio del panel de leyenda
-    _ley_w   = max(520, placa_w_px)       # ancho de la tabla de leyenda
-    _ley_col = [58, 200, 100, 100, 90]   # anchos de columnas: Check, Nombre, Largo, Ancho, Área
+    _ly_top  = _ey + ESCALA_H - 14
+    _ley_w   = max(560, placa_w_px)
+    # Columnas: [ ] Check | Nombre | Largo | Ancho | Área
+    _ley_col = [68, 210, 100, 100, 90]
 
     # Fondo del panel de leyenda
     parts.append(
@@ -1048,68 +1055,69 @@ def _generar_svg_nesting(
         f'<rect x="{ox:.1f}" y="{_hdr_y:.1f}" '
         f'width="{_ley_w:.1f}" height="{LEY_HEADER_H}" '
         f'rx="4" fill="{_AZUL_OSCURO}"/>'
-        # radio inferior cuadrado para que se una con la tabla
         f'<rect x="{ox:.1f}" y="{_hdr_y + LEY_HEADER_H//2:.1f}" '
         f'width="{_ley_w:.1f}" height="{LEY_HEADER_H//2}" fill="{_AZUL_OSCURO}"/>'
     )
-    _hdr_labels = ["Check", "Nombre de la Pieza", "Largo (m)", "Ancho (m)", "Área (m²)"]
-    _hdr_anchors = ["middle", "start", "middle", "middle", "middle"]
+    # Etiqueta primera columna: "[ ] Check"
+    _hdr_labels  = ["[ ] Check", "Nombre de la Pieza", "Largo (m)", "Ancho (m)", "Área (m²)"]
+    _hdr_anchors = ["middle",    "start",               "middle",    "middle",    "middle"]
     _col_x = ox
-    for ci, (col_w, label, anchor) in enumerate(zip(_ley_col, _hdr_labels, _hdr_anchors)):
+    for col_w, label, anchor in zip(_ley_col, _hdr_labels, _hdr_anchors):
         _tx = _col_x + (col_w / 2 if anchor == "middle" else 8)
         parts.append(
             f'<text x="{_tx:.1f}" y="{_hdr_y + 21:.1f}" '
             f'font-family="Helvetica,Arial,sans-serif" font-size="11" '
             f'font-weight="bold" fill="#FFFFFF" text-anchor="{anchor}">'
-            f'{label}</text>'
+            f'{_esc(label)}</text>'
         )
         _col_x += col_w
 
     # Filas de piezas
     for idx, p in enumerate(placed):
-        num    = idx + 1
-        fill   = _NEST_FILLS[idx % len(_NEST_FILLS)]
-        stroke = _NEST_STROKES[idx % len(_NEST_STROKES)]
-        nombre = str(p.get("nombre", "Pieza"))
+        num     = idx + 1
+        fill    = _NEST_FILLS[idx % len(_NEST_FILLS)]
+        stroke  = _NEST_STROKES[idx % len(_NEST_STROKES)]
+        # Nombre visible en la leyenda; añadir ↺ si está rotada
+        _nom_ley = str(p.get("nombre", "")).strip()
+        if not _nom_ley or _nom_ley.lower() == "pieza":
+            _nom_ley = f"Pieza {num}"
         if p.get("rotada"):
-            nombre += " ↺"
+            _nom_ley += " ↺"
         largo_m = p["w"]
         ancho_m = p["h"]
         area_m2 = largo_m * ancho_m
 
-        _row_y    = _hdr_y + LEY_HEADER_H + idx * LEY_ROW_H
-        _row_bg   = "#F0F5FB" if idx % 2 == 0 else "#FFFFFF"
+        _row_y  = _hdr_y + LEY_HEADER_H + idx * LEY_ROW_H
+        _row_bg = "#F0F5FB" if idx % 2 == 0 else "#FFFFFF"
 
-        # fondo de fila alternado
+        # Fondo de fila alternado
         parts.append(
             f'<rect x="{ox:.1f}" y="{_row_y:.1f}" '
             f'width="{_ley_w:.1f}" height="{LEY_ROW_H}" '
             f'fill="{_row_bg}" opacity="0.95"/>'
         )
-
-        # Separador horizontal entre filas
+        # Separador horizontal
         parts.append(
             f'<line x1="{ox:.1f}" y1="{_row_y:.1f}" '
             f'x2="{ox + _ley_w:.1f}" y2="{_row_y:.1f}" '
             f'stroke="{_AZUL_CORP}" stroke-width="0.4" opacity="0.25"/>'
         )
 
-        _ty = _row_y + LEY_ROW_H / 2
+        _ty    = _row_y + LEY_ROW_H / 2
         _col_x = ox
 
-        # Columna 1: casilla de verificación imprimible + pastilla de color + número
-        # La casilla (□) es un rect blanco con borde gris oscuro para tachar con bolígrafo.
-        _chk_size = 12          # tamaño del cuadrado de check
-        _chk_x    = _col_x + 5                          # margen izq dentro de la celda
-        _chk_y    = _ty - _chk_size / 2
+        # Columna 1: casilla imprimible □ + pastilla de color + número secuencial
+        _chk_sz = 12
+        _chk_x  = _col_x + 5
+        _chk_y  = _ty - _chk_sz / 2
+        # Casilla □ — rect blanco con borde gris oscuro, listo para tilde de bolígrafo
         parts.append(
-            # Casilla de verificación imprimible
             f'<rect x="{_chk_x:.1f}" y="{_chk_y:.1f}" '
-            f'width="{_chk_size}" height="{_chk_size}" rx="1.5" '
-            f'fill="#FFFFFF" stroke="#374151" stroke-width="1.4"/>'
+            f'width="{_chk_sz}" height="{_chk_sz}" rx="1.5" '
+            f'fill="#FFFFFF" stroke="#374151" stroke-width="1.5"/>'
         )
-        # Pastilla de color corporativo con número, desplazada a la derecha de la casilla
-        _nc_x = _chk_x + _chk_size + 14    # separación casilla → pastilla
+        # Pastilla de color con número, a la derecha de la casilla
+        _nc_x = _chk_x + _chk_sz + 12
         parts.append(
             f'<rect x="{_nc_x - 11:.1f}" y="{_ty - 9:.1f}" '
             f'width="22" height="18" rx="3" '
@@ -1120,34 +1128,33 @@ def _generar_svg_nesting(
         )
         _col_x += _ley_col[0]
 
-        # Columna 2: nombre de la pieza (alineado a la izquierda)
+        # Columna 2: nombre de la pieza
         parts.append(
             f'<text x="{_col_x + 8:.1f}" y="{_ty + 4:.1f}" '
             f'font-family="Helvetica,Arial,sans-serif" font-size="12" '
-            f'fill="{_TEXT_DIM}">{_esc(nombre)}</text>'
+            f'fill="{_TEXT_DIM}">{_esc(_nom_ley)}</text>'
         )
         _col_x += _ley_col[1]
 
         # Columnas 3, 4, 5: medidas y área (centradas)
-        for val in [f"{largo_m:.3f}", f"{ancho_m:.3f}", f"{area_m2:.4f}"]:
-            _mx = _col_x + _ley_col[2] / 2 if val == f"{largo_m:.3f}" else \
-                  _col_x + _ley_col[3] / 2 if val == f"{ancho_m:.3f}" else \
-                  _col_x + _ley_col[4] / 2
+        _col_vals   = [f"{largo_m:.3f}", f"{ancho_m:.3f}", f"{area_m2:.4f}"]
+        _col_widths = [_ley_col[2], _ley_col[3], _ley_col[4]]
+        for val, col_w in zip(_col_vals, _col_widths):
+            _mx = _col_x + col_w / 2
             parts.append(
                 f'<text x="{_mx:.1f}" y="{_ty + 4:.1f}" text-anchor="middle" '
                 f'font-family="Helvetica,Arial,sans-serif" font-size="12" '
                 f'fill="{_TEXT_DIM}" font-variant-numeric="tabular-nums">{val}</text>'
             )
-            _col_x += _ley_col[2 if val == f"{largo_m:.3f}" else
-                                 3 if val == f"{ancho_m:.3f}" else 4]
+            _col_x += col_w
 
-    # Línea de cierre y total
-    _total_y = _hdr_y + LEY_HEADER_H + len(placed) * LEY_ROW_H
+    # Fila de total
+    _total_y    = _hdr_y + LEY_HEADER_H + len(placed) * LEY_ROW_H
     _total_area = sum(p["w"] * p["h"] for p in placed)
     parts.append(
         f'<rect x="{ox:.1f}" y="{_total_y:.1f}" '
         f'width="{_ley_w:.1f}" height="{LEY_ROW_H + 4}" '
-        f'rx="0" fill="{_AZUL_CLARO}" opacity="0.60"/>'
+        f'fill="{_AZUL_CLARO}" opacity="0.60"/>'
         f'<text x="{ox + _ley_col[0] + 8:.1f}" y="{_total_y + LEY_ROW_H/2 + 4:.1f}" '
         f'font-family="Helvetica,Arial,sans-serif" font-size="11" '
         f'font-weight="bold" fill="{_AZUL_OSCURO}">'
@@ -1156,7 +1163,7 @@ def _generar_svg_nesting(
         f'<text x="{ox + sum(_ley_col[:4]) + _ley_col[4]/2:.1f}" '
         f'y="{_total_y + LEY_ROW_H/2 + 4:.1f}" text-anchor="middle" '
         f'font-family="Helvetica,Arial,sans-serif" font-size="11" '
-        f'font-weight="bold" fill="{_AZUL_OSCURO}">{_total_area:.4f} m²</text>'
+        f'font-weight="bold" fill="{_AZUL_OSCURO}">{_total_area:.4f} m\u00b2</text>'
     )
 
     parts.append("</svg>")
