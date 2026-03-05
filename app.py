@@ -7830,85 +7830,89 @@ elif pagina == "Planos de Taller (IA)":
                 )
 
         # ── Tarjetas dinámicas de piezas ──────────────────────────────────────
-        st.markdown("#### ✂️ Piezas a Cortar")
-        st.markdown(
-            "<div class='plano-tip'>"
-            "Completa cada pieza. Usa ➕ para agregar más y 🗑️ para eliminar. "
-            "El algoritmo rota 90° automáticamente para aprovechar mejor la placa."
-            "</div>",
-            unsafe_allow_html=True,
-        )
+        st.markdown("""
+        <div style='
+            background: linear-gradient(90deg, #EFF6FF 0%, #F0FDF4 100%);
+            border-left: 4px solid #1B5FA8;
+            border-radius: 0 8px 8px 0;
+            padding: 10px 14px;
+            margin-bottom: 14px;
+            font-size: 0.84rem;
+            color: #1E3A5F;
+        '>
+            📋 <strong>Agrega las piezas que necesitas cortar.</strong>
+            Ingresa el nombre, las medidas en metros y la cantidad.
+            El sistema rota automáticamente cada pieza para aprovechar mejor la lámina.
+        </div>
+        """, unsafe_allow_html=True)
 
         # Iterar sobre las piezas y renderizar una tarjeta por pieza
         _id_a_eliminar = None
 
         for _idx, _p in enumerate(st.session_state.nesting_piezas):
             _pid = _p["id"]
-            _btn_del_disabled = len(st.session_state.nesting_piezas) <= 1
+            _can_delete = len(st.session_state.nesting_piezas) > 1
 
             with st.container(border=True):
-                # ── Fila 1: título de pieza + botón eliminar ──────────────
-                _col_tit, _col_del = st.columns([0.85, 0.15])
-                with _col_tit:
+                # Fila A — etiqueta de pieza + botón eliminar
+                _rA_nom, _rA_del = st.columns([5, 1])
+                with _rA_nom:
                     st.markdown(
-                        f"<p style='margin:0;font-size:0.82rem;font-weight:700;"
-                        f"color:#1B5FA8;'>Pieza {_idx + 1}</p>",
+                        f"<p style='margin:0 0 6px 0;font-size:0.80rem;font-weight:700;"
+                        f"color:#1B5FA8;text-transform:uppercase;letter-spacing:0.05em;'>"
+                        f"✦ Pieza {_idx + 1}</p>",
                         unsafe_allow_html=True,
                     )
-                with _col_del:
+                    _nom = st.text_input(
+                        "📝 Nombre de la pieza",
+                        value=_p["nombre"],
+                        key=f"nest_nom_{_pid}",
+                        placeholder="Ej: Mesón cocina, Baño principal, Zócalo…",
+                    )
+                    _p["nombre"] = _nom
+                with _rA_del:
+                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
                     if st.button(
                         "🗑️",
                         key=f"nest_del_{_pid}",
                         use_container_width=True,
-                        disabled=_btn_del_disabled,
-                        help="Eliminar esta pieza" if not _btn_del_disabled else "Debe haber al menos una pieza",
+                        disabled=not _can_delete,
+                        help="Eliminar esta pieza" if _can_delete else "Debe haber al menos 1 pieza",
                     ):
                         _id_a_eliminar = _pid
 
-                # ── Fila 2: cuatro inputs uniformes ──────────────────────
-                _c1, _c2, _c3, _c4 = st.columns(4)
-
-                with _c1:
-                    _nom = st.text_input(
-                        "Nombre",
-                        value=_p["nombre"],
-                        key=f"nest_nom_{_pid}",
-                        placeholder="ej: Mesón, Baño…",
-                    )
-                    _p["nombre"] = _nom
-
-                with _c2:
+                # Fila B — Largo, Ancho, Cantidad
+                _rB_lar, _rB_anc, _rB_can = st.columns([2, 2, 1])
+                with _rB_lar:
                     _lar = st.number_input(
-                        "Largo (m)",
+                        "📏 Largo (m)",
                         min_value=0.0, max_value=10.0,
                         value=float(_p["largo"]),
                         step=0.05, format="%.2f",
                         key=f"nest_lar_{_pid}",
+                        help="Medida más larga de la pieza en metros",
                     )
                     _p["largo"] = _lar
-
-                with _c3:
+                with _rB_anc:
                     _anc = st.number_input(
-                        "Ancho (m)",
+                        "📐 Ancho (m)",
                         min_value=0.0, max_value=5.0,
                         value=float(_p["ancho"]),
                         step=0.05, format="%.2f",
                         key=f"nest_anc_{_pid}",
+                        help="Medida más corta de la pieza en metros",
                     )
                     _p["ancho"] = _anc
-
-                with _c4:
+                with _rB_can:
                     _can = st.number_input(
-                        "Cantidad",
+                        "🔢 Cant.",
                         min_value=1, max_value=20,
                         value=int(_p["cantidad"]),
                         step=1,
                         key=f"nest_can_{_pid}",
+                        help="Cuántas veces se repite esta pieza",
                     )
                     _p["cantidad"] = _can
-            _pid = _p["id"]
-            with st.container(border=True):
-                _c1, _c2, _c3, _c4, _c5 = st.columns([3, 2, 2, 2, 1])
 
         # Procesar eliminación FUERA del bucle para evitar mutación durante iteración
         if _id_a_eliminar is not None:
