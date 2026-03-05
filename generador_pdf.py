@@ -30,9 +30,11 @@ from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
 
 # ── Ancho maestro del documento ───────────────────────────────────────────────
-# Márgenes izquierdo y derecho = 1.4 cm cada uno → área útil real.
-# TODAS las tablas usan este valor para alineación vertical perfecta.
-_AU = letter[0] - 2 * 1.4 * cm   # ≈ 16.59 cm
+# Valor fijo de 16.5 cm que garantiza simetría y alineación perfecta en TODAS
+# las tablas del documento. La suma de colWidths de cada tabla DEBE ser exactamente
+# ancho_util. Esta es la única fuente de verdad para anchos de columna.
+ancho_util = 16.5 * cm   # Ancho útil maestro — 16.5 cm exactos
+_AU = ancho_util          # Alias interno para compatibilidad con bloques existentes
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     HRFlowable, Image, KeepTogether, PageBreak,
@@ -358,12 +360,17 @@ def _tabla_2col(E, C, filas_datos):
 
 
 def _footer_doc(E, C, emp_nombre, fecha_str, numero="", ciudad="Barranquilla"):
-    """Footer premium corporativo — sin código de cotización, con branding completo."""
-    _nombre_marca = emp_nombre or "MÁRMOLES COLLANTE & CASTRO LTDA."
-    _ciudad_str   = ciudad or "Barranquilla"
+    """Footer premium corporativo — sin código de cotización, con branding completo.
+    Formato: 'MÁRMOLES COLLANTE & CASTRO LTDA. | Distribuidor Oficial de GRANITOS Y MÁRMOLES S.A.S | {ciudad} • {fecha}'
+    Texto centrado en color gris oscuro (#4A5568). Sin referencia a número de cotización.
+    """
+    _nombre_marca = emp_nombre.strip() if emp_nombre and emp_nombre.strip() else "MÁRMOLES COLLANTE & CASTRO LTDA."
+    _ciudad_str   = ciudad.strip() if ciudad and ciudad.strip() else "Barranquilla"
+    # Texto centrado gris oscuro — branding completo sin código de documento
     linea = (
-        f"{_nombre_marca}  ·  Distribuidor Oficial de GRANITOS Y MÁRMOLES S.A.S  "
-        f"·  {_ciudad_str}  •  {fecha_str}"
+        f"MÁRMOLES COLLANTE & CASTRO LTDA.  |  "
+        f"Distribuidor Oficial de GRANITOS Y MÁRMOLES S.A.S  |  "
+        f"{_ciudad_str}  •  {fecha_str}"
     )
     _footer_style = ParagraphStyle(
         "footer_premium", fontSize=6.5, fontName="Helvetica-Bold",
@@ -402,11 +409,10 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
                     else (_cat_mat.strip() or "Material"))
 
     hdr = [
+        Paragraph("#", E["th_c"]),
         Paragraph("DESCRIPCIÓN / ÍTEM", E["th"]),
-        Paragraph("UNID.", E["th_c"]),
-        Paragraph("CANT.", E["th_c"]),
-        Paragraph("MEDIDA/U", E["th_c"]),
-        Paragraph("P. UNITARIO", E["th_r"]),   # ← MOD-4: "P. UNIT." → "P. UNITARIO"
+        Paragraph("CANT. / UNID.", E["th_c"]),
+        Paragraph("P. UNITARIO", E["th_r"]),
         Paragraph("SUBTOTAL", E["th_r"]),
     ]
     filas = [hdr]
@@ -414,7 +420,7 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
     if piezas:
         # Calcular total m² usando ml efectivo (ya absorbido cantidad × unitario)
         total_m2 = sum(p.get("ml", 1) * p.get("ancho_custom", 0.60) for p in piezas)
-        for p in piezas:
+        for idx_p, p in enumerate(piezas, start=1):
             # ml ya es el total efectivo (ml_unitario × cantidad) guardado por app.py
             _ml_efectivo = p.get("ml", 1)
             _ml_unit     = p.get("ml_unitario", _ml_efectivo)  # longitud de UNA pieza
@@ -430,49 +436,40 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             _es_area_p  = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
 
             if _es_area_p:
-                # Área: cantidad = nº de piezas, medida = m²/u, unidad = m²
-                _unid_str  = "m²"
-                _cant_str  = str(_cantidad)
-                _med_str   = f"{(_ml_unit * _ancho):.2f} m²"
-                _qty_base  = m2_p   # precio/m² = subtotal / m² total
+                _cant_unid_str = f"{_cantidad} u × {(_ml_unit * _ancho):.2f} m²"
+                _qty_base  = m2_p
             else:
-                # Borde: cantidad = nº de piezas, medida = ml/u, unidad = ml
-                _unid_str  = "ml"
-                _cant_str  = str(_cantidad)
-                _med_str   = f"{_ml_unit:.2f} ml"
-                _qty_base  = _ml_efectivo   # precio/ml = subtotal / ml_efectivo
+                _cant_unid_str = f"{_cantidad} u × {_ml_unit:.2f} ml"
+                _qty_base  = _ml_efectivo
 
-            pu = precio_p / _qty_base if _qty_base > 0 else 0  # precio unitario por ml o m²
+            pu = precio_p / _qty_base if _qty_base > 0 else 0
 
-            # ── MOD-1: Descripción enriquecida con referencia del material ────
-            # Formato: "Lavamanos con poceta. REF: Mármol Café Pinta"
+            # ── Descripción enriquecida con referencia del material ────
             _nombre_pieza = p.get("nombre", "—")
             _desc_enriq   = f"{_nombre_pieza}. REF: {_nombres_mat}"
 
             filas.append([
-                Paragraph(_desc_enriq,                          E["cell"]),  # ← MOD-1
-                Paragraph(_unid_str,                            E["cell_c"]),
-                Paragraph(_cant_str,                            E["cell_r"]),
-                Paragraph(_med_str,                             E["cell_c"]),
-                Paragraph(_num(round(pu / 1000) * 1000),        E["cell_r"]),
-                Paragraph(_num(round(precio_p / 1000) * 1000),  E["cell_br"]),
+                Paragraph(str(idx_p),                               E["cell_c"]),
+                Paragraph(_desc_enriq,                              E["cell"]),
+                Paragraph(_cant_unid_str,                           E["cell_c"]),
+                Paragraph(_num(round(pu / 1000) * 1000),            E["cell_r"]),
+                Paragraph(_num(round(precio_p / 1000) * 1000),      E["cell_br"]),
             ])
     else:
         ref_txt = r.get("referencia", r.get("categoria", ""))
         filas.append([
+            Paragraph("1",   E["cell_c"]),
             Paragraph(f"{r.get('tipo_proyecto', 'Proyecto')} — {ref_txt}", E["cell"]),
-            Paragraph("glb", E["cell_c"]),
-            Paragraph("1",   E["cell_r"]),
-            Paragraph("—",   E["cell_c"]),
+            Paragraph("1 glb", E["cell_c"]),
             Paragraph(_num(precio_sugerido_total), E["cell_r"]),
             Paragraph(_num(precio_sugerido_total), E["cell_br"]),
         ])
 
-    # colWidths proporcionales al ancho maestro _AU (suma = _AU exacto)
-    # [Descripción 48% | Unid 9% | Cant 9% | Medida 15% | P.Unit 10% | Subtotal 9%]
+    # colWidths — Regla Matemática: suma de fracciones = 1.0 → ancho_util exacto
+    # 5 columnas: [#/Ítem 5% | Descripción 45% | Unid/Cant 15% | P.Unitario 15% | Subtotal 20%]
     tbl = Table(filas, colWidths=[
-        _AU * 0.430, _AU * 0.090, _AU * 0.090,
-        _AU * 0.150, _AU * 0.120, _AU * 0.120,
+        ancho_util * 0.05, ancho_util * 0.45, ancho_util * 0.15,
+        ancho_util * 0.15, ancho_util * 0.20,
     ], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
@@ -512,21 +509,19 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
 
 def _seccion_adicionales_alcance(E, C, adicionales_detalle, c7_adicionales):
     """
-    BLOQUE PÁGINA 1 — Alcance del Proyecto: Servicios Adicionales Incluidos.
-    Se ubica ANTES del Despiece Técnico para que el cliente vea el alcance completo
-    antes de llegar a los precios.
+    BLOQUE PÁGINA 1 — ALCANCE DEL PROYECTO: Servicios Adicionales.
+    Ubicación: Página 1, DESPUÉS de la Descripción y ANTES del Despiece Técnico.
 
-    adicionales_detalle: lista de dicts {"concepto": str, "valor": float}
-                         Los nombres de concepto vienen directamente de los datos
-                         del usuario (sin hardcoding) — reflejan lo que el usuario
-                         configuró en la UI de Parámetros.
-    c7_adicionales: float — suma total de los adicionales.
+    REGLA ESTRICTA — CERO HARDCODING:
+    Itera EXCLUSIVAMENTE sobre adicionales_detalle (lista de dicts con nombre real
+    y valor configurados por el usuario en la UI).
+    Si está vacío → imprime "No se seleccionaron servicios adicionales."
+
+    adicionales_detalle: lista de dicts con keys "concepto" y "valor"
+    c7_adicionales: float — suma total de los adicionales
     """
-    if not adicionales_detalle or not c7_adicionales or c7_adicionales <= 0:
-        return []
-
     story = []
-    story += _seccion_header("Alcance del Proyecto: Servicios Adicionales Incluidos", E)
+    story += _seccion_header("ALCANCE DEL PROYECTO: Servicios Adicionales", E)
 
     _s_hdr = ParagraphStyle("aaic_hdr", fontSize=7, fontName="Helvetica-Bold",
                              leading=9, textColor=colors.HexColor("#0D2137"),
@@ -544,32 +539,49 @@ def _seccion_adicionales_alcance(E, C, adicionales_detalle, c7_adicionales):
     _s_val_hdr = ParagraphStyle("aaic_val_hdr", fontSize=7, fontName="Helvetica-Bold",
                                  leading=9, textColor=colors.HexColor("#0D2137"),
                                  alignment=TA_RIGHT)
+    _s_vacio = ParagraphStyle("aaic_vacio", fontSize=7.5, fontName="Helvetica-Oblique",
+                               leading=10, textColor=colors.HexColor("#6B85A0"))
 
-    # Encabezado de columnas
+    # ── Encabezado de columnas ─────────────────────────────────────────────────
     filas_aa = [[
         Paragraph("SERVICIO / ELEMENTO ADICIONAL", _s_hdr),
         Paragraph("VALOR", _s_val_hdr),
     ]]
 
-    # ── Iteración dinámica sobre la lista de adicionales ──────────────────────
-    # Los nombres de "concepto" vienen exactamente como el usuario los configuró
-    # en la UI — sin ningún texto fijo ni hardcodeado aquí.
-    for item in adicionales_detalle:
-        nombre = item.get("concepto") or item.get("nombre") or "Servicio adicional"
-        valor  = float(item.get("valor", 0) or 0)
-        if valor > 0:
-            filas_aa.append([
-                Paragraph(f"✔  {nombre}", _s_item),
-                Paragraph(_num(valor), _s_val),
-            ])
+    # ── Iteración DINÁMICA — EXCLUSIVAMENTE sobre adicionales_detalle ──────────
+    # Los nombres vienen de la configuración del usuario en la UI.
+    # No existe ningún texto quemado en este bloque.
+    _items_con_valor = []
+    if adicionales_detalle:
+        for item in adicionales_detalle:
+            nombre = (item.get("concepto") or item.get("nombre") or "").strip()
+            if not nombre:
+                nombre = "Servicio adicional"
+            valor = float(item.get("valor", 0) or 0)
+            if valor > 0:
+                _items_con_valor.append((nombre, valor))
+                filas_aa.append([
+                    Paragraph(f"✔  {nombre}", _s_item),
+                    Paragraph(_num(valor), _s_val),
+                ])
 
-    # Fila de total
-    filas_aa.append([
-        Paragraph("Total servicios adicionales", _s_tot_l),
-        Paragraph(_num(c7_adicionales), _s_tot_v),
-    ])
+    # ── Estado vacío: mensaje explícito cuando no hay servicios adicionales ────
+    if not _items_con_valor:
+        filas_aa.append([
+            Paragraph("No se seleccionaron servicios adicionales.", _s_vacio),
+            Paragraph("—", _s_val),
+        ])
+        c7_adicionales = 0.0
 
-    tbl_aa = Table(filas_aa, colWidths=[_AU * 0.753, _AU * 0.247])
+    # ── Fila de total (solo cuando hay ítems activos) ─────────────────────────
+    if _items_con_valor and c7_adicionales and c7_adicionales > 0:
+        filas_aa.append([
+            Paragraph("Total servicios adicionales", _s_tot_l),
+            Paragraph(_num(c7_adicionales), _s_tot_v),
+        ])
+
+    # colWidths: 75.3% + 24.7% = 100% de ancho_util (16.5 cm)
+    tbl_aa = Table(filas_aa, colWidths=[ancho_util * 0.753, ancho_util * 0.247])
     tbl_aa.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0),  (-1, 0),  colors.HexColor("#EBF3FB")),
         ("ROWBACKGROUNDS",(0, 1),  (-1, -2), [colors.HexColor("#F7FAFD"),
@@ -982,11 +994,12 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
 
-    # ③ SERVICIOS ADICIONALES (si hay) — Página 1, antes del Despiece
-    #    Permite al cliente ver el alcance completo antes de ver los precios
-    if _adicionales_detalle and _c7_adicionales > 0:
-        story.append(Spacer(1, 7))
-        story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
+    # ③ ALCANCE DEL PROYECTO: Servicios Adicionales — SIEMPRE visible en Página 1
+    #    Ubicado DESPUÉS de Datos del Cliente y ANTES del Despiece Técnico.
+    #    Si no hay adicionales, muestra mensaje "No se seleccionaron servicios adicionales."
+    #    CERO hardcoding — nombres vienen exclusivamente de la configuración del usuario.
+    story.append(Spacer(1, 7))
+    story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
 
     # ④ DESPIECE TÉCNICO
     precio_sugerido_total = r.get("precio_sugerido", 0)
