@@ -7839,28 +7839,40 @@ elif pagina == "Planos de Taller (IA)":
             unsafe_allow_html=True,
         )
 
-        # Cabecera de columnas (etiquetas visuales, no widgets)
-        _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([3, 2, 2, 2, 1])
-        _hc1.markdown("<p class='pieza-card-header'>Nombre</p>",    unsafe_allow_html=True)
-        _hc2.markdown("<p class='pieza-card-header'>Largo (m)</p>", unsafe_allow_html=True)
-        _hc3.markdown("<p class='pieza-card-header'>Ancho (m)</p>", unsafe_allow_html=True)
-        _hc4.markdown("<p class='pieza-card-header'>Cant.</p>",     unsafe_allow_html=True)
-        _hc5.markdown("<p class='pieza-card-header'>&nbsp;</p>",    unsafe_allow_html=True)
-
         # Iterar sobre las piezas y renderizar una tarjeta por pieza
         _id_a_eliminar = None
 
-        for _p in st.session_state.nesting_piezas:
+        for _idx, _p in enumerate(st.session_state.nesting_piezas):
             _pid = _p["id"]
+            _btn_del_disabled = len(st.session_state.nesting_piezas) <= 1
+
             with st.container(border=True):
-                _c1, _c2, _c3, _c4, _c5 = st.columns([3, 2, 2, 2, 1])
+                # ── Fila 1: título de pieza + botón eliminar ──────────────
+                _col_tit, _col_del = st.columns([0.85, 0.15])
+                with _col_tit:
+                    st.markdown(
+                        f"<p style='margin:0;font-size:0.82rem;font-weight:700;"
+                        f"color:#1B5FA8;'>Pieza {_idx + 1}</p>",
+                        unsafe_allow_html=True,
+                    )
+                with _col_del:
+                    if st.button(
+                        "🗑️",
+                        key=f"nest_del_{_pid}",
+                        use_container_width=True,
+                        disabled=_btn_del_disabled,
+                        help="Eliminar esta pieza" if not _btn_del_disabled else "Debe haber al menos una pieza",
+                    ):
+                        _id_a_eliminar = _pid
+
+                # ── Fila 2: cuatro inputs uniformes ──────────────────────
+                _c1, _c2, _c3, _c4 = st.columns(4)
 
                 with _c1:
                     _nom = st.text_input(
                         "Nombre",
                         value=_p["nombre"],
                         key=f"nest_nom_{_pid}",
-                        label_visibility="collapsed",
                         placeholder="ej: Mesón, Baño…",
                     )
                     _p["nombre"] = _nom
@@ -7872,7 +7884,6 @@ elif pagina == "Planos de Taller (IA)":
                         value=float(_p["largo"]),
                         step=0.05, format="%.2f",
                         key=f"nest_lar_{_pid}",
-                        label_visibility="collapsed",
                     )
                     _p["largo"] = _lar
 
@@ -7883,31 +7894,21 @@ elif pagina == "Planos de Taller (IA)":
                         value=float(_p["ancho"]),
                         step=0.05, format="%.2f",
                         key=f"nest_anc_{_pid}",
-                        label_visibility="collapsed",
                     )
                     _p["ancho"] = _anc
 
                 with _c4:
                     _can = st.number_input(
-                        "Cant.",
+                        "Cantidad",
                         min_value=1, max_value=20,
                         value=int(_p["cantidad"]),
                         step=1,
                         key=f"nest_can_{_pid}",
-                        label_visibility="collapsed",
                     )
                     _p["cantidad"] = _can
-
-                with _c5:
-                    # Solo permitir eliminar si hay más de 1 pieza
-                    _btn_del_disabled = len(st.session_state.nesting_piezas) <= 1
-                    if st.button(
-                        "🗑️",
-                        key=f"nest_del_{_pid}",
-                        disabled=_btn_del_disabled,
-                        help="Eliminar esta pieza" if not _btn_del_disabled else "Debe haber al menos una pieza",
-                    ):
-                        _id_a_eliminar = _pid
+            _pid = _p["id"]
+            with st.container(border=True):
+                _c1, _c2, _c3, _c4, _c5 = st.columns([3, 2, 2, 2, 1])
 
         # Procesar eliminación FUERA del bucle para evitar mutación durante iteración
         if _id_a_eliminar is not None:
