@@ -7742,6 +7742,31 @@ elif pagina == "Gestion de Equipo":
 
 elif pagina == "Planos de Taller (IA)":
 
+    # ── Callback: agregar pieza al carrito de nesting ─────────────────────────
+    # Definido ANTES de cualquier widget para que on_click pueda referenciarlo.
+    # Opera únicamente sobre session_state → nunca toca widgets directamente,
+    # lo que evita el StreamlitAPIException por modificación post-instanciación.
+    def agregar_pieza_nesting():
+        nom   = st.session_state.get("nest_nom",   "")
+        largo = st.session_state.get("nest_largo", 1.20)
+        ancho = st.session_state.get("nest_ancho", 0.60)
+        cant  = int(st.session_state.get("nest_cant", 1))
+        if float(largo) > 0 and float(ancho) > 0:
+            for _ in range(cant):
+                st.session_state.nesting_piezas.append({
+                    "id":       uuid.uuid4().hex[:8],
+                    "nombre":   nom.strip() if nom.strip() else "Pieza",
+                    "largo":    float(largo),
+                    "ancho":    float(ancho),
+                    "cantidad": 1,
+                })
+        # Reset de los widgets: seguro aquí porque el callback corre ANTES
+        # del siguiente ciclo de renderizado, no después de instanciar widgets
+        st.session_state.nest_nom   = ""
+        st.session_state.nest_largo = 1.20
+        st.session_state.nest_ancho = 0.60
+        st.session_state.nest_cant  = 1
+
     # ── Estilos ───────────────────────────────────────────────────────────────
     st.markdown("""
     <style>
@@ -7857,19 +7882,19 @@ elif pagina == "Planos de Taller (IA)":
             "2 · Agregar pieza a cortar</p>",
             unsafe_allow_html=True,
         )
-        # Inicializar defaults de los inputs del wizard en session_state
-        # (solo la primera vez; los resets manuales los sobreescriben después)
-        if "nest_nom" not in st.session_state:
-            st.session_state.nest_nom  = ""
+        # Inicializar keys en session_state antes del primer render
+        # (el callback los sobreescribe en cada clic, nunca con value= en el widget)
+        if "nest_nom"   not in st.session_state:
+            st.session_state.nest_nom   = ""
         if "nest_largo" not in st.session_state:
             st.session_state.nest_largo = 1.20
         if "nest_ancho" not in st.session_state:
             st.session_state.nest_ancho = 0.60
-        if "nest_cant" not in st.session_state:
+        if "nest_cant"  not in st.session_state:
             st.session_state.nest_cant  = 1
 
         with st.container(border=True):
-            _fn_nom = st.text_input(
+            st.text_input(
                 "Nombre de la pieza",
                 placeholder="Ej: Mesón cocina, Baño, Zócalo…",
                 key="nest_nom",
@@ -7883,16 +7908,16 @@ elif pagina == "Planos de Taller (IA)":
             with _fn_cols[1]:
                 st.number_input(
                     "Largo (m)",
-                    min_value=0.01, max_value=10.0,
-                    value=1.20, step=0.05, format="%.2f",
+                    min_value=0.0,
+                    step=0.05, format="%.2f",
                     help="Medida más larga",
                     key="nest_largo",
                 )
             with _fn_cols[2]:
                 st.number_input(
                     "Ancho (m)",
-                    min_value=0.01, max_value=5.0,
-                    value=0.60, step=0.05, format="%.2f",
+                    min_value=0.0,
+                    step=0.05, format="%.2f",
                     help="Medida más corta",
                     key="nest_ancho",
                 )
@@ -7900,34 +7925,16 @@ elif pagina == "Planos de Taller (IA)":
                 st.number_input(
                     "Cant.",
                     min_value=1, max_value=20,
-                    value=1, step=1,
+                    step=1,
                     help="Cuántas iguales",
                     key="nest_cant",
                 )
-
-            if st.button("➕ Agregar a la lista", type="primary", use_container_width=True):
-                _nombre_limpio = st.session_state.nest_nom.strip() or "Pieza"
-                _fn_lar = float(st.session_state.nest_largo)
-                _fn_anc = float(st.session_state.nest_ancho)
-                _fn_can = int(st.session_state.nest_cant)
-                for _fi in range(_fn_can):
-                    _sufijo = f" ({_fi + 1})" if _fn_can > 1 else ""
-                    _nid = st.session_state.nesting_id_counter
-                    st.session_state.nesting_piezas.append({
-                        "id":       _nid,
-                        "nombre":   _nombre_limpio + _sufijo,
-                        "largo":    _fn_lar,
-                        "ancho":    _fn_anc,
-                        "cantidad": 1,
-                    })
-                    st.session_state.nesting_id_counter += 1
-                # Reset manual de los campos — Enter nunca llega aquí,
-                # solo el clic explícito en el botón dispara este bloque
-                st.session_state.nest_nom   = ""
-                st.session_state.nest_largo = 1.20
-                st.session_state.nest_ancho = 0.60
-                st.session_state.nest_cant  = 1
-                st.rerun()
+            st.button(
+                "➕ Agregar a la lista",
+                type="primary",
+                on_click=agregar_pieza_nesting,
+                use_container_width=True,
+            )
 
     # ──────────────────────────────────────────────────────────────────────────
     # COLUMNA DERECHA — Lista de corte (carrito)
