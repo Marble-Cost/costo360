@@ -15,8 +15,15 @@
 
 import io
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from PIL import Image as PILImage
+
+_BOG = ZoneInfo("America/Bogota")
+
+def _hoy() -> date:
+    """Fecha actual en zona horaria de Colombia."""
+    return datetime.now(_BOG).date()
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.units import cm
@@ -123,14 +130,14 @@ def _num(valor):
 
 
 def _fecha_es():
-    f = date.today()
+    f = _hoy()
     meses = ["enero","febrero","marzo","abril","mayo","junio",
              "julio","agosto","septiembre","octubre","noviembre","diciembre"]
     return f"{f.day} de {meses[f.month-1]} de {f.year}"
 
 
 def _fecha_hasta(dias):
-    f = date.today() + timedelta(days=int(dias))
+    f = _hoy() + timedelta(days=int(dias))
     return f.strftime("%d/%m/%Y")
 
 
@@ -345,15 +352,24 @@ def _tabla_2col(E, C, filas_datos):
     return _tabla_datos_cliente(E, C, filas_datos)
 
 
-def _footer_doc(E, C, emp_nombre, fecha_str, numero=""):
-    linea = f"{emp_nombre}   ·   {fecha_str}   ·   Barranquilla, Colombia"
-    if numero:
-        linea = f"{numero}   ·   " + linea
+def _footer_doc(E, C, emp_nombre, fecha_str, numero="", ciudad="Barranquilla"):
+    """Footer premium corporativo — sin código de cotización, con branding completo."""
+    _nombre_marca = emp_nombre or "MÁRMOLES COLLANTE & CASTRO LTDA."
+    _ciudad_str   = ciudad or "Barranquilla"
+    linea = (
+        f"{_nombre_marca}  ·  Distribuidor Oficial de GRANITOS Y MÁRMOLES S.A.S  "
+        f"·  {_ciudad_str}  •  {fecha_str}"
+    )
+    _footer_style = ParagraphStyle(
+        "footer_premium", fontSize=6.5, fontName="Helvetica-Bold",
+        leading=8, textColor=colors.HexColor("#4A5568"), alignment=TA_CENTER,
+        letterSpacing=0.3,
+    )
     return [
         Spacer(1, 6),
         HRFlowable(width="100%", thickness=0.5, color=C["border"]),
         Spacer(1, 3),
-        Paragraph(linea, E["footer"]),
+        Paragraph(linea, _footer_style),
     ]
 
 
@@ -489,7 +505,7 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
 # ── Módulo: Resumen Financiero ────────────────────────────────────────────────
 
 def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
-                                 c7_adicionales=0.0):
+                                 c7_adicionales=0.0, adicionales_detalle=None):
     """
     SECCIÓN 3 — Resumen Financiero.
     Incluye fila discriminada de Costos Adicionales (c7_adicionales) cuando > 0,
@@ -498,6 +514,49 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
     """
     story = []
     story += _seccion_header("Resumen Financiero", E)
+
+    # ── Sub-tabla elegante de Servicios y Elementos Adicionales ─────────────
+    if adicionales_detalle and c7_adicionales and c7_adicionales > 0:
+        _s_adic_hdr = ParagraphStyle("adic_hdr_sub", fontSize=7, fontName="Helvetica-Bold",
+                                      leading=9, textColor=colors.HexColor("#0D2137"),
+                                      letterSpacing=0.8)
+        _s_adic_item = ParagraphStyle("adic_item_sub", fontSize=7.5, fontName="Helvetica",
+                                       leading=10, textColor=colors.HexColor("#1C2B3A"))
+        _s_adic_val  = ParagraphStyle("adic_val_sub", fontSize=7.5, fontName="Helvetica-Bold",
+                                       leading=10, textColor=colors.HexColor("#1B5FA8"),
+                                       alignment=TA_RIGHT)
+        filas_adic = [[
+            Paragraph("SERVICIOS Y ELEMENTOS ADICIONALES SELECCIONADOS", _s_adic_hdr),
+            Paragraph("VALOR", ParagraphStyle("adic_val_hdr",fontSize=7,fontName="Helvetica-Bold",
+                                               leading=9,textColor=colors.HexColor("#0D2137"),alignment=TA_RIGHT)),
+        ]]
+        for item in adicionales_detalle:
+            filas_adic.append([
+                Paragraph(f"• {item['concepto']}", _s_adic_item),
+                Paragraph(_num(item['valor']), _s_adic_val),
+            ])
+        filas_adic.append([
+            Paragraph("Total adicionales", ParagraphStyle("adic_tot_l",fontSize=7.5,fontName="Helvetica-Bold",
+                                                           leading=10,textColor=colors.HexColor("#1B5FA8"))),
+            Paragraph(_num(c7_adicionales), ParagraphStyle("adic_tot_v",fontSize=7.5,fontName="Helvetica-Bold",
+                                                             leading=10,textColor=colors.HexColor("#1B5FA8"),alignment=TA_RIGHT)),
+        ])
+        tbl_adic_sub = Table(filas_adic, colWidths=[12.5*cm, 4.5*cm])
+        tbl_adic_sub.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0),  (-1,0),  colors.HexColor("#EBF3FB")),
+            ("ROWBACKGROUNDS",(0,1),  (-1,-2), [colors.HexColor("#F7FAFD"), colors.HexColor("#FFFFFF")]),
+            ("BACKGROUND",    (0,-1), (-1,-1), colors.HexColor("#EBF3FB")),
+            ("LINEABOVE",     (0,0),  (-1,0),  1.2, colors.HexColor("#1B5FA8")),
+            ("LINEBELOW",     (0,-1), (-1,-1), 1.2, colors.HexColor("#1B5FA8")),
+            ("LINEBELOW",     (0,0),  (-1,-2), 0.3, colors.HexColor("#C8D8E8")),
+            ("TOPPADDING",    (0,0),  (-1,-1), 5),
+            ("BOTTOMPADDING", (0,0),  (-1,-1), 5),
+            ("LEFTPADDING",   (0,0),  (-1,-1), 10),
+            ("RIGHTPADDING",  (0,0),  (-1,-1), 10),
+            ("BOX",           (0,0),  (-1,-1), 0.5, colors.HexColor("#C8D8E8")),
+        ]))
+        story.append(tbl_adic_sub)
+        story.append(Spacer(1, 6))
 
     _s_adic_l = ParagraphStyle("adic_l", fontSize=8, fontName="Helvetica-Bold",
                                 leading=11, textColor=colors.HexColor("#1B5FA8"))
@@ -692,35 +751,40 @@ def _seccion_alcance(E, C):
 def _seccion_terminos(E, C, nota_iva, anticipo_pct):
     """
     SECCIÓN 4 — Términos y Condiciones Comerciales.
-    Texto en gris oscuro legible, fuente 6.5 pt, al final del documento.
+    Diseño limpio: título azul oscuro + viñetas sin tabla encajonada.
     """
     story = []
     story += _seccion_header("Términos y Condiciones Comerciales", E)
-    condiciones = (
-        nota_iva +
+
+    _titulo_tc = ParagraphStyle(
+        "tc_titulo", fontSize=8, fontName="Helvetica-Bold",
+        leading=11, textColor=colors.HexColor("#0D2137"),
+        spaceAfter=4,
+    )
+    _viñeta_tc = ParagraphStyle(
+        "tc_viñeta", fontSize=6.5, fontName="Helvetica",
+        leading=9, textColor=colors.HexColor("#4A5568"),
+        leftIndent=12, firstLineIndent=-8, spaceAfter=3,
+    )
+
+    condiciones_items = [
+        nota_iva.strip(),
         "Esta propuesta abarca exclusivamente los materiales, servicios y alcances detallados "
         "en la sección de Inclusiones. Cualquier requerimiento adicional, modificación de diseño "
-        "posterior a la rectificación de medidas, o trabajo no especificado en este documento, "
-        "será considerado un servicio extra y requerirá una recotización y aprobación previa. "
-        f"El inicio de la obra está condicionado al pago del anticipo del {anticipo_pct}% del valor total. "
+        "posterior a la rectificación de medidas, o trabajo no especificado en este documento "
+        "será considerado un servicio extra y requerirá una recotización y aprobación previa.",
+        f"El inicio de la obra está condicionado al pago del anticipo del {anticipo_pct}% del valor total.",
         "Los precios cotizados son válidos durante el período indicado en el encabezado. "
         "El prestador se reserva el derecho de ajustar precios por variación superior al 5% "
-        "en los materiales durante el período de validez. Barranquilla, Colombia."
-    )
-    tbl_tc = Table(
-        [[Paragraph("CONDICIONES", E["terms_title"]),
-          Paragraph(condiciones, E["terms_body"])]],
-        colWidths=[2.8*cm, 14.2*cm]
-    )
-    tbl_tc.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#F7F9FC")),
-        ("TOPPADDING",    (0,0),(-1,-1), 7), ("BOTTOMPADDING",(0,0),(-1,-1),7),
-        ("LEFTPADDING",   (0,0),(-1,-1), 8), ("RIGHTPADDING", (0,0),(-1,-1),8),
-        ("VALIGN",        (0,0),(-1,-1), "TOP"),
-        ("LINEABOVE",     (0,0),(-1, 0), 1.0, C["secondary"]),
-        ("BOX",           (0,0),(-1,-1), 0.4, C["border"]),
-    ]))
-    story.append(tbl_tc)
+        "en los materiales durante el período de validez.",
+        "Barranquilla, Colombia.",
+    ]
+
+    bloques = [Paragraph("CONDICIONES COMERCIALES", _titulo_tc)]
+    for item in condiciones_items:
+        bloques.append(Paragraph(f"• {item}", _viñeta_tc))
+
+    story.append(KeepTogether(bloques))
     return story
 
 
@@ -799,6 +863,23 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     r = resultado
     # Extraer c7_adicionales para discriminarlo en el Resumen Financiero
     _c7_adicionales = float(r.get("c7_adicionales", 0) or 0)
+    # Construir detalle de adicionales desde estado guardado (para sub-tabla elegante)
+    _adicionales_detalle = []
+    _estado_g = r.get("_estado_guardado", {})
+    if _c7_adicionales > 0 and _estado_g.get("adicionales_activos"):
+        from parametros import ADICIONALES
+        _cantidades_add = _estado_g.get("cantidades_add", [])
+        _etapa_r        = _estado_g.get("etapa_label", "")
+        from parametros import ETAPAS_OBRA
+        _etapa_val = ETAPAS_OBRA.get(_etapa_r, list(ETAPAS_OBRA.values())[0])
+        _adic_lista = _estado_g.get("adicionales_lista", ADICIONALES)
+        for i, _ad in enumerate(_adic_lista):
+            _cant = float(_cantidades_add[i]) if i < len(_cantidades_add) else 0.0
+            if _cant > 0:
+                _precio_unit = _ad.get(_etapa_val, 0)
+                _valor = _cant * _precio_unit
+                if _valor > 0:
+                    _adicionales_detalle.append({"concepto": _ad.get("concepto","—"), "valor": _valor})
 
     # ══════════════════════════════════════════════════════════════════
     # PÁGINA 1 — Encabezado · Datos del Cliente · Despiece Técnico
@@ -810,8 +891,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
                                   emp, _lb, valido_hasta))
     story.append(Spacer(1, 7))
     story.append(Table([[Paragraph(
-        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  "
-        f"Material: {r.get('categoria','')}  ·  m² instalados: {r.get('m2_real',0):.2f}",
+        f"Fecha: {_hoy().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}",
         ParagraphStyle("badge",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
     )]], colWidths=[17*cm], style=TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
@@ -854,6 +934,10 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     precio_sugerido_total = r.get("precio_sugerido", 0)
     story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
 
+    # ③b INCLUYE / NO INCLUYE — en Página 1 para llenarla de valor
+    story.append(Spacer(1, 7))
+    story += _seccion_alcance(E, C)
+
     # ══════════════════════════════════════════════════════════════════
     # SALTO DE PÁGINA — Página 2 inicia con Resumen Financiero
     # ══════════════════════════════════════════════════════════════════
@@ -866,7 +950,8 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     # ④ RESUMEN FINANCIERO (con adicionales discriminados)
     fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
         E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
-        c7_adicionales=_c7_adicionales)
+        c7_adicionales=_c7_adicionales,
+        adicionales_detalle=_adicionales_detalle)
     story += fin_story
     valor_letras = _numero_a_letras(int(round(precio_final_doc)))
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
@@ -877,11 +962,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
         ])))
     story.append(Spacer(1, 10))
 
-    # ⑤ ALCANCE
-    story += _seccion_alcance(E, C)
-    story.append(Spacer(1, 7))
-
-    # ⑥ TÉRMINOS Y CONDICIONES
+    # ⑤ TÉRMINOS Y CONDICIONES
     nota_iva = (
         "Propuesta con IVA del 19% (Art. 468 E.T.) — Responsable de IVA — Régimen Común. "
         if incluir_iva else
@@ -891,7 +972,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     # Bloque contractual de aceptación con KeepTogether
     story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
-    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero)
+    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
 
     doc.build(story)
     return buf.getvalue()
@@ -935,7 +1016,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
                                   emp, _lb, valido_hasta))
     story.append(Spacer(1, 7))
     story.append(Table([[Paragraph(
-        f"Fecha: {date.today().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  "
+        f"Fecha: {_hoy().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  "
         "Tipo: AIU — Administración, Imprevistos y Utilidad",
         ParagraphStyle("badge2",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
     )]], colWidths=[17*cm], style=TableStyle([
@@ -1191,7 +1272,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     # FIX-3: Bloque contractual de aceptación con KeepTogether
     story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
-    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero)
+    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
 
     doc.build(story)
     return buf.getvalue()
@@ -1395,7 +1476,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     # FIX-3: Bloque contractual de aceptación con KeepTogether
     story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
-    story += _footer_doc(E, C, datos_prestador.get("nombre",""), fecha_str, numero)
+    story += _footer_doc(E, C, datos_prestador.get("nombre",""), fecha_str, numero, ciudad=datos_prestador.get("ciudad","Barranquilla"))
 
     doc.build(story)
     return buf.getvalue()
