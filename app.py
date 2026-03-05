@@ -73,11 +73,9 @@ else:
     st.session_state.radio_ui = st.session_state.nav_radio
 
 # ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
-@st.cache_resource
 def _get_db_connection():
     return psycopg2.connect(st.secrets["DATABASE_URL"])
 
-@st.cache_resource
 def _init_db():
     conn = _get_db_connection()
     cur = conn.cursor()
@@ -502,7 +500,6 @@ def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: di
     conn.close()
     st.cache_data.clear()
 
-@st.cache_data(ttl=60)
 def _listar_cotizaciones(busqueda="", usuario_id=None, rol="Admin"):
     _init_db()
     conn = _get_db_connection()
@@ -590,7 +587,6 @@ def _eliminar_cotizacion(cot_id):
     conn.close()
     st.cache_data.clear()
 
-@st.cache_data(ttl=60)
 def _stats_db(usuario_id=None, rol="Admin"):
     _init_db()
     conn = _get_db_connection()
