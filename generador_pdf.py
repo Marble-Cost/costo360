@@ -840,7 +840,7 @@ def _bloque_firma_cliente(E, C):
 def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
                             logo_bytes=None, incluir_iva=True):
     if numero is None:
-        numero = f"COT-{date.today().strftime('%Y%m%d')}-001"
+        numero = f"COT-{_hoy().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
     emp = empresa_info or {}
 
@@ -923,7 +923,6 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     datos_filas += [
         ("Ciudad",        emp.get("ciudad", "Barranquilla")),
         ("Proyecto",      _resumen_proy),                                    # ← MOD-2
-        ("Material",      f"{r.get('categoria','')} — {r.get('referencia','')}"),
         ("Forma de pago", f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra entrega"),
         ("Condiciones",   f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
     ]
@@ -988,7 +987,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     muestra 'Exento' y $0 — sin alterar el diseño premium.
     """
     if numero is None:
-        numero = f"COT-AIU-{date.today().strftime('%Y%m%d')}-001"
+        numero = f"COT-AIU-{_hoy().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
     emp = empresa_info or {}
 
@@ -1286,7 +1285,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
                           numero=None, descripcion_servicio=None,
                           logo_bytes=None, incluir_iva=True):
     if numero is None:
-        numero = f"CC-{date.today().strftime('%Y%m%d')}-001"
+        numero = f"CC-{_hoy().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
 
     es_aiu = resultado.get("tipo_proyecto") == "Licitacion AIU"
