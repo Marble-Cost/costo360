@@ -7829,119 +7829,142 @@ elif pagina == "Planos de Taller (IA)":
                     help="Dimensión más corta de la lámina, ej: 1.60 m",
                 )
 
-        # ── Tarjetas dinámicas de piezas ──────────────────────────────────────
-        st.markdown("""
-        <div style='
-            background: linear-gradient(90deg, #EFF6FF 0%, #F0FDF4 100%);
-            border-left: 4px solid #1B5FA8;
-            border-radius: 0 8px 8px 0;
-            padding: 10px 14px;
-            margin-bottom: 14px;
-            font-size: 0.84rem;
-            color: #1E3A5F;
-        '>
-            📋 <strong>Agrega las piezas que necesitas cortar.</strong>
-            Ingresa el nombre, las medidas en metros y la cantidad.
-            El sistema rota automáticamente cada pieza para aprovechar mejor la lámina.
-        </div>
-        """, unsafe_allow_html=True)
+        # ── PATRÓN MAESTRO-DETALLE: Formulario + Lista ───────────────────────
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        st.markdown(
+            "<h4 style='margin:0 0 6px 0'>✂️ Piezas a Cortar</h4>",
+            unsafe_allow_html=True,
+        )
 
-        # Iterar sobre las piezas y renderizar una tarjeta por pieza
-        _id_a_eliminar = None
+        _col_form, _col_lista = st.columns([1.2, 1], gap="large")
 
-        for _idx, _p in enumerate(st.session_state.nesting_piezas):
-            _pid = _p["id"]
-            _can_delete = len(st.session_state.nesting_piezas) > 1
-
-            with st.container(border=True):
-                # Fila A — etiqueta de pieza + botón eliminar
-                _rA_nom, _rA_del = st.columns([5, 1])
-                with _rA_nom:
-                    st.markdown(
-                        f"<p style='margin:0 0 6px 0;font-size:0.80rem;font-weight:700;"
-                        f"color:#1B5FA8;text-transform:uppercase;letter-spacing:0.05em;'>"
-                        f"✦ Pieza {_idx + 1}</p>",
-                        unsafe_allow_html=True,
+        # ╔══════════════════════════════════════════════════════════════════╗
+        # ║  FORMULARIO — Agregar pieza                                     ║
+        # ╚══════════════════════════════════════════════════════════════════╝
+        with _col_form:
+            st.markdown(
+                "<p style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
+                "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px 0'>"
+                "1 · Ingresar pieza</p>",
+                unsafe_allow_html=True,
+            )
+            with st.form(key="form_nueva_pieza", clear_on_submit=True):
+                _fn_nom = st.text_input(
+                    "Nombre de la pieza",
+                    placeholder="Ej: Mesón cocina, Baño, Zócalo…",
+                )
+                _fn_c1, _fn_c2 = st.columns(2)
+                with _fn_c1:
+                    _fn_lar = st.number_input(
+                        "Largo (m)",
+                        min_value=0.01, max_value=10.0,
+                        value=1.20, step=0.05, format="%.2f",
+                        help="Medida más larga de la pieza",
                     )
-                    _nom = st.text_input(
-                        "📝 Nombre de la pieza",
-                        value=_p["nombre"],
-                        key=f"nest_nom_{_pid}",
-                        placeholder="Ej: Mesón cocina, Baño principal, Zócalo…",
+                with _fn_c2:
+                    _fn_anc = st.number_input(
+                        "Ancho (m)",
+                        min_value=0.01, max_value=5.0,
+                        value=0.60, step=0.05, format="%.2f",
+                        help="Medida más corta de la pieza",
                     )
-                    _p["nombre"] = _nom
-                with _rA_del:
-                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                    if st.button(
-                        "🗑️",
-                        key=f"nest_del_{_pid}",
-                        use_container_width=True,
-                        disabled=not _can_delete,
-                        help="Eliminar esta pieza" if _can_delete else "Debe haber al menos 1 pieza",
-                    ):
-                        _id_a_eliminar = _pid
+                _fn_can = st.number_input(
+                    "Cantidad (¿cuántas piezas iguales?)",
+                    min_value=1, max_value=20,
+                    value=1, step=1,
+                )
+                _fn_submit = st.form_submit_button(
+                    "➕ Agregar a la lista",
+                    type="primary",
+                    use_container_width=True,
+                )
 
-                # Fila B — Largo, Ancho, Cantidad
-                _rB_lar, _rB_anc, _rB_can = st.columns([2, 2, 1])
-                with _rB_lar:
-                    _lar = st.number_input(
-                        "📏 Largo (m)",
-                        min_value=0.0, max_value=10.0,
-                        value=float(_p["largo"]),
-                        step=0.05, format="%.2f",
-                        key=f"nest_lar_{_pid}",
-                        help="Medida más larga de la pieza en metros",
-                    )
-                    _p["largo"] = _lar
-                with _rB_anc:
-                    _anc = st.number_input(
-                        "📐 Ancho (m)",
-                        min_value=0.0, max_value=5.0,
-                        value=float(_p["ancho"]),
-                        step=0.05, format="%.2f",
-                        key=f"nest_anc_{_pid}",
-                        help="Medida más corta de la pieza en metros",
-                    )
-                    _p["ancho"] = _anc
-                with _rB_can:
-                    _can = st.number_input(
-                        "🔢 Cant.",
-                        min_value=1, max_value=20,
-                        value=int(_p["cantidad"]),
-                        step=1,
-                        key=f"nest_can_{_pid}",
-                        help="Cuántas veces se repite esta pieza",
-                    )
-                    _p["cantidad"] = _can
+            if _fn_submit:
+                _nombre_limpio = _fn_nom.strip() or "Pieza"
+                for _fi in range(int(_fn_can)):
+                    _sufijo = f" ({_fi + 1})" if int(_fn_can) > 1 else ""
+                    _nid = st.session_state.nesting_id_counter
+                    st.session_state.nesting_piezas.append({
+                        "id":       _nid,
+                        "nombre":   _nombre_limpio + _sufijo,
+                        "largo":    float(_fn_lar),
+                        "ancho":    float(_fn_anc),
+                        "cantidad": 1,
+                    })
+                    st.session_state.nesting_id_counter += 1
+                st.rerun()
 
-        # Procesar eliminación FUERA del bucle para evitar mutación durante iteración
-        if _id_a_eliminar is not None:
-            st.session_state.nesting_piezas = [
-                p for p in st.session_state.nesting_piezas if p["id"] != _id_a_eliminar
-            ]
-            st.rerun()
+        # ╔══════════════════════════════════════════════════════════════════╗
+        # ║  LISTA — Carrito de piezas                                      ║
+        # ╚══════════════════════════════════════════════════════════════════╝
+        with _col_lista:
+            st.markdown(
+                "<p style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
+                "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px 0'>"
+                "2 · Lista de corte</p>",
+                unsafe_allow_html=True,
+            )
 
-        # ── Botón agregar pieza ───────────────────────────────────────────────
-        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-        if st.button(
-            "➕ Agregar otra pieza",
-            use_container_width=True,
-            key="nesting_btn_agregar",
-        ):
-            _nuevo_id = st.session_state.nesting_id_counter
-            st.session_state.nesting_piezas.append({
-                "id":       _nuevo_id,
-                "nombre":   f"Pieza {_nuevo_id}",
-                "largo":    0.60,
-                "ancho":    0.45,
-                "cantidad": 1,
-            })
-            st.session_state.nesting_id_counter += 1
-            st.rerun()
+            _n_piezas = len(st.session_state.nesting_piezas)
+            if _n_piezas == 0:
+                st.info("Aún no hay piezas. Usa el formulario de la izquierda para agregarlas.", icon="📋")
+            else:
+                # Contador resumen
+                _area_total_lista = sum(
+                    p["largo"] * p["ancho"]
+                    for p in st.session_state.nesting_piezas
+                )
+                st.markdown(
+                    f"<p style='font-size:0.80rem;color:#6B7280;margin:0 0 8px 0'>"
+                    f"🧩 <strong>{_n_piezas}</strong> pieza(s)  ·  "
+                    f"Área total: <strong>{_area_total_lista:.2f} m²</strong></p>",
+                    unsafe_allow_html=True,
+                )
 
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                _id_a_eliminar = None
+                for _lp in st.session_state.nesting_piezas:
+                    with st.container(border=True):
+                        _lc1, _lc2 = st.columns([0.82, 0.18])
+                        with _lc1:
+                            st.markdown(
+                                f"<p style='margin:0;font-size:0.92rem;"
+                                f"font-weight:700;color:#1C2B3A;line-height:1.3'>"
+                                f"{_lp['nombre']}</p>"
+                                f"<p style='margin:0;font-size:0.78rem;color:#6B7280'>"
+                                f"📏 {_lp['largo']:.2f} m &nbsp;×&nbsp; "
+                                f"📐 {_lp['ancho']:.2f} m &nbsp;·&nbsp; "
+                                f"{_lp['largo']*_lp['ancho']:.3f} m²</p>",
+                                unsafe_allow_html=True,
+                            )
+                        with _lc2:
+                            if st.button(
+                                "❌",
+                                key=f"del_{_lp['id']}",
+                                use_container_width=True,
+                                help="Quitar esta pieza de la lista",
+                            ):
+                                _id_a_eliminar = _lp["id"]
 
-        # ── Botón principal Optimizar ─────────────────────────────────────────
+                if _id_a_eliminar is not None:
+                    st.session_state.nesting_piezas = [
+                        p for p in st.session_state.nesting_piezas
+                        if p["id"] != _id_a_eliminar
+                    ]
+                    st.rerun()
+
+                # Botón limpiar toda la lista
+                if st.button(
+                    "🗑️ Vaciar lista",
+                    use_container_width=True,
+                    key="nesting_btn_vaciar",
+                    help="Elimina todas las piezas y empieza de nuevo",
+                ):
+                    st.session_state.nesting_piezas = []
+                    st.rerun()
+
+        # ── Botón principal — fuera de las columnas ───────────────────────────
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
         btn_optimizar = st.button(
             "✂️ Optimizar Corte y Generar Plano",
             use_container_width=True,
@@ -7954,13 +7977,12 @@ elif pagina == "Planos de Taller (IA)":
             st.session_state.nesting_svg      = None
             st.session_state.nesting_metricas = None
 
-            # Tomar piezas con largo y ancho válidos
             _piezas_validas = [
                 {
                     "nombre":   str(p.get("nombre") or "Pieza"),
                     "largo":    float(p.get("largo") or 0),
                     "ancho":    float(p.get("ancho") or 0),
-                    "cantidad": int(p.get("cantidad") or 1),
+                    "cantidad": 1,
                 }
                 for p in st.session_state.nesting_piezas
                 if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
@@ -7968,7 +7990,7 @@ elif pagina == "Planos de Taller (IA)":
 
             if not _piezas_validas:
                 st.session_state.nesting_error = (
-                    "Agrega al menos una pieza con largo y ancho mayores a 0."
+                    "Agrega al menos una pieza antes de optimizar."
                 )
             else:
                 with st.spinner("🔢 Calculando disposición óptima de corte…"):
