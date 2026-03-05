@@ -745,6 +745,10 @@ def _generar_svg_nesting(
         f'<marker id="na_r" markerWidth="7" markerHeight="7" refX="2" refY="2" '
         f'orient="auto" markerUnits="strokeWidth">'
         f'<path d="M5.5,0 L5.5,4 L0,2 z" fill="{_DORADO}"/></marker>'
+        '<pattern id="retal_hatch" width="12" height="12" '
+        'patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">'
+        '<line x1="0" y1="0" x2="0" y2="12" stroke="#9CA3AF" stroke-width="1" opacity="0.3"/>'
+        '</pattern>'
         '</defs>'
     )
 
@@ -831,6 +835,12 @@ def _generar_svg_nesting(
         f'<rect x="{ox:.1f}" y="{oy:.1f}" '
         f'width="{placa_w_px:.1f}" height="{placa_h_px:.1f}" '
         f'rx="3" fill="#CDD3DA" stroke="#6B7280" stroke-width="2"/>'
+    )
+    # Patrón de rayado diagonal sobre la placa virgen — indica zona de retal/sobrante
+    parts.append(
+        f'<rect x="{ox:.1f}" y="{oy:.1f}" '
+        f'width="{placa_w_px:.1f}" height="{placa_h_px:.1f}" '
+        f'rx="3" fill="url(#retal_hatch)" stroke="none"/>'
     )
 
     # Cuadrícula 0.25 m
@@ -919,6 +929,26 @@ def _generar_svg_nesting(
             f'font-size="{fs_num}" font-weight="bold" fill="{_AZUL_OSCURO}" '
             f'opacity="0.75" clip-path="url(#nc_{idx})">{num}</text>'
         )
+
+        # Medidas In-Situ: nombre + dimensiones — solo si el rectángulo tiene espacio suficiente
+        if ph_ > 45 and pw_ > 70:
+            _nombre_is  = str(p.get("nombre", ""))[:12]
+            _dims_is    = f'{p["w"]:.2f} \u00d7 {p["h"]:.2f} m'
+            # Nombre debajo del número
+            _fs_is_nom  = max(7, min(11, int(min(pw_, ph_) / 6.5)))
+            _fs_is_dim  = max(6, min(10, _fs_is_nom - 1))
+            _cy_nom     = cy_ + fs_num * 0.55 + _fs_is_nom
+            _cy_dim     = _cy_nom + _fs_is_dim + 2
+            parts.append(
+                f'<text x="{cx_:.1f}" y="{_cy_nom:.1f}" text-anchor="middle" '
+                f'font-family="Helvetica,Arial,sans-serif" font-size="{_fs_is_nom}" '
+                f'font-weight="600" fill="{_AZUL_OSCURO}" opacity="0.65" '
+                f'clip-path="url(#nc_{idx})">{_esc(_nombre_is)}</text>'
+                f'<text x="{cx_:.1f}" y="{_cy_dim:.1f}" text-anchor="middle" '
+                f'font-family="Helvetica,Arial,sans-serif" font-size="{_fs_is_dim}" '
+                f'fill="{_AZUL_MED}" opacity="0.80" '
+                f'clip-path="url(#nc_{idx})">{_dims_is}</text>'
+            )
 
     # ════════════════════════════════════════════════════════════════════════
     # PANEL "PIEZAS QUE NO CABEN"
