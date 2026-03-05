@@ -3280,6 +3280,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             # FIX-1: garantizar que el default exista en la lista de opciones
             _dias_pre_s = str(_dias_pre) if str(_dias_pre) in _dias_opts else ("6+" if _dias_pre > 5 else _dias_opts[0])
             _dias_sel   = st.pills("Días en obra", _dias_opts, default=_dias_pre_s, key="p2_dias_pills")
+            _dias_sel   = _dias_sel if _dias_sel else _dias_pre_s  # Fix 1: prevenir None
             if _dias_sel == "6+" or _dias_sel is None:
                 dias = st.number_input("Días (exacto)", min_value=1, value=_dias_pre, step=1, key="p2_dias_custom")
             else:
@@ -3291,6 +3292,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             # FIX-1: garantizar que el default exista en la lista de opciones
             _pers_pre_s = str(_pers_pre) if str(_pers_pre) in _pers_opts else ("5+" if _pers_pre > 4 else _pers_opts[0])
             _pers_sel   = st.pills("Personas en obra", _pers_opts, default=_pers_pre_s, key="p2_pers_pills")
+            _pers_sel   = _pers_sel if _pers_sel else _pers_pre_s  # Fix 1: prevenir None
             if _pers_sel == "5+" or _pers_sel is None:
                 personas = st.number_input("Personas (exacto)", min_value=1, value=_pers_pre, step=1, key="p2_pers_custom")
             else:
@@ -3307,6 +3309,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _zoc_pre  = float(pre.get("zocalo_ml", 2.0))
             _zoc_pre_s = f"{int(_zoc_pre)} ml" if f"{int(_zoc_pre)} ml" in _zoc_opts else "Otro"
             _zoc_sel  = st.pills("Metros de zócalo", _zoc_opts, default=_zoc_pre_s, key="p2_zocalo_pills")
+            _zoc_sel  = _zoc_sel if _zoc_sel else _zoc_pre_s  # Fix 1: prevenir None
             if _zoc_sel == "Otro" or _zoc_sel is None:
                 zocalo_ml = st.number_input("Metros lineales de zócalo", min_value=0.0,
                                              value=_zoc_pre, step=0.5, key="cdir_zocalo_ml")
@@ -3334,10 +3337,22 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 "🔴 Complejo — curvas, biselados, figuras":  ("complejo", 0.22),
                 "✏️ Personalizado":                          ("custom",   None),
             }
+            # Fix 2: Persistencia — restaurar selección previa desde session_state
+            _perfil_guardado = pre.get("perfil_desperdicio", "")
+            _perfil_idx_default = 1  # "Normal" por defecto
+            if _perfil_guardado:
+                for _idx_p, _key_p in enumerate(list(perfil_opciones.keys())):
+                    if _perfil_guardado == _key_p:
+                        _perfil_idx_default = _idx_p
+                        break
             perfil_sel = st.radio(
-                "Perfil de corte", list(perfil_opciones.keys()), index=1,
+                "Perfil de corte", list(perfil_opciones.keys()), index=_perfil_idx_default,
                 key="perfil_desperdicio_radio", label_visibility="collapsed"
             )
+            # Fix 2: guardar inmediatamente para que persista al cambiar de pestaña
+            if st.session_state.pre.get("perfil_desperdicio") != perfil_sel:
+                st.session_state.pre = {**st.session_state.pre, "perfil_desperdicio": perfil_sel}
+                pre = st.session_state.pre
             perfil_id, pct_auto = perfil_opciones[perfil_sel]
             pct_auto = pct_auto or 0.15
 
@@ -3447,7 +3462,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 # Selector visual de vehículo con st.pills
                 _veh_sel = st.pills("Vehículo de entrega", _veh_keys,
                                     default=_veh_keys[_v_idx], key="p3_veh_pills")
-                veh_lbl  = _veh_sel if _veh_sel else _veh_keys[0]
+                veh_lbl  = _veh_sel if _veh_sel else _veh_keys[0]  # Fix 1: prevenir None
                 vehiculo = _veh_dict[veh_lbl]
 
             _lk1, _lk2 = st.columns(2)
@@ -3462,10 +3477,22 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     "30-60 km" if _km_pre <= 60 else "60+ km"
                 )
                 _km_rango = st.pills("Distancia al destino", _km_opts, default=_km_pre_s, key="p3_km_pills")
+                _km_rango = _km_rango if _km_rango else _km_pre_s  # Fix 1: prevenir None
                 _km_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
+                # Fix 3: Sincronización — cuando cambia el rango, actualizar km_exactos
+                _km_promedio_rango = float(_km_defaults.get(_km_rango, _km_pre))
+                _km_stored = float(_sp().get("cdir_km", _km_pre))
+                # Si el rango cambió y el km almacenado no corresponde al rango actual, usar promedio
+                _km_stored_rango = (
+                    "0-5 km"   if _km_stored <= 5 else
+                    "5-15 km"  if _km_stored <= 15 else
+                    "15-30 km" if _km_stored <= 30 else
+                    "30-60 km" if _km_stored <= 60 else "60+ km"
+                )
+                _km_val_init = _km_promedio_rango if _km_stored_rango != _km_rango else _km_stored
                 km = st.number_input(
                     "Km exactos (un trayecto)", min_value=0.0,
-                    value=float(_sp().get("cdir_km", _km_defaults.get(_km_rango or "5-15 km", _km_pre))),
+                    value=_km_val_init,
                     step=1.0,
                     key="cb_cdir_km",
                     on_change=_cb_cdir_vehiculo_km,
@@ -3478,6 +3505,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 # FIX-1: garantizar que el default exista en la lista de opciones
                 _pj_pre_s = str(_pj_pre) if str(_pj_pre) in _pj_opts else ("4+" if _pj_pre > 3 else _pj_opts[0])
                 _pj_sel  = st.pills("Peajes ida+vuelta", _pj_opts, default=_pj_pre_s, key="p3_peajes_pills")
+                _pj_sel  = _pj_sel if _pj_sel else _pj_pre_s  # Fix 1: prevenir None
                 if _pj_sel == "4+" or _pj_sel is None:
                     peajes = st.number_input("Peajes (exacto)", min_value=0, value=_pj_pre, step=1, key="p3_peajes_custom")
                 else:
@@ -3516,6 +3544,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     # FIX-1: garantizar que el default exista en la lista de opciones
                     _nc_pre_s = str(_nc_pre) if str(_nc_pre) in _nc_opts else ("5+" if _nc_pre > 4 else _nc_opts[0])
                     _nc_sel   = st.pills("Noches", _nc_opts, default=_nc_pre_s, key="p3_noches_pills")
+                    _nc_sel   = _nc_sel if _nc_sel else _nc_pre_s  # Fix 1: prevenir None
                     if _nc_sel == "5+" or _nc_sel is None:
                         noches = st.number_input("Noches (exacto)", min_value=0, value=_nc_pre, step=1, key="p3_noches_custom")
                     else:
@@ -4274,6 +4303,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
             _a_pre_s = f"{int(_a_pre) if _a_pre == int(_a_pre) else _a_pre}%" if f"{int(_a_pre) if _a_pre == int(_a_pre) else _a_pre}%" in _a_opts else "Otro"
             _a_sel  = st.pills("A — Administración", _a_opts, default=_a_pre_s, key="aiu_pills_a",
                                help="Cubre gastos administrativos del proyecto")
+            _a_sel  = _a_sel if _a_sel else _a_pre_s  # Fix 1: prevenir None
             if _a_sel == "Otro" or _a_sel is None:
                 pct_a = st.number_input("A% exacto", min_value=0.0, max_value=20.0, value=_a_pre, step=0.5, key="aiu_pct_a_custom")
             else:
@@ -4285,6 +4315,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
             _i_pre_s = f"{int(_i_pre) if _i_pre == int(_i_pre) else _i_pre}%" if f"{int(_i_pre) if _i_pre == int(_i_pre) else _i_pre}%" in _i_opts else "Otro"
             _i_sel  = st.pills("I — Imprevistos", _i_opts, default=_i_pre_s, key="aiu_pills_i",
                                help="Reserva para lo inesperado")
+            _i_sel  = _i_sel if _i_sel else _i_pre_s  # Fix 1: prevenir None
             if _i_sel == "Otro" or _i_sel is None:
                 pct_i = st.number_input("I% exacto", min_value=0.0, max_value=20.0, value=_i_pre, step=0.5, key="aiu_pct_i_custom")
             else:
@@ -4296,6 +4327,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
             _u_pre_s = f"{int(_u_pre) if _u_pre == int(_u_pre) else _u_pre}%" if f"{int(_u_pre) if _u_pre == int(_u_pre) else _u_pre}%" in _u_opts else "Otro"
             _u_sel  = st.pills("U — Utilidad", _u_opts, default=_u_pre_s, key="aiu_pills_u",
                                help="Tu margen de ganancia. El IVA aplica SOLO sobre este valor")
+            _u_sel  = _u_sel if _u_sel else _u_pre_s  # Fix 1: prevenir None
             if _u_sel == "Otro" or _u_sel is None:
                 pct_u = st.number_input("U% exacto", min_value=0.0, max_value=30.0, value=_u_pre, step=0.5, key="aiu_pct_u_custom")
             else:
@@ -4349,18 +4381,34 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 _veh_aiu_pre  = st.session_state.pre.get("vehiculo_entrega","frontier")
                 _veh_aiu_lbl_pre = next((k for k, v in VEHICULOS.items() if v == _veh_aiu_pre), _veh_aiu_keys[0])
                 _veh_aiu_sel  = st.pills("Vehículo", _veh_aiu_keys, default=_veh_aiu_lbl_pre, key="aiu_veh_pills")
-                vehiculo_aiu  = VEHICULOS.get(_veh_aiu_sel or _veh_aiu_lbl_pre, "frontier")
+                vehiculo_aiu  = VEHICULOS.get(_veh_aiu_sel if _veh_aiu_sel else _veh_aiu_lbl_pre, "frontier")  # Fix 1: prevenir None
                 agente_aiu    = st.toggle("Agente externo trae material", value=bool(st.session_state.pre.get("agente_externo_taller",False)), key="aiu_agente")
 
             with _al2:
                 _km_aiu_opts = ["0-5 km", "5-15 km", "15-30 km", "30-60 km", "60+ km"]
                 _km_aiu_pre  = float(st.session_state.pre.get("km", 10.0))
+                _km_aiu_pre_s = (
+                    "0-5 km"   if _km_aiu_pre <= 5 else
+                    "5-15 km"  if _km_aiu_pre <= 15 else
+                    "15-30 km" if _km_aiu_pre <= 30 else
+                    "30-60 km" if _km_aiu_pre <= 60 else "60+ km"
+                )
                 _km_aiu_sel  = st.pills("Distancia", _km_aiu_opts,
-                                        default="5-15 km" if _km_aiu_pre <= 15 else "15-30 km" if _km_aiu_pre <= 30 else "30-60 km",
+                                        default=_km_aiu_pre_s,
                                         key="aiu_km_pills")
+                _km_aiu_sel  = _km_aiu_sel if _km_aiu_sel else _km_aiu_pre_s  # Fix 1: prevenir None
                 _km_aiu_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
+                # Fix 3: Sincronización km_rango → km_exactos (AIU)
+                _km_aiu_stored = float(st.session_state.pre.get("km", _km_aiu_pre))
+                _km_aiu_stored_rango = (
+                    "0-5 km"   if _km_aiu_stored <= 5 else
+                    "5-15 km"  if _km_aiu_stored <= 15 else
+                    "15-30 km" if _km_aiu_stored <= 30 else
+                    "30-60 km" if _km_aiu_stored <= 60 else "60+ km"
+                )
+                _km_aiu_val_init = float(_km_aiu_defaults.get(_km_aiu_sel, _km_aiu_pre)) if _km_aiu_stored_rango != _km_aiu_sel else _km_aiu_stored
                 km_aiu  = st.number_input("Km exactos (Ida)", min_value=0.0,
-                                           value=float(_km_aiu_defaults.get(_km_aiu_sel or "5-15 km", _km_aiu_pre)),
+                                           value=_km_aiu_val_init,
                                            step=1.0, key="aiu_km")
                 _pj_aiu_opts = ["0", "1", "2", "3", "4+"]
                 _pj_aiu_pre  = int(st.session_state.pre.get("peajes", 0))
@@ -4369,6 +4417,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                 _pj_aiu_sel  = st.pills("Peajes ida+vuelta", _pj_aiu_opts,
                                         default=_pj_aiu_pre_s,
                                         key="aiu_pj_pills")
+                _pj_aiu_sel  = _pj_aiu_sel if _pj_aiu_sel else _pj_aiu_pre_s  # Fix 1: prevenir None
                 peajes_aiu   = int(_pj_aiu_sel) if (_pj_aiu_sel and _pj_aiu_sel != "4+") else st.number_input("Peajes (exacto)", min_value=0, value=_pj_aiu_pre, step=1, key="aiu_pj_custom")
 
         # ── Foráneo ──────────────────────────────────────────────────
@@ -4392,6 +4441,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                     _nc_aiu_sel  = st.pills("Noches", _nc_aiu_opts,
                                             default=_nc_aiu_pre_s,
                                             key="aiu_noches_pills")
+                    _nc_aiu_sel  = _nc_aiu_sel if _nc_aiu_sel else _nc_aiu_pre_s  # Fix 1: prevenir None
                     noches_aiu = int(_nc_aiu_sel) if (_nc_aiu_sel and _nc_aiu_sel != "5+") else st.number_input("Noches (exacto)", min_value=0, value=_nc_aiu_pre, step=1, key="aiu_nc_custom")
                 with _ff3:
                     _ps_aiu_opts = ["1", "2", "3", "4", "5+"]
@@ -4401,6 +4451,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                     _ps_aiu_sel  = st.pills("Personas", _ps_aiu_opts,
                                             default=_ps_aiu_pre_s,
                                             key="aiu_pers_pills")
+                    _ps_aiu_sel  = _ps_aiu_sel if _ps_aiu_sel else _ps_aiu_pre_s  # Fix 1: prevenir None
                     pers_aiu = int(_ps_aiu_sel) if (_ps_aiu_sel and _ps_aiu_sel != "5+") else st.number_input("Personas (exacto)", min_value=1, value=_ps_aiu_pre, step=1, key="aiu_ps_custom")
 
         # Guardar en pre (incluir_iva persiste entre pasos y restauraciones)
