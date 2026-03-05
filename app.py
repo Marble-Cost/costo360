@@ -7783,10 +7783,23 @@ elif pagina == "Planos de Taller (IA)":
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Session state con persistencia en cookie (anti-pérdida de datos) ──────
-    # La cookie "mcc_nesting_draft" guarda la lista de piezas serializada en JSON.
-    # Si el operario recarga la página por accidente, la lista se recupera
-    # automáticamente desde el almacenamiento local del navegador.
+    # ── Protección anti-refresco accidental (navegador nativo) ───────────────
+    # Intercepta F5 / cierre de pestaña y muestra el diálogo de confirmación
+    # del navegador (Chrome/Edge). No toca cookies ni session_state de auth.
+    st.components.v1.html(
+        """
+        <script>
+            window.parent.addEventListener('beforeunload', function (e) {
+                e.preventDefault();
+                e.returnValue = '';
+            });
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
+    # ── Session state (puramente en memoria) ──────────────────────────────────
     if "nesting_svg"        not in st.session_state:
         st.session_state.nesting_svg        = None
     if "nesting_metricas"   not in st.session_state:
@@ -7794,52 +7807,11 @@ elif pagina == "Planos de Taller (IA)":
     if "nesting_error"      not in st.session_state:
         st.session_state.nesting_error      = ""
     if "nesting_piezas"     not in st.session_state:
-        # Intentar recuperar la lista guardada en la cookie del navegador
-        try:
-            _draft_raw = cookies.get("mcc_nesting_draft")
-            if _draft_raw:
-                _draft = json.loads(_draft_raw)
-                # Validar que sea una lista de dicts con las claves mínimas
-                if isinstance(_draft, list) and all(
-                    isinstance(p, dict) and "id" in p and "nombre" in p
-                    and "largo" in p and "ancho" in p
-                    for p in _draft
-                ):
-                    st.session_state.nesting_piezas = _draft
-                else:
-                    raise ValueError("Estructura inválida en cookie")
-            else:
-                st.session_state.nesting_piezas = [
-                    {"id": 1, "nombre": "Mesón", "largo": 2.50, "ancho": 0.60, "cantidad": 1}
-                ]
-        except Exception:
-            # Si la cookie está corrupta o ausente, usar valor por defecto
-            st.session_state.nesting_piezas = [
-                {"id": 1, "nombre": "Mesón", "largo": 2.50, "ancho": 0.60, "cantidad": 1}
-            ]
+        st.session_state.nesting_piezas     = [
+            {"id": 1, "nombre": "Mesón", "largo": 2.50, "ancho": 0.60, "cantidad": 1}
+        ]
     if "nesting_id_counter" not in st.session_state:
-        # Calcular el siguiente ID libre a partir de la lista recuperada
-        _ids_existentes = [p.get("id", 0) for p in st.session_state.nesting_piezas]
-        st.session_state.nesting_id_counter = (max(_ids_existentes) + 1) if _ids_existentes else 2
-
-    # ── Medidas de placa: recuperar desde cookie si existen ──────────────────
-    if "nesting_placa_largo_default" not in st.session_state:
-        try:
-            _placa_raw = cookies.get("mcc_nesting_placa")
-            if _placa_raw:
-                _placa_saved = json.loads(_placa_raw)
-                st.session_state.nesting_placa_largo_default = float(
-                    _placa_saved.get("largo", 2.80)
-                )
-                st.session_state.nesting_placa_ancho_default = float(
-                    _placa_saved.get("ancho", 1.60)
-                )
-            else:
-                st.session_state.nesting_placa_largo_default = 2.80
-                st.session_state.nesting_placa_ancho_default = 1.60
-        except Exception:
-            st.session_state.nesting_placa_largo_default = 2.80
-            st.session_state.nesting_placa_ancho_default = 1.60
+        st.session_state.nesting_id_counter = 2
 
     # ══════════════════════════════════════════════════════════════════════════
     # LAYOUT MAESTRO-DETALLE
@@ -7940,18 +7912,6 @@ elif pagina == "Planos de Taller (IA)":
                     "cantidad": 1,
                 })
                 st.session_state.nesting_id_counter += 1
-            # ── Auto-guardado en cookie (anti-pérdida de datos) ───────────────
-            try:
-                cookies["mcc_nesting_draft"] = json.dumps(
-                    st.session_state.nesting_piezas, ensure_ascii=False
-                )
-                cookies["mcc_nesting_placa"] = json.dumps({
-                    "largo": float(st.session_state.get("nesting_placa_largo", 2.80)),
-                    "ancho": float(st.session_state.get("nesting_placa_ancho", 1.60)),
-                })
-                cookies.save()
-            except Exception:
-                pass  # No bloquear la UI si la cookie falla
             st.rerun()
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -8014,14 +7974,6 @@ elif pagina == "Planos de Taller (IA)":
                     p for p in st.session_state.nesting_piezas
                     if p["id"] != _id_a_eliminar
                 ]
-                # ── Auto-guardado en cookie tras eliminar pieza ───────────────
-                try:
-                    cookies["mcc_nesting_draft"] = json.dumps(
-                        st.session_state.nesting_piezas, ensure_ascii=False
-                    )
-                    cookies.save()
-                except Exception:
-                    pass
                 st.rerun()
 
             st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
@@ -8032,12 +7984,6 @@ elif pagina == "Planos de Taller (IA)":
                 help="Elimina todas las piezas y empieza de nuevo",
             ):
                 st.session_state.nesting_piezas = []
-                # ── Auto-guardado en cookie al vaciar (limpia el draft) ───────
-                try:
-                    cookies["mcc_nesting_draft"] = json.dumps([], ensure_ascii=False)
-                    cookies.save()
-                except Exception:
-                    pass
                 st.rerun()
 
     # ══════════════════════════════════════════════════════════════════════════
