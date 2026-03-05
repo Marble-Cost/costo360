@@ -35,7 +35,7 @@ from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_p
 st.set_page_config(
     page_title="CostoMármol — Mármoles Collante & Castro",
     page_icon="🪨",
-    layout="centered",
+    layout="wide",
     initial_sidebar_state="expanded",
 )
 
@@ -7795,19 +7795,24 @@ elif pagina == "Planos de Taller (IA)":
     if "nesting_id_counter" not in st.session_state:
         st.session_state.nesting_id_counter = 2
 
-    # ── Layout ────────────────────────────────────────────────────────────────
-    col_inp, col_out = st.columns([1, 1.6], gap="large")
-
     # ══════════════════════════════════════════════════════════════════════════
-    # COLUMNA IZQUIERDA — Entrada
+    # LAYOUT MAESTRO-DETALLE
+    # col_form (izq): Placa + Formulario de ingreso
+    # col_lista (der): Carrito de piezas
+    # Zona full-width (abajo): Botón + SVG + métricas
     # ══════════════════════════════════════════════════════════════════════════
-    with col_inp:
+    col_form, col_lista = st.columns([1.2, 1], gap="large")
 
-        # ── Dimensiones de la placa ───────────────────────────────────────────
-        st.markdown("#### 🪨 Dimensiones de la Placa")
+    # ──────────────────────────────────────────────────────────────────────────
+    # COLUMNA IZQUIERDA — Formulario
+    # ──────────────────────────────────────────────────────────────────────────
+    with col_form:
+
+        # ── 1. Medidas de la Placa ────────────────────────────────────────────
         st.markdown(
-            "<div class='plano-tip'>Introduce el tamaño de la lámina virgen "
-            "tal como la compras al proveedor.</div>",
+            "<p style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
+            "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 6px 0'>"
+            "1 · Medidas de la lámina virgen</p>",
             unsafe_allow_html=True,
         )
         with st.container(border=True):
@@ -7829,142 +7834,148 @@ elif pagina == "Planos de Taller (IA)":
                     help="Dimensión más corta de la lámina, ej: 1.60 m",
                 )
 
-        # ── PATRÓN MAESTRO-DETALLE: Formulario + Lista ───────────────────────
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+        # ── 2. Formulario de ingreso de pieza ─────────────────────────────────
         st.markdown(
-            "<h4 style='margin:0 0 6px 0'>✂️ Piezas a Cortar</h4>",
+            "<p style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
+            "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 6px 0'>"
+            "2 · Agregar pieza a cortar</p>",
+            unsafe_allow_html=True,
+        )
+        with st.form(key="form_nueva_pieza", clear_on_submit=True):
+            _fn_nom = st.text_input(
+                "Nombre de la pieza",
+                placeholder="Ej: Mesón cocina, Baño, Zócalo…",
+            )
+            _fn_cols = st.columns([2, 1, 1, 1])
+            with _fn_cols[0]:
+                st.caption(
+                    f"Pieza: «{_fn_nom.strip() or 'sin nombre'}»"
+                    if _fn_nom.strip() else "«escribe el nombre arriba»"
+                )
+            with _fn_cols[1]:
+                _fn_lar = st.number_input(
+                    "Largo (m)",
+                    min_value=0.01, max_value=10.0,
+                    value=1.20, step=0.05, format="%.2f",
+                    help="Medida más larga",
+                )
+            with _fn_cols[2]:
+                _fn_anc = st.number_input(
+                    "Ancho (m)",
+                    min_value=0.01, max_value=5.0,
+                    value=0.60, step=0.05, format="%.2f",
+                    help="Medida más corta",
+                )
+            with _fn_cols[3]:
+                _fn_can = st.number_input(
+                    "Cant.",
+                    min_value=1, max_value=20,
+                    value=1, step=1,
+                    help="Cuántas iguales",
+                )
+            _fn_submit = st.form_submit_button(
+                "➕ Agregar a la lista",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if _fn_submit:
+            _nombre_limpio = _fn_nom.strip() or "Pieza"
+            for _fi in range(int(_fn_can)):
+                _sufijo = f" ({_fi + 1})" if int(_fn_can) > 1 else ""
+                _nid = st.session_state.nesting_id_counter
+                st.session_state.nesting_piezas.append({
+                    "id":       _nid,
+                    "nombre":   _nombre_limpio + _sufijo,
+                    "largo":    float(_fn_lar),
+                    "ancho":    float(_fn_anc),
+                    "cantidad": 1,
+                })
+                st.session_state.nesting_id_counter += 1
+            st.rerun()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # COLUMNA DERECHA — Lista de corte (carrito)
+    # ──────────────────────────────────────────────────────────────────────────
+    with col_lista:
+        _n_piezas_lista = len(st.session_state.nesting_piezas)
+        st.markdown(
+            "<p style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
+            "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 6px 0'>"
+            "3 · Lista de corte</p>",
             unsafe_allow_html=True,
         )
 
-        _col_form, _col_lista = st.columns([1.2, 1], gap="large")
-
-        # ╔══════════════════════════════════════════════════════════════════╗
-        # ║  FORMULARIO — Agregar pieza                                     ║
-        # ╚══════════════════════════════════════════════════════════════════╝
-        with _col_form:
+        if _n_piezas_lista == 0:
+            st.info(
+                "Aún no hay piezas. Usa el formulario de la izquierda para agregarlas.",
+                icon="📋",
+            )
+        else:
+            _area_total_lista = sum(
+                p["largo"] * p["ancho"] for p in st.session_state.nesting_piezas
+            )
             st.markdown(
-                "<p style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
-                "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px 0'>"
-                "1 · Ingresar pieza</p>",
+                f"<p style='font-size:0.82rem;color:#6B7280;margin:0 0 10px 0'>"
+                f"🧩 <strong>{_n_piezas_lista}</strong> pieza(s)"
+                f" &nbsp;·&nbsp; "
+                f"Área total: <strong>{_area_total_lista:.2f} m²</strong></p>",
                 unsafe_allow_html=True,
             )
-            with st.form(key="form_nueva_pieza", clear_on_submit=True):
-                _fn_nom = st.text_input(
-                    "Nombre de la pieza",
-                    placeholder="Ej: Mesón cocina, Baño, Zócalo…",
-                )
-                _fn_c1, _fn_c2 = st.columns(2)
-                with _fn_c1:
-                    _fn_lar = st.number_input(
-                        "Largo (m)",
-                        min_value=0.01, max_value=10.0,
-                        value=1.20, step=0.05, format="%.2f",
-                        help="Medida más larga de la pieza",
-                    )
-                with _fn_c2:
-                    _fn_anc = st.number_input(
-                        "Ancho (m)",
-                        min_value=0.01, max_value=5.0,
-                        value=0.60, step=0.05, format="%.2f",
-                        help="Medida más corta de la pieza",
-                    )
-                _fn_can = st.number_input(
-                    "Cantidad (¿cuántas piezas iguales?)",
-                    min_value=1, max_value=20,
-                    value=1, step=1,
-                )
-                _fn_submit = st.form_submit_button(
-                    "➕ Agregar a la lista",
-                    type="primary",
-                    use_container_width=True,
-                )
 
-            if _fn_submit:
-                _nombre_limpio = _fn_nom.strip() or "Pieza"
-                for _fi in range(int(_fn_can)):
-                    _sufijo = f" ({_fi + 1})" if int(_fn_can) > 1 else ""
-                    _nid = st.session_state.nesting_id_counter
-                    st.session_state.nesting_piezas.append({
-                        "id":       _nid,
-                        "nombre":   _nombre_limpio + _sufijo,
-                        "largo":    float(_fn_lar),
-                        "ancho":    float(_fn_anc),
-                        "cantidad": 1,
-                    })
-                    st.session_state.nesting_id_counter += 1
+            _id_a_eliminar = None
+            for _lp in st.session_state.nesting_piezas:
+                with st.container(border=True):
+                    _lc1, _lc2 = st.columns([0.82, 0.18])
+                    with _lc1:
+                        st.markdown(
+                            f"<p style='margin:0;font-size:0.95rem;"
+                            f"font-weight:700;color:#1C2B3A;line-height:1.3'>"
+                            f"{_lp['nombre']}</p>"
+                            f"<p style='margin:2px 0 0 0;font-size:0.78rem;color:#6B7280'>"
+                            f"📏 {_lp['largo']:.2f} m"
+                            f" &nbsp;×&nbsp; "
+                            f"📐 {_lp['ancho']:.2f} m"
+                            f" &nbsp;·&nbsp; "
+                            f"{_lp['largo'] * _lp['ancho']:.3f} m²</p>",
+                            unsafe_allow_html=True,
+                        )
+                    with _lc2:
+                        if st.button(
+                            "❌",
+                            key=f"del_{_lp['id']}",
+                            use_container_width=True,
+                            help="Quitar esta pieza",
+                        ):
+                            _id_a_eliminar = _lp["id"]
+
+            if _id_a_eliminar is not None:
+                st.session_state.nesting_piezas = [
+                    p for p in st.session_state.nesting_piezas
+                    if p["id"] != _id_a_eliminar
+                ]
                 st.rerun()
 
-        # ╔══════════════════════════════════════════════════════════════════╗
-        # ║  LISTA — Carrito de piezas                                      ║
-        # ╚══════════════════════════════════════════════════════════════════╝
-        with _col_lista:
-            st.markdown(
-                "<p style='font-size:0.78rem;font-weight:700;color:#1B5FA8;"
-                "text-transform:uppercase;letter-spacing:0.07em;margin:0 0 8px 0'>"
-                "2 · Lista de corte</p>",
-                unsafe_allow_html=True,
-            )
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+            if st.button(
+                "🗑️ Vaciar lista",
+                use_container_width=True,
+                key="nesting_btn_vaciar",
+                help="Elimina todas las piezas y empieza de nuevo",
+            ):
+                st.session_state.nesting_piezas = []
+                st.rerun()
 
-            _n_piezas = len(st.session_state.nesting_piezas)
-            if _n_piezas == 0:
-                st.info("Aún no hay piezas. Usa el formulario de la izquierda para agregarlas.", icon="📋")
-            else:
-                # Contador resumen
-                _area_total_lista = sum(
-                    p["largo"] * p["ancho"]
-                    for p in st.session_state.nesting_piezas
-                )
-                st.markdown(
-                    f"<p style='font-size:0.80rem;color:#6B7280;margin:0 0 8px 0'>"
-                    f"🧩 <strong>{_n_piezas}</strong> pieza(s)  ·  "
-                    f"Área total: <strong>{_area_total_lista:.2f} m²</strong></p>",
-                    unsafe_allow_html=True,
-                )
+    # ══════════════════════════════════════════════════════════════════════════
+    # ZONA FULL-WIDTH — Botón optimizar + SVG + métricas
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+    st.divider()
 
-                _id_a_eliminar = None
-                for _lp in st.session_state.nesting_piezas:
-                    with st.container(border=True):
-                        _lc1, _lc2 = st.columns([0.82, 0.18])
-                        with _lc1:
-                            st.markdown(
-                                f"<p style='margin:0;font-size:0.92rem;"
-                                f"font-weight:700;color:#1C2B3A;line-height:1.3'>"
-                                f"{_lp['nombre']}</p>"
-                                f"<p style='margin:0;font-size:0.78rem;color:#6B7280'>"
-                                f"📏 {_lp['largo']:.2f} m &nbsp;×&nbsp; "
-                                f"📐 {_lp['ancho']:.2f} m &nbsp;·&nbsp; "
-                                f"{_lp['largo']*_lp['ancho']:.3f} m²</p>",
-                                unsafe_allow_html=True,
-                            )
-                        with _lc2:
-                            if st.button(
-                                "❌",
-                                key=f"del_{_lp['id']}",
-                                use_container_width=True,
-                                help="Quitar esta pieza de la lista",
-                            ):
-                                _id_a_eliminar = _lp["id"]
-
-                if _id_a_eliminar is not None:
-                    st.session_state.nesting_piezas = [
-                        p for p in st.session_state.nesting_piezas
-                        if p["id"] != _id_a_eliminar
-                    ]
-                    st.rerun()
-
-                # Botón limpiar toda la lista
-                if st.button(
-                    "🗑️ Vaciar lista",
-                    use_container_width=True,
-                    key="nesting_btn_vaciar",
-                    help="Elimina todas las piezas y empieza de nuevo",
-                ):
-                    st.session_state.nesting_piezas = []
-                    st.rerun()
-
-        # ── Botón principal — fuera de las columnas ───────────────────────────
-        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-
+    _btn_space1, _btn_main, _btn_space2 = st.columns([1, 2, 1])
+    with _btn_main:
         btn_optimizar = st.button(
             "✂️ Optimizar Corte y Generar Plano",
             use_container_width=True,
@@ -7972,139 +7983,125 @@ elif pagina == "Planos de Taller (IA)":
             key="nesting_btn_optimizar",
         )
 
-        if btn_optimizar:
-            st.session_state.nesting_error    = ""
-            st.session_state.nesting_svg      = None
-            st.session_state.nesting_metricas = None
+    if btn_optimizar:
+        st.session_state.nesting_error    = ""
+        st.session_state.nesting_svg      = None
+        st.session_state.nesting_metricas = None
 
-            _piezas_validas = [
-                {
-                    "nombre":   str(p.get("nombre") or "Pieza"),
-                    "largo":    float(p.get("largo") or 0),
-                    "ancho":    float(p.get("ancho") or 0),
-                    "cantidad": 1,
-                }
-                for p in st.session_state.nesting_piezas
-                if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
-            ]
+        _piezas_validas = [
+            {
+                "nombre":   str(p.get("nombre") or "Pieza"),
+                "largo":    float(p.get("largo") or 0),
+                "ancho":    float(p.get("ancho") or 0),
+                "cantidad": 1,
+            }
+            for p in st.session_state.nesting_piezas
+            if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
+        ]
 
-            if not _piezas_validas:
-                st.session_state.nesting_error = (
-                    "Agrega al menos una pieza antes de optimizar."
-                )
-            else:
-                with st.spinner("🔢 Calculando disposición óptima de corte…"):
-                    try:
-                        _svg, _metricas = optimizar_corte_2d(
-                            placa_largo, placa_ancho, _piezas_validas
-                        )
-                        st.session_state.nesting_svg      = _svg
-                        st.session_state.nesting_metricas = _metricas
-                    except Exception as _e:
-                        st.session_state.nesting_error = f"Error en el cálculo: {_e}"
-
-        if st.session_state.get("nesting_error"):
-            st.markdown(
-                f'<div class="plano-error">⚠️ {st.session_state.nesting_error}</div>',
-                unsafe_allow_html=True,
+        if not _piezas_validas:
+            st.session_state.nesting_error = (
+                "Agrega al menos una pieza antes de optimizar."
             )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # COLUMNA DERECHA — Resultado
-    # ══════════════════════════════════════════════════════════════════════════
-    with col_out:
-        st.markdown("#### 📊 Resultado del Nesting")
-
-        _svg_act = st.session_state.get("nesting_svg")
-        _met     = st.session_state.get("nesting_metricas")
-
-        if _svg_act and _met:
-            # ── Métricas en tarjetas ──────────────────────────────────────
-            _area_retal = _met["area_placa"] - _met["area_utilizada"]
-            _mc1, _mc2, _mc3 = st.columns(3)
-            _mc1.metric(
-                "Área Total Placa",
-                f'{_met["area_placa"]:.2f} m²',
-            )
-            _mc2.metric(
-                "Área Utilizada",
-                f'{_met["area_utilizada"]:.2f} m²',
-                delta=f'{100 - _met["porcentaje_desperdicio"]:.1f}% aprovechado',
-                delta_color="normal",
-            )
-            _mc3.metric(
-                "Retal Sobrante",
-                f'{_area_retal:.2f} m²',
-                delta=f'{_met["porcentaje_desperdicio"]:.1f}% de merma',
-                delta_color="inverse",
-            )
-
-            # ── Aviso piezas que no caben ─────────────────────────────────
-            if _met.get("piezas_no_caben"):
-                _names = ", ".join(str(n) for n in _met["piezas_no_caben"])
-                st.warning(
-                    f"⚠️ Las siguientes piezas **no caben** en la placa actual: **{_names}**. "
-                    "Considera aumentar las dimensiones de la placa o dividir el proyecto.",
-                    icon="📐",
-                )
-
-            # ── SVG ───────────────────────────────────────────────────────
-            st.markdown(
-                wrap_svg_streamlit(_svg_act),
-                unsafe_allow_html=True,
-            )
-
-            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
-            # ── Botones descarga ──────────────────────────────────────────
-            _ba1, _ba2 = st.columns(2)
-
-            with _ba1:
-                st.download_button(
-                    label="⬇️ Descargar SVG",
-                    data=_svg_act.encode("utf-8"),
-                    file_name="nesting_corte.svg",
-                    mime="image/svg+xml",
-                    use_container_width=True,
-                    key="nesting_dl_svg",
-                )
-
-            with _ba2:
-                try:
-                    _pdf_bytes = exportar_svg_a_pdf(_svg_act)
-                    st.download_button(
-                        label="📄 Descargar PDF",
-                        data=_pdf_bytes,
-                        file_name="Plano_Nesting_MCC.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        type="primary",
-                        key="nesting_dl_pdf",
-                    )
-                except Exception as _pdf_err:
-                    st.warning(
-                        f"PDF no disponible en este momento. SVG descargable arriba. "
-                        f"(Detalle: {_pdf_err})",
-                        icon="⚠️",
-                    )
-
         else:
-            # Estado vacío
-            st.markdown("""
-            <div style="
-                border: 2px dashed #C8D8E8; border-radius: 10px;
-                padding: 48px 24px; text-align: center;
-                background: #F8FAFD; color: #6B85A0;
-            ">
-                <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
-                <div style="font-size: 1.0rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
-                    El plano de nesting aparecerá aquí
-                </div>
-                <div style="font-size: 0.80rem; line-height: 1.5">
-                    Completa las medidas de la placa y las piezas,<br>
-                    luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.<br><br>
-                    El algoritmo 2D acomoda las piezas automáticamente,<br>
-                    permite rotación de 90° y calcula el % de retal.
-                </div>
+            with st.spinner("🔢 Calculando disposición óptima de corte…"):
+                try:
+                    _svg, _metricas = optimizar_corte_2d(
+                        placa_largo, placa_ancho, _piezas_validas
+                    )
+                    st.session_state.nesting_svg      = _svg
+                    st.session_state.nesting_metricas = _metricas
+                except Exception as _e:
+                    st.session_state.nesting_error = f"Error en el cálculo: {_e}"
+
+    if st.session_state.get("nesting_error"):
+        st.markdown(
+            f'<div class="plano-error">⚠️ {st.session_state.nesting_error}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Resultado SVG + métricas ──────────────────────────────────────────────
+    _svg_act = st.session_state.get("nesting_svg")
+    _met     = st.session_state.get("nesting_metricas")
+
+    if _svg_act and _met:
+        # Métricas en 4 columnas
+        _area_retal = _met["area_placa"] - _met["area_utilizada"]
+        _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+        _mc1.metric("Área Total Placa",  f'{_met["area_placa"]:.2f} m²')
+        _mc2.metric(
+            "Área Utilizada",
+            f'{_met["area_utilizada"]:.2f} m²',
+            delta=f'{100 - _met["porcentaje_desperdicio"]:.1f}% aprovechado',
+            delta_color="normal",
+        )
+        _mc3.metric(
+            "Retal Sobrante",
+            f'{_area_retal:.2f} m²',
+            delta=f'{_met["porcentaje_desperdicio"]:.1f}% de merma',
+            delta_color="inverse",
+        )
+        _mc4.metric("Piezas colocadas", _met["piezas_colocadas"])
+
+        # Aviso piezas que no caben
+        if _met.get("piezas_no_caben"):
+            _names = ", ".join(str(n) for n in _met["piezas_no_caben"])
+            st.warning(
+                f"⚠️ Las siguientes piezas **no caben** en la placa actual: **{_names}**. "
+                "Considera aumentar las dimensiones de la placa o dividir el proyecto.",
+                icon="📐",
+            )
+
+        # SVG a ancho completo
+        st.markdown(
+            wrap_svg_streamlit(_svg_act),
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+        # Descarga
+        _ba1, _ba2, _ba3 = st.columns([1, 1, 2])
+        with _ba1:
+            st.download_button(
+                label="⬇️ Descargar SVG",
+                data=_svg_act.encode("utf-8"),
+                file_name="nesting_corte.svg",
+                mime="image/svg+xml",
+                use_container_width=True,
+                key="nesting_dl_svg",
+            )
+        with _ba2:
+            try:
+                _pdf_bytes = exportar_svg_a_pdf(_svg_act)
+                st.download_button(
+                    label="📄 Descargar PDF",
+                    data=_pdf_bytes,
+                    file_name="Plano_Nesting_MCC.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                    key="nesting_dl_pdf",
+                )
+            except Exception as _pdf_err:
+                st.warning(
+                    f"PDF no disponible. SVG descargable. (Detalle: {_pdf_err})",
+                    icon="⚠️",
+                )
+
+    else:
+        st.markdown("""
+        <div style="
+            border: 2px dashed #C8D8E8; border-radius: 10px;
+            padding: 48px 24px; text-align: center;
+            background: #F8FAFD; color: #6B85A0;
+        ">
+            <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
+            <div style="font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
+                El plano de nesting aparecerá aquí
             </div>
-            """, unsafe_allow_html=True)
+            <div style="font-size: 0.82rem; line-height: 1.6">
+                Agrega las piezas en el formulario de la izquierda,<br>
+                luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
