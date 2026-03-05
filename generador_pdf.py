@@ -28,6 +28,11 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.units import cm
 from reportlab.lib.styles import ParagraphStyle
+
+# ── Ancho maestro del documento ───────────────────────────────────────────────
+# Márgenes izquierdo y derecho = 1.4 cm cada uno → área útil real.
+# TODAS las tablas usan este valor para alineación vertical perfecta.
+_AU = letter[0] - 2 * 1.4 * cm   # ≈ 16.59 cm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
     HRFlowable, Image, KeepTogether, PageBreak,
@@ -316,7 +321,7 @@ def _encabezado_doc(E, C, doc_type, numero, fecha_str, empresa_info, logo_bytes,
         der.append(Spacer(1, 3))
         der.append(Paragraph(f"Válida hasta: {valido_hasta}", E["doc_validez"]))
 
-    tbl = Table([[izq, der]], colWidths=[10*cm, 7*cm])
+    tbl = Table([[izq, der]], colWidths=[_AU * 0.588, _AU * 0.412])
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0,0), (-1,-1), C["primary"]),
         ("VALIGN",        (0,0), (-1,-1), "TOP"),
@@ -335,7 +340,7 @@ def _tabla_datos_cliente(E, C, filas_datos):
     rows = []
     for label, valor in filas_datos:
         rows.append([Paragraph(label, E["cell"]), Paragraph(f"<b>{valor}</b>", E["cell_b"])])
-    tbl = Table(rows, colWidths=[5*cm, 12*cm], repeatRows=1)
+    tbl = Table(rows, colWidths=[_AU * 0.301, _AU * 0.699], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0,0), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
         ("TOPPADDING",     (0,0), (-1,-1), 5),
@@ -463,9 +468,12 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             Paragraph(_num(precio_sugerido_total), E["cell_br"]),
         ])
 
-    # ── MOD-4: colWidths ampliados — más espacio para descripción enriquecida ──
-    # Total = 8.0+1.5+1.5+2.5+2.5+3.0 = 19.0 cm (dentro de 17 cm de área útil)
-    tbl = Table(filas, colWidths=[8.0*cm, 1.5*cm, 1.5*cm, 2.5*cm, 2.5*cm, 3.0*cm], repeatRows=1)
+    # colWidths proporcionales al ancho maestro _AU (suma = _AU exacto)
+    # [Descripción 48% | Unid 9% | Cant 9% | Medida 15% | P.Unit 10% | Subtotal 9%]
+    tbl = Table(filas, colWidths=[
+        _AU * 0.430, _AU * 0.090, _AU * 0.090,
+        _AU * 0.150, _AU * 0.120, _AU * 0.120,
+    ], repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
         ("ROWBACKGROUNDS",(0,1),  (-1,-1), [C["zebra_a"], C["zebra_b"]]),
@@ -489,7 +497,7 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
     )
     story.append(Table(
         [[Paragraph(nota_atodocosto, E["nota_legal"])]],
-        colWidths=[17*cm],
+        colWidths=[_AU],
         style=TableStyle([
             ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#F7F9FC")),
             ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",  (0,0),(-1,-1),10),
@@ -502,7 +510,85 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
     return story
 
 
-# ── Módulo: Resumen Financiero ────────────────────────────────────────────────
+def _seccion_adicionales_alcance(E, C, adicionales_detalle, c7_adicionales):
+    """
+    BLOQUE PÁGINA 1 — Alcance del Proyecto: Servicios Adicionales Incluidos.
+    Se ubica ANTES del Despiece Técnico para que el cliente vea el alcance completo
+    antes de llegar a los precios.
+
+    adicionales_detalle: lista de dicts {"concepto": str, "valor": float}
+                         Los nombres de concepto vienen directamente de los datos
+                         del usuario (sin hardcoding) — reflejan lo que el usuario
+                         configuró en la UI de Parámetros.
+    c7_adicionales: float — suma total de los adicionales.
+    """
+    if not adicionales_detalle or not c7_adicionales or c7_adicionales <= 0:
+        return []
+
+    story = []
+    story += _seccion_header("Alcance del Proyecto: Servicios Adicionales Incluidos", E)
+
+    _s_hdr = ParagraphStyle("aaic_hdr", fontSize=7, fontName="Helvetica-Bold",
+                             leading=9, textColor=colors.HexColor("#0D2137"),
+                             letterSpacing=0.8)
+    _s_item = ParagraphStyle("aaic_item", fontSize=7.5, fontName="Helvetica",
+                              leading=10, textColor=colors.HexColor("#1C2B3A"))
+    _s_val  = ParagraphStyle("aaic_val",  fontSize=7.5, fontName="Helvetica-Bold",
+                              leading=10, textColor=colors.HexColor("#1B5FA8"),
+                              alignment=TA_RIGHT)
+    _s_tot_l = ParagraphStyle("aaic_tot_l", fontSize=7.5, fontName="Helvetica-Bold",
+                               leading=10, textColor=colors.HexColor("#1B5FA8"))
+    _s_tot_v = ParagraphStyle("aaic_tot_v", fontSize=7.5, fontName="Helvetica-Bold",
+                               leading=10, textColor=colors.HexColor("#1B5FA8"),
+                               alignment=TA_RIGHT)
+    _s_val_hdr = ParagraphStyle("aaic_val_hdr", fontSize=7, fontName="Helvetica-Bold",
+                                 leading=9, textColor=colors.HexColor("#0D2137"),
+                                 alignment=TA_RIGHT)
+
+    # Encabezado de columnas
+    filas_aa = [[
+        Paragraph("SERVICIO / ELEMENTO ADICIONAL", _s_hdr),
+        Paragraph("VALOR", _s_val_hdr),
+    ]]
+
+    # ── Iteración dinámica sobre la lista de adicionales ──────────────────────
+    # Los nombres de "concepto" vienen exactamente como el usuario los configuró
+    # en la UI — sin ningún texto fijo ni hardcodeado aquí.
+    for item in adicionales_detalle:
+        nombre = item.get("concepto") or item.get("nombre") or "Servicio adicional"
+        valor  = float(item.get("valor", 0) or 0)
+        if valor > 0:
+            filas_aa.append([
+                Paragraph(f"✔  {nombre}", _s_item),
+                Paragraph(_num(valor), _s_val),
+            ])
+
+    # Fila de total
+    filas_aa.append([
+        Paragraph("Total servicios adicionales", _s_tot_l),
+        Paragraph(_num(c7_adicionales), _s_tot_v),
+    ])
+
+    tbl_aa = Table(filas_aa, colWidths=[_AU * 0.753, _AU * 0.247])
+    tbl_aa.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0),  (-1, 0),  colors.HexColor("#EBF3FB")),
+        ("ROWBACKGROUNDS",(0, 1),  (-1, -2), [colors.HexColor("#F7FAFD"),
+                                               colors.HexColor("#FFFFFF")]),
+        ("BACKGROUND",    (0, -1), (-1, -1), colors.HexColor("#EBF3FB")),
+        ("LINEABOVE",     (0, 0),  (-1,  0), 1.5, colors.HexColor("#1B5FA8")),
+        ("LINEBELOW",     (0, -1), (-1, -1), 1.5, colors.HexColor("#1B5FA8")),
+        ("LINEBELOW",     (0, 0),  (-1, -2), 0.3, colors.HexColor("#C8D8E8")),
+        ("TOPPADDING",    (0, 0),  (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0),  (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0),  (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0),  (-1, -1), 10),
+        ("VALIGN",        (0, 0),  (-1, -1), "MIDDLE"),
+        ("BOX",           (0, 0),  (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
+    ]))
+    story.append(tbl_aa)
+    return story
+
+
 
 def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
                                  c7_adicionales=0.0, adicionales_detalle=None):
@@ -515,48 +601,7 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
     story = []
     story += _seccion_header("Resumen Financiero", E)
 
-    # ── Sub-tabla elegante de Servicios y Elementos Adicionales ─────────────
-    if adicionales_detalle and c7_adicionales and c7_adicionales > 0:
-        _s_adic_hdr = ParagraphStyle("adic_hdr_sub", fontSize=7, fontName="Helvetica-Bold",
-                                      leading=9, textColor=colors.HexColor("#0D2137"),
-                                      letterSpacing=0.8)
-        _s_adic_item = ParagraphStyle("adic_item_sub", fontSize=7.5, fontName="Helvetica",
-                                       leading=10, textColor=colors.HexColor("#1C2B3A"))
-        _s_adic_val  = ParagraphStyle("adic_val_sub", fontSize=7.5, fontName="Helvetica-Bold",
-                                       leading=10, textColor=colors.HexColor("#1B5FA8"),
-                                       alignment=TA_RIGHT)
-        filas_adic = [[
-            Paragraph("SERVICIOS Y ELEMENTOS ADICIONALES SELECCIONADOS", _s_adic_hdr),
-            Paragraph("VALOR", ParagraphStyle("adic_val_hdr",fontSize=7,fontName="Helvetica-Bold",
-                                               leading=9,textColor=colors.HexColor("#0D2137"),alignment=TA_RIGHT)),
-        ]]
-        for item in adicionales_detalle:
-            filas_adic.append([
-                Paragraph(f"• {item['concepto']}", _s_adic_item),
-                Paragraph(_num(item['valor']), _s_adic_val),
-            ])
-        filas_adic.append([
-            Paragraph("Total adicionales", ParagraphStyle("adic_tot_l",fontSize=7.5,fontName="Helvetica-Bold",
-                                                           leading=10,textColor=colors.HexColor("#1B5FA8"))),
-            Paragraph(_num(c7_adicionales), ParagraphStyle("adic_tot_v",fontSize=7.5,fontName="Helvetica-Bold",
-                                                             leading=10,textColor=colors.HexColor("#1B5FA8"),alignment=TA_RIGHT)),
-        ])
-        tbl_adic_sub = Table(filas_adic, colWidths=[12.5*cm, 4.5*cm])
-        tbl_adic_sub.setStyle(TableStyle([
-            ("BACKGROUND",    (0,0),  (-1,0),  colors.HexColor("#EBF3FB")),
-            ("ROWBACKGROUNDS",(0,1),  (-1,-2), [colors.HexColor("#F7FAFD"), colors.HexColor("#FFFFFF")]),
-            ("BACKGROUND",    (0,-1), (-1,-1), colors.HexColor("#EBF3FB")),
-            ("LINEABOVE",     (0,0),  (-1,0),  1.2, colors.HexColor("#1B5FA8")),
-            ("LINEBELOW",     (0,-1), (-1,-1), 1.2, colors.HexColor("#1B5FA8")),
-            ("LINEBELOW",     (0,0),  (-1,-2), 0.3, colors.HexColor("#C8D8E8")),
-            ("TOPPADDING",    (0,0),  (-1,-1), 5),
-            ("BOTTOMPADDING", (0,0),  (-1,-1), 5),
-            ("LEFTPADDING",   (0,0),  (-1,-1), 10),
-            ("RIGHTPADDING",  (0,0),  (-1,-1), 10),
-            ("BOX",           (0,0),  (-1,-1), 0.5, colors.HexColor("#C8D8E8")),
-        ]))
-        story.append(tbl_adic_sub)
-        story.append(Spacer(1, 6))
+    # (Los servicios adicionales se muestran en Página 1 — _seccion_adicionales_alcance)
 
     _s_adic_l = ParagraphStyle("adic_l", fontSize=8, fontName="Helvetica-Bold",
                                 leading=11, textColor=colors.HexColor("#1B5FA8"))
@@ -686,7 +731,7 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
             ("LINEBELOW",   (0,_idx_adic), (-1,_idx_adic), 1.2, colors.HexColor("#1B5FA8")),
         ]
 
-    tbl_fin = Table(filas_fin, colWidths=[12.5*cm, 4.5*cm])
+    tbl_fin = Table(filas_fin, colWidths=[_AU * 0.753, _AU * 0.247])
     tbl_fin.setStyle(TableStyle(
         _adic_styles + [
         ("ROWBACKGROUNDS", (0,0), (-1, idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
@@ -730,7 +775,7 @@ def _seccion_alcance(E, C):
     while len(col_inc)  < max_r: col_inc.append([""])
     while len(col_ninc) < max_r: col_ninc.append([""])
     rows = [[col_inc[i][0], col_ninc[i][0]] for i in range(max_r)]
-    tbl_al = Table(rows, colWidths=[8.5*cm, 8.5*cm], repeatRows=1)
+    tbl_al = Table(rows, colWidths=[_AU * 0.5, _AU * 0.5], repeatRows=1)
     tbl_al.setStyle(TableStyle([
         ("BACKGROUND",    (0,0), (-1,0),  C["header_dark"]),
         ("ROWBACKGROUNDS",(0,1), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
@@ -808,7 +853,7 @@ def _bloque_firma_cliente(E, C):
          Paragraph(linea_blanca, E["firma_campo"])],
     ]
 
-    tbl_firma = Table(filas_firma, colWidths=[5.2*cm, 11.8*cm])
+    tbl_firma = Table(filas_firma, colWidths=[_AU * 0.314, _AU * 0.686])
     tbl_firma.setStyle(TableStyle([
         ("SPAN",          (0, 0), (-1, 0)),          # título ocupa ambas columnas
         ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#EEF4FB")),
@@ -861,17 +906,21 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
         title=f"Propuesta Comercial {numero}")
 
     r = resultado
-    # Extraer c7_adicionales para discriminarlo en el Resumen Financiero
+    # ── Construir detalle de adicionales de forma dinámica ─────────────────────
+    # Se leen los nombres de concepto DIRECTAMENTE desde la lista guardada en el
+    # estado — sin ningún texto fijo. Si el usuario cambió el nombre en la UI de
+    # Parámetros, ese nombre nuevo aparecerá en el PDF.
     _c7_adicionales = float(r.get("c7_adicionales", 0) or 0)
-    # Construir detalle de adicionales desde estado guardado (para sub-tabla elegante)
     _adicionales_detalle = []
     _estado_g = r.get("_estado_guardado", {})
     if _c7_adicionales > 0 and _estado_g.get("adicionales_activos"):
-        from parametros import ADICIONALES
+        from parametros import ADICIONALES, ETAPAS_OBRA
         _cantidades_add = _estado_g.get("cantidades_add", [])
         _etapa_r        = _estado_g.get("etapa_label", "")
-        from parametros import ETAPAS_OBRA
         _etapa_val = ETAPAS_OBRA.get(_etapa_r, list(ETAPAS_OBRA.values())[0])
+        # adicionales_lista: lista guardada en el estado (puede ser la del usuario o
+        # el default de parametros). Cada elemento es un dict con clave "concepto"
+        # que contiene el nombre tal como lo configuró el usuario.
         _adic_lista = _estado_g.get("adicionales_lista", ADICIONALES)
         for i, _ad in enumerate(_adic_lista):
             _cant = float(_cantidades_add[i]) if i < len(_cantidades_add) else 0.0
@@ -879,7 +928,11 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
                 _precio_unit = _ad.get(_etapa_val, 0)
                 _valor = _cant * _precio_unit
                 if _valor > 0:
-                    _adicionales_detalle.append({"concepto": _ad.get("concepto","—"), "valor": _valor})
+                    # "concepto" es el nombre real configurado por el usuario en la UI
+                    _adicionales_detalle.append({
+                        "concepto": _ad.get("concepto", "—"),
+                        "valor": _valor,
+                    })
 
     # ══════════════════════════════════════════════════════════════════
     # PÁGINA 1 — Encabezado · Datos del Cliente · Despiece Técnico
@@ -893,7 +946,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(Table([[Paragraph(
         f"Fecha: {_hoy().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}",
         ParagraphStyle("badge",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
-    )]], colWidths=[17*cm], style=TableStyle([
+    )]], colWidths=[_AU], style=TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
         ("TOPPADDING",  (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),4),
         ("LEFTPADDING", (0,0),(-1,-1), 10),
@@ -929,8 +982,15 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
 
-    # ③ DESPIECE TÉCNICO
+    # ③ SERVICIOS ADICIONALES (si hay) — Página 1, antes del Despiece
+    #    Permite al cliente ver el alcance completo antes de ver los precios
+    if _adicionales_detalle and _c7_adicionales > 0:
+        story.append(Spacer(1, 7))
+        story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
+
+    # ④ DESPIECE TÉCNICO
     precio_sugerido_total = r.get("precio_sugerido", 0)
+    story.append(Spacer(1, 7))
     story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
 
     # ③b INCLUYE / NO INCLUYE — en Página 1 para llenarla de valor
@@ -954,7 +1014,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story += fin_story
     valor_letras = _numero_a_letras(int(round(precio_final_doc)))
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
-        colWidths=[17*cm], style=TableStyle([
+        colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
@@ -1018,7 +1078,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         f"Fecha: {_hoy().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  "
         "Tipo: AIU — Administración, Imprevistos y Utilidad",
         ParagraphStyle("badge2",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
-    )]], colWidths=[17*cm], style=TableStyle([
+    )]], colWidths=[_AU], style=TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
         ("TOPPADDING",  (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),4),
         ("LEFTPADDING", (0,0),(-1,-1), 10),
@@ -1076,7 +1136,9 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         Paragraph("", E["cell_c"]), Paragraph("", E["cell_c"]), Paragraph("", E["cell_c"]),
         Paragraph(_num(cd), E["subtotal_v"]),
     ])
-    tbl_cd = Table(cd_filas, colWidths=[7.8*cm, 1.3*cm, 1.5*cm, 3*cm, 3.4*cm], repeatRows=1)
+    tbl_cd = Table(cd_filas, colWidths=[
+        _AU * 0.470, _AU * 0.078, _AU * 0.090, _AU * 0.181, _AU * 0.181,
+    ], repeatRows=1)
     tbl_cd.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
         ("ROWBACKGROUNDS",(0,1),  (-1,-2), [C["zebra_a"], C["zebra_b"]]),
@@ -1145,7 +1207,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     s_log_val = ParagraphStyle("s_log_val", fontSize=7.5, fontName="Helvetica",
                                 leading=9,  textColor=C["gray"], alignment=TA_RIGHT)
 
-    COL_W = [10.5*cm, 2*cm, 4.5*cm]  # [Concepto | % | Valor]
+    COL_W = [_AU * 0.633, _AU * 0.121, _AU * 0.247]  # [Concepto | % | Valor] — suma = _AU
 
     # ── BLOQUE 1: COSTO DIRECTO (CD) ─────────────────────────────────────────
     tbl_cd_hdr = Table([[
@@ -1252,7 +1314,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
 
     valor_letras = _numero_a_letras(int(round(precio_total)))
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
-        colWidths=[17*cm], style=TableStyle([
+        colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
@@ -1375,7 +1437,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
             )
 
     story += _seccion_header("Descripcion del Servicio / Concepto", E)
-    tbl_serv = Table([[Paragraph(descripcion_servicio, E["cell"])]], colWidths=[17*cm])
+    tbl_serv = Table([[Paragraph(descripcion_servicio, E["cell"])]], colWidths=[_AU])
     tbl_serv.setStyle(TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
         ("TOPPADDING",  (0,0),(-1,-1), 8), ("BOTTOMPADDING",(0,0),(-1,-1),8),
@@ -1412,7 +1474,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         ]
         idx_ant, idx_tot = 1, 3
 
-    tbl_val = Table(filas_val, colWidths=[12.5*cm, 4.5*cm])
+    tbl_val = Table(filas_val, colWidths=[_AU * 0.753, _AU * 0.247])
     tbl_val.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0,0), (-1,idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
         ("BACKGROUND",     (0,idx_ant), (-1,idx_ant), C["anticipo_bg"]),
@@ -1427,7 +1489,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
 
     valor_letras = _numero_a_letras(int(round(valor_anticipo)))
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
-        colWidths=[17*cm], style=TableStyle([
+        colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
@@ -1453,7 +1515,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     )
     story.append(Table(
         [[Paragraph(_nota_tributaria, E["nota_legal"])]],
-        colWidths=[17*cm],
+        colWidths=[_AU],
         style=TableStyle([
             ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FFF9EC")),
             ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",  (0,0),(-1,-1),10),
@@ -1468,7 +1530,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         Table([[Paragraph("_" * 40, E["cell"])],[Paragraph(datos_prestador.get("nombre",""), E["aviso"])],[Paragraph("Firma del Prestador", E["aviso"])]]),
         "",
         Table([[Paragraph("_" * 35, E["cell"])],[Paragraph("", E["aviso"])],[Paragraph("Sello / Firma del Pagador", E["aviso"])]]),
-    ]], colWidths=[8*cm, 1.5*cm, 7.5*cm])
+    ]], colWidths=[_AU * 0.482, _AU * 0.090, _AU * 0.428])
     firma.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),10),("VALIGN",(0,0),(-1,-1),"BOTTOM")]))
     story.append(firma)
     story.append(Spacer(1, 7))
