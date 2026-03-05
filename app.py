@@ -1299,6 +1299,8 @@ def _sp_init():
         "cdir_adicionales_activos": False,
         "cdir_cantidades_add": [],
         "cdir_incluir_iva": True,
+        "cdir_perfil_desperdicio": "🟡 Normal — algunos ángulos o esquinas",
+        "cdir_km_rango": "0-5 km",
         # ── Cotización AIU ───────────────────────────────────────────────────
         "aiu_paso": 0,
         "aiu_items": [
@@ -1350,6 +1352,8 @@ def _sp_init():
         sp["cdir_adicionales_activos"] = _pre.get("adicionales_activos", sp["cdir_adicionales_activos"])
         sp["cdir_cantidades_add"]      = _pre.get("cantidades_add", sp["cdir_cantidades_add"])
         sp["cdir_incluir_iva"]         = _pre.get("incluir_iva", sp["cdir_incluir_iva"])
+        sp["cdir_perfil_desperdicio"]  = _pre.get("perfil_desperdicio", sp["cdir_perfil_desperdicio"])
+        sp["cdir_km_rango"]            = _pre.get("km_rango", sp["cdir_km_rango"])
 
     # ── Precargar tarifas/logística/viáticos desde sesión ────────────────────
     if st.session_state.get("tarifas_custom"):
@@ -1413,6 +1417,8 @@ def _sp_commit_borrador():
         "cantidades_add":      sp.get("cdir_cantidades_add", []),
         "incluir_iva":         sp.get("cdir_incluir_iva", True),
         "cdir_paso":           sp.get("cdir_paso", 0),
+        "perfil_desperdicio":  sp.get("cdir_perfil_desperdicio", "🟡 Normal — algunos ángulos o esquinas"),
+        "km_rango":            sp.get("cdir_km_rango", "0-5 km"),
     }
     # ── Sync bidireccional: mantener pre en sincronía con el store ────────────
     st.session_state.pre = _snapshot
@@ -1531,6 +1537,17 @@ def _cb_cdir_agente_externo():
 
 def _cb_cdir_vehiculo_km():
     _sp_set("cdir_km", st.session_state.get("cb_cdir_km", 5.0))
+
+
+def _cb_cdir_km_rango():
+    """Callback: al cambiar el pills de rango de km, actualiza cdir_km al promedio del rango
+    y guarda el rango seleccionado para que el number_input se sincronice mágicamente."""
+    _rango = st.session_state.get("p3_km_pills_cb")
+    if _rango is None:
+        return
+    _km_defaults = {"0-5 km": 3.0, "5-15 km": 10.0, "15-30 km": 22.0, "30-60 km": 45.0, "60+ km": 80.0}
+    _sp_set("cdir_km_rango", _rango)
+    _sp_set("cdir_km", float(_km_defaults.get(_rango, _sp().get("cdir_km", 5.0))))
     _sp_commit_borrador()
 
 def _cb_cdir_peajes():
@@ -1551,6 +1568,14 @@ def _cb_cdir_tipo_aloj():
 
 def _cb_cdir_noches():
     _sp_set("cdir_noches", st.session_state.get("cb_cdir_noches", 0))
+
+
+def _cb_cdir_perfil_desperdicio():
+    """Callback: persiste el perfil de desperdicio en store_permanente para que no se
+    resetee al cambiar de pestaña o al repintar la página."""
+    _val = st.session_state.get("perfil_desperdicio_radio")
+    if _val is not None:
+        _sp_set("cdir_perfil_desperdicio", _val)
     _sp_commit_borrador()
 
 def _cb_cdir_adicionales_activos():
@@ -3337,8 +3362,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 "🔴 Complejo — curvas, biselados, figuras":  ("complejo", 0.22),
                 "✏️ Personalizado":                          ("custom",   None),
             }
-            # Fix 2: Persistencia — restaurar selección previa desde session_state
-            _perfil_guardado = pre.get("perfil_desperdicio", "")
+            # Fix 2: Persistencia — restaurar selección previa desde store_permanente (sobrevive a cambio de pestaña)
+            _perfil_guardado = _sp().get("cdir_perfil_desperdicio") or pre.get("perfil_desperdicio", "")
             _perfil_idx_default = 1  # "Normal" por defecto
             if _perfil_guardado:
                 for _idx_p, _key_p in enumerate(list(perfil_opciones.keys())):
@@ -3347,9 +3372,14 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         break
             perfil_sel = st.radio(
                 "Perfil de corte", list(perfil_opciones.keys()), index=_perfil_idx_default,
-                key="perfil_desperdicio_radio", label_visibility="collapsed"
+                key="perfil_desperdicio_radio", label_visibility="collapsed",
+                on_change=_cb_cdir_perfil_desperdicio,
             )
-            # Fix 2: guardar inmediatamente para que persista al cambiar de pestaña
+            # Fix 2: prevenir None y guardar inmediatamente en store_permanente y pre
+            if perfil_sel is None:
+                perfil_sel = list(perfil_opciones.keys())[_perfil_idx_default]
+            if _sp().get("cdir_perfil_desperdicio") != perfil_sel:
+                _sp_set("cdir_perfil_desperdicio", perfil_sel)
             if st.session_state.pre.get("perfil_desperdicio") != perfil_sel:
                 st.session_state.pre = {**st.session_state.pre, "perfil_desperdicio": perfil_sel}
                 pre = st.session_state.pre
@@ -3470,26 +3500,24 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 # Distancia — opciones comunes + personalizado
                 _km_opts = ["0-5 km", "5-15 km", "15-30 km", "30-60 km", "60+ km"]
                 _km_pre  = float(pre.get("km", 5.0))
-                _km_pre_s = (
+                # Fix 3: Leer rango guardado en store_permanente para persistencia
+                _km_rango_stored = _sp().get("cdir_km_rango", None)
+                _km_pre_s = _km_rango_stored if _km_rango_stored in _km_opts else (
                     "0-5 km"   if _km_pre <= 5 else
                     "5-15 km"  if _km_pre <= 15 else
                     "15-30 km" if _km_pre <= 30 else
                     "30-60 km" if _km_pre <= 60 else "60+ km"
                 )
-                _km_rango = st.pills("Distancia al destino", _km_opts, default=_km_pre_s, key="p3_km_pills")
+                # Fix 3: key especial para el callback on_change del pills de km
+                _km_rango = st.pills(
+                    "Distancia al destino", _km_opts, default=_km_pre_s,
+                    key="p3_km_pills_cb",
+                    on_change=_cb_cdir_km_rango,
+                )
                 _km_rango = _km_rango if _km_rango else _km_pre_s  # Fix 1: prevenir None
                 _km_defaults = {"0-5 km": 3, "5-15 km": 10, "15-30 km": 22, "30-60 km": 45, "60+ km": 80}
-                # Fix 3: Sincronización — cuando cambia el rango, actualizar km_exactos
-                _km_promedio_rango = float(_km_defaults.get(_km_rango, _km_pre))
-                _km_stored = float(_sp().get("cdir_km", _km_pre))
-                # Si el rango cambió y el km almacenado no corresponde al rango actual, usar promedio
-                _km_stored_rango = (
-                    "0-5 km"   if _km_stored <= 5 else
-                    "5-15 km"  if _km_stored <= 15 else
-                    "15-30 km" if _km_stored <= 30 else
-                    "30-60 km" if _km_stored <= 60 else "60+ km"
-                )
-                _km_val_init = _km_promedio_rango if _km_stored_rango != _km_rango else _km_stored
+                # Fix 3: El km exacto se lee siempre desde store_permanente (actualizado por el callback)
+                _km_val_init = float(_sp().get("cdir_km", _km_defaults.get(_km_rango, _km_pre)))
                 km = st.number_input(
                     "Km exactos (un trayecto)", min_value=0.0,
                     value=_km_val_init,
