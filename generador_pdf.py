@@ -834,6 +834,11 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
         "Los precios cotizados son válidos durante el período indicado en el encabezado. "
         "El prestador se reserva el derecho de ajustar precios por variación superior al 5% "
         "en los materiales durante el período de validez.",
+        "Modelo de Obra Terminada: La presente cotización ampara exclusivamente el suministro, "
+        "fabricación e instalación de las piezas a medida detalladas en el alcance. El valor "
+        "facturado corresponde al producto final instalado. Por consiguiente, cualquier remanente, "
+        "retal o sobrante de material resultante del proceso de corte y optimización es de "
+        "propiedad exclusiva de la empresa y no forma parte de los entregables al cliente.",
         "Barranquilla, Colombia.",
     ]
 
