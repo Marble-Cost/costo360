@@ -3985,6 +3985,33 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         except Exception:
             pass
 
+        # ── Estrategia de Cobro de Material ──────────────────────────
+        # Controla si el material se cobra sobre la placa total comprada
+        # o solo sobre el área neta de las piezas + merma técnica.
+        # La selección dispara un recálculo inmediato al cambiar.
+        _opciones_estrategia = [
+            "Placa Completa (Tradicional)",
+            "Producto Terminado (Optimizado)",
+        ]
+        _estrategia_lbl = st.radio(
+            "⚖️ Estrategia de Cobro de Material",
+            _opciones_estrategia,
+            index=0,
+            horizontal=True,
+            key="cdir_estrategia_precio",
+            help=(
+                "**Placa Completa:** cobra el área total de lámina comprada al proveedor. "
+                "**Producto Terminado:** cobra solo el área neta de las piezas + merma técnica real. "
+                "El retal sobrante queda a favor del taller."
+            ),
+        )
+        _estrategia_val = (
+            "optimizado" if "Optimizado" in _estrategia_lbl else "placa_completa"
+        )
+        # Forzar recálculo si la estrategia cambió respecto al último resultado
+        if st.session_state.cotizacion and                 st.session_state.cotizacion.get("estrategia_precio") != _estrategia_val:
+            st.session_state["_recalcular_paso4"] = True
+
         # ── Spinner de cálculo ────────────────────────────────────────
         if not st.session_state.cotizacion or st.session_state.get("_recalcular_paso4"):
             with st.spinner("Calculando costos..."):
@@ -4011,6 +4038,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     # Innovación 6: constructor de viáticos granular
                     incluir_hospedaje=bool(pre.get("incluir_hospedaje", True)),
                     tipo_alimentacion=pre.get("tipo_alimentacion", "completa"),
+                    # Innovación 8: Doble Estrategia de Precio
+                    estrategia_precio=_estrategia_val,
                 )
                 resultado["_estado_guardado"] = _pre_snapshot
                 resultado["incluir_iva"]      = incluir_iva
@@ -4042,6 +4071,17 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
           </div>
           {"" if not _iva_act else f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.2)"><span style="color:#C9A84C;font-weight:700">+ IVA 19%: {numero_completo(_iva_mont)}</span> &nbsp;→&nbsp; <span style="font-weight:900">Total: {numero_completo(_pf)}</span></div>'}
         </div>""", unsafe_allow_html=True)
+
+        # ── Banner Retal Optimizado (solo visible en app, nunca en PDF) ──
+        _gan_retal = r.get("ganancia_oculta_retal", 0.0)
+        if r.get("estrategia_precio") == "optimizado" and _gan_retal > 0:
+            st.success(
+                f"💰 **Optimización aplicada:** Al cobrar como Producto Terminado, "
+                f"el sistema apartó un retal a favor del taller avaluado en "
+                f"**{numero_completo(_gan_retal)} COP** "
+                f"({fmt_m2(r.get('retal', 0.0))} de material que queda en inventario).",
+                icon="🪨",
+            )
 
         # ── Resultados en dos columnas ────────────────────────────────
         col_izq, col_der = st.columns([1.2, 1])
