@@ -994,12 +994,12 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
 
-    # ③ ALCANCE DEL PROYECTO: Servicios Adicionales — SIEMPRE visible en Página 1
-    #    Ubicado DESPUÉS de Datos del Cliente y ANTES del Despiece Técnico.
-    #    Si no hay adicionales, muestra mensaje "No se seleccionaron servicios adicionales."
-    #    CERO hardcoding — nombres vienen exclusivamente de la configuración del usuario.
-    story.append(Spacer(1, 7))
-    story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
+    # ③ ALCANCE DEL PROYECTO: Servicios Adicionales — visible SOLO si hay adicionales
+    #    Oculta la sección por completo cuando c7_adicionales == 0,
+    #    produciendo un PDF más limpio sin tablas vacías.
+    if _c7_adicionales > 0:
+        story.append(Spacer(1, 7))
+        story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
 
     # ④ DESPIECE TÉCNICO
     precio_sugerido_total = r.get("precio_sugerido", 0)
