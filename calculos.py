@@ -362,19 +362,54 @@ def calcular_cotizacion_directa(
     adicionales_lista: list,
     tipo_proyecto: str = "",
     nombre_cliente: str = "",
+    estrategia_precio: str = "placa_completa",   # "placa_completa" | "optimizado"
     **kwargs,
 ) -> dict:
     _tarifas_src = kwargs.get("tarifas_override") or TARIFAS
     tar = _tarifas_src.get(categoria, TARIFAS["Mármol"])
 
-    # ── ① Costo del material (Corregido Multi-material) ───────────────────────
+    # ── ① Costo del material — Motor de Doble Estrategia ─────────────────────
+    # PLACA COMPLETA (tradicional): cobra el área total de placa comprada al proveedor.
+    # OPTIMIZADO (producto terminado): cobra solo el área neta de las piezas + su
+    # merma técnica real por material. El excedente queda como retal del taller.
     materiales_lista = kwargs.get("materiales_lista", [])
+    piezas_temp      = kwargs.get("piezas", [])   # leído aquí para el bloque ①; reasignado en ②
 
+    # ── Rama PLACA COMPLETA ────────────────────────────────────────────────────
     if materiales_lista:
-        # Suma iterada de (Área comprada × Precio) de cada material individual
-        costo_material = sum(float(m.get("area_placa", 0)) * float(m.get("precio_m2", 0)) for m in materiales_lista)
+        costo_material_placa_completa = sum(
+            float(m.get("area_placa", 0)) * float(m.get("precio_m2", 0))
+            for m in materiales_lista
+        )
     else:
-        costo_material = precio_m2 * area_placa_comprada
+        costo_material_placa_completa = precio_m2 * area_placa_comprada
+
+    # ── Rama OPTIMIZADO ───────────────────────────────────────────────────────
+    # Área neta por pieza × (1 + merma_base del material) × precio_m2 del material.
+    # Si no hay piezas detalladas, cae al modo placa_completa como salvaguarda.
+    if estrategia_precio == "optimizado" and piezas_temp:
+        costo_material_optimizado = 0.0
+        for _p in piezas_temp:
+            _cat_p   = _p.get("categoria", categoria)
+            _props_p = PROPIEDADES_MATERIAL.get(_cat_p, PROPIEDADES_MATERIAL.get(categoria, {}))
+            _merma_p = float(_props_p.get("merma_base", 0.08))
+            _largo_p = float(_p.get("ml", float(_p.get("largo", 0.0)) * int(_p.get("cantidad", 1))))
+            _ancho_p = float(_p.get("ancho_custom", _p.get("ancho", 0.60)))
+            _area_p  = _largo_p * _ancho_p
+            # Precio del material: busca en materiales_lista por categoría, fallback a precio_m2 global
+            _pm2_p   = precio_m2  # default
+            if materiales_lista:
+                for _m in materiales_lista:
+                    if _m.get("cat", _m.get("categoria", "")) == _cat_p:
+                        _pm2_p = float(_m.get("precio_m2", precio_m2))
+                        break
+            costo_material_optimizado += _area_p * (1.0 + _merma_p) * _pm2_p
+        costo_material = costo_material_optimizado
+    else:
+        costo_material = costo_material_placa_completa
+
+    # Ganancia oculta: diferencia que queda en el taller como retal rentable
+    ganancia_oculta_retal = max(0.0, costo_material_placa_completa - costo_material)
 
     # ── ② Producción ──────────────────────────────────────────────────────────
     # ARQUITECTURA DUAL ML vs m²:
@@ -603,6 +638,10 @@ def calcular_cotizacion_directa(
         # Retal
         "aprovechamiento":   aprovechamiento,
         "retal":             retal,
+        # Doble Estrategia de Precio
+        "estrategia_precio":         estrategia_precio,
+        "ganancia_oculta_retal":     ganancia_oculta_retal,
+        "costo_material_placa_completa": costo_material_placa_completa,
         # Peso y merma
         "peso_carga_kg":     peso_carga_kg,
         "merma_info":        _merma_info,
