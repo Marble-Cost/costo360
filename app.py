@@ -664,6 +664,18 @@ def _stats_retales(usuario_id=None, rol="Admin") -> dict:
     }
 
 def _chat_parametros(historial: list, mensaje: str) -> str:
+    """
+    IA Autónoma Ejecutora (Innovación 4).
+
+    El prompt de sistema ahora instruye explícitamente a la IA para que,
+    cuando el usuario confirme un cambio, devuelva un JSON estructurado
+    con la clave especial "__accion__" que el interceptor de app.py
+    procesa automáticamente para actualizar session_state sin acción manual.
+
+    Claves del JSON reconocidas por el interceptor:
+      __accion__ : "actualizar_tarifas" | "actualizar_logistica" | "actualizar_viaticos"
+      datos      : dict con los valores nuevos en la estructura de TARIFAS / LOGISTICA / VIATICOS
+    """
     try:
         import anthropic
         api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
@@ -678,22 +690,61 @@ CONTEXTO DEL MERCADO (Feb 2026, Barranquilla):
 - Hospedaje pueblo: $55.000–$70.000/noche | Ciudad: $80.000–$100.000/noche
 - Alimentación diaria: $60.000–$75.000/persona
 
-REGLAS:
+REGLAS DE RESPUESTA:
 - Responde en español colombiano directo, máximo 3 oraciones.
-- Si el usuario menciona un precio nuevo, confírmalo antes de aplicar y pregunta si desea actualizar.
-- Si el usuario confirma el cambio (dice "sí", "aplica", "actualiza", "correcto", etc.), 
-  incluye AL FINAL un bloque ```json con los valores a actualizar.
-- Para TARIFAS: usa estructura {Material: {prod_ml, zocalo, disco, maquina, consumibles, riesgo_rotura}}
-- Para VIATICOS: usa estructura {pueblo: {hospedaje, alimentacion, transporte_local}, ciudad: {...}}
-- Nunca incluyas el JSON si el usuario no ha confirmado el cambio.
-- No uses emojis.
-- Sé directo: da números concretos basados en el mercado de Barranquilla."""
+- Si el usuario menciona un precio nuevo, confírmalo y pregunta si desea actualizar.
+- Si el usuario CONFIRMA el cambio (dice "sí", "aplica", "actualiza", "correcto", "dale", etc.),
+  incluye AL FINAL un bloque ```json con la siguiente estructura EXACTA:
+
+  Para actualizar TARIFAS de producción:
+  {"__accion__": "actualizar_tarifas", "datos": {"Material": {"prod_ml": N, "zocalo": N, "disco": N, "maquina": N}}}
+
+  Para actualizar LOGÍSTICA (gasolina, peaje, etc.):
+  {"__accion__": "actualizar_logistica", "datos": {"gasolina": N, "peaje": N}}
+
+  Para actualizar VIÁTICOS:
+  {"__accion__": "actualizar_viaticos", "datos": {"pueblo": {"hospedaje": N, "alimentacion": N, "transporte_local": N}, "ciudad": {...}}}
+
+- NUNCA incluyas el JSON si el usuario no ha confirmado el cambio.
+- NUNCA incluyas texto después del bloque ```json.
+- No uses emojis. Sé directo: usa números concretos del mercado de Barranquilla."""
         messages = [{"role": m["role"], "content": m["content"]} for m in historial]
         messages.append({"role": "user", "content": mensaje})
-        response = client.messages.create(model="claude-sonnet-4-6", max_tokens=600, system=SYSTEM_PARAMS, messages=messages)
+        response = client.messages.create(model="claude-sonnet-4-6", max_tokens=700, system=SYSTEM_PARAMS, messages=messages)
         return response.content[0].text
     except Exception as e:
         return f"Error: {str(e)}"
+
+
+def _interceptar_accion_ia(respuesta_ia: str) -> dict | None:
+    """
+    Innovación 4 — Interceptor de JSON de IA Autónoma.
+
+    Extrae el JSON de la respuesta de _chat_parametros y retorna:
+      {"accion": str, "datos": dict, "campo": str}
+    o None si no hay JSON válido.
+
+    La UI de Parámetros llama esta función y aplica el cambio directamente
+    en st.session_state sin que el usuario tenga que hacer nada más.
+    """
+    if "```json" not in respuesta_ia:
+        return None
+    try:
+        raw = respuesta_ia.split("```json")[1].split("```")[0].strip()
+        parsed = json.loads(raw)
+        accion = parsed.get("__accion__", "")
+        datos  = parsed.get("datos", parsed)   # compatibilidad con formato legacy
+        if not accion:
+            # Formato legacy: intentar detectar por las llaves del JSON
+            if any(k in datos for k in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]):
+                accion = "actualizar_tarifas"
+            elif any(k in datos for k in ["pueblo", "ciudad"]):
+                accion = "actualizar_viaticos"
+            elif any(k in datos for k in ["gasolina", "peaje", "herram"]):
+                accion = "actualizar_logistica"
+        return {"accion": accion, "datos": datos} if accion else None
+    except Exception:
+        return None
 
 
 # SISTEMA DE AUTENTICACIÓN — Token UUID4 + PostgreSQL + PBKDF2-SHA256
@@ -1625,18 +1676,32 @@ def _sp_agregar_pieza():
     piezas = list(_sp().get("cdir_piezas", []))
     piezas.append({"nombre": f"Pieza {len(piezas)+1}",
                    "ml": 1.0, "ml_unitario": 1.0, "cantidad": 1,
-                   "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60})
+                   "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60,
+                   # Zócalo geométrico — desactivado por defecto
+                   "zoc_trasero": False, "zoc_izq": False, "zoc_der": False})
     _sp_set("cdir_piezas", piezas)
     st.session_state.piezas = piezas
     _sp_commit_borrador()
 
 def _sp_eliminar_pieza(idx: int):
-    """Elimina una pieza y persiste en BD de inmediato."""
+    """Elimina una pieza y persiste en BD de inmediato.
+    También limpia los keys de session_state de los widgets de esa pieza
+    (inputs de nombre, tipo, ml, ancho, cantidad, zócalo) para que Streamlit
+    no recicle valores de la pieza eliminada en las filas desplazadas.
+    """
     piezas = list(_sp().get("cdir_piezas", []))
     if len(piezas) > 1 and 0 <= idx < len(piezas):
         piezas.pop(idx)
         _sp_set("cdir_piezas", piezas)
         st.session_state.piezas = piezas
+        # Limpiar todos los keys de widget asociados a la pieza eliminada
+        _keys_pieza = [
+            f"pnom_{idx}", f"ptip_{idx}", f"pml_{idx}", f"pcant_{idx}",
+            f"panc_{idx}", f"pcustom_{idx}",
+            f"zoc_t_{idx}", f"zoc_i_{idx}", f"zoc_d_{idx}",
+        ]
+        for _k in _keys_pieza:
+            st.session_state.pop(_k, None)
         _sp_commit_borrador()
 
 def _sp_sync_piezas(piezas_nuevas: list):
@@ -2490,7 +2555,7 @@ elif pagina == "Cotizacion Directa":
             _items = [
                 ("Material",    r["c1_material"]),
                 ("Producción",  r["c2_mano_obra"]),
-                ("Zócalos",     r["c3_zocalos"]),
+                ("Zócalos",     r["c3_zocalos"]),  # ML: r.get("zocalo_ml_efectivo", 0)
                 ("Insumos",     r["c4_insumos"]),
                 ("Logística",   r["c5_logistica"]),
                 ("Viáticos",    r["c6_viaticos"]),
@@ -3170,7 +3235,46 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         unsafe_allow_html=True,
                     )
 
-                # Guardar pieza con nombre_personalizado actualizado desde el widget
+                # ── Submódulo: Zócalo Geométrico por pieza ────────────────
+                # Calcula automáticamente los ML de zócalo según los lados
+                # seleccionados — elimina el campo global "Total ML de Zócalo".
+                with st.expander("📐 Zócalos para esta pieza", expanded=False):
+                    st.caption(
+                        f"Selecciona los lados de **'{nombre_p or f'Pieza {idx+1}'}'** "
+                        f"que llevan zócalo. La app sumará los metros automáticamente."
+                    )
+                    _zoc_c1, _zoc_c2, _zoc_c3 = st.columns(3)
+                    with _zoc_c1:
+                        _zoc_t = st.checkbox(
+                            f"Trasero ({ml_p:.2f} m)",
+                            value=bool(pieza.get("zoc_trasero", False)),
+                            key=f"zoc_t_{idx}",
+                            help=f"Lado trasero = largo de la pieza × cantidad ({ml_efectivo:.2f} ml total)",
+                        )
+                    with _zoc_c2:
+                        _zoc_i = st.checkbox(
+                            f"Lateral Izq. ({ancho_p:.2f} m)",
+                            value=bool(pieza.get("zoc_izq", False)),
+                            key=f"zoc_i_{idx}",
+                            help=f"Lateral izquierdo = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
+                        )
+                    with _zoc_c3:
+                        _zoc_d = st.checkbox(
+                            f"Lateral Der. ({ancho_p:.2f} m)",
+                            value=bool(pieza.get("zoc_der", False)),
+                            key=f"zoc_d_{idx}",
+                            help=f"Lateral derecho = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
+                        )
+                    # Preview en tiempo real del aporte de esta pieza
+                    _ml_zoc_pieza = (
+                        (ml_p * cantidad_p if _zoc_t else 0.0) +
+                        (ancho_p * cantidad_p if _zoc_i else 0.0) +
+                        (ancho_p * cantidad_p if _zoc_d else 0.0)
+                    )
+                    if _ml_zoc_pieza > 0:
+                        st.caption(f"↳ Zócalo de esta pieza: **{_ml_zoc_pieza:.2f} ml**")
+
+                # Guardar pieza con nombre_personalizado + checkboxes de zócalo
                 _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
                 piezas_nuevas.append({
                     "nombre":              nombre_p,
@@ -3180,6 +3284,10 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     "ancho_tipo":          ancho_tipo_p,
                     "ancho_custom":        ancho_p,
                     "nombre_personalizado": _nom_personalizado,
+                    # Checkboxes de zócalo geométrico
+                    "zoc_trasero":         _zoc_t,
+                    "zoc_izq":             _zoc_i,
+                    "zoc_der":             _zoc_d,
                 })
 
         # Sync piezas to store_permanente (event-driven — persists across navigation)
@@ -3196,12 +3304,20 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         with _col_tot:
             if m2_real > 0:
                 _ml_total = sum(p.get("ml",0) for p in st.session_state.piezas)  # ya es ml efectivo (unitario × cantidad)
+                # ── Calcular total de zócalo en tiempo real para mostrar en el totalizador ──
+                from calculos import calcular_zocalo_geometrico as _czg_p1
+                _ml_zoc_total = _czg_p1(piezas_nuevas)
+                _zoc_badge = (
+                    f"<div style='font-size:0.75rem;margin-top:4px;opacity:0.75'>"
+                    f"📐 Zócalo: <strong>{_ml_zoc_total:.2f} ml</strong></div>"
+                ) if _ml_zoc_total > 0 else ""
                 st.markdown(
                     f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
                     border-radius:10px;padding:12px 18px;text-align:center">
                     <div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total</div>
                     <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{fmt_ml(_ml_total)}</div>
                     <div style="font-size:0.85rem;opacity:0.7">{fmt_m2(m2_real)} de material</div>
+                    {_zoc_badge}
                     </div>''', unsafe_allow_html=True)
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -3325,21 +3441,34 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
-        # ── Zócalos ──────────────────────────────────────────────────
-        st.markdown("**¿El proyecto lleva zócalos?**")
-        zocalo_activo = st.toggle("Sí, incluir zócalos", value=pre.get("zocalo_activo", False), key="cdir_zocalo_activo")
-        zocalo_ml = 0.0
-        if zocalo_activo:
-            _zoc_opts = ["1 ml", "2 ml", "3 ml", "4 ml", "5 ml", "Otro"]
-            _zoc_pre  = float(pre.get("zocalo_ml", 2.0))
-            _zoc_pre_s = f"{int(_zoc_pre)} ml" if f"{int(_zoc_pre)} ml" in _zoc_opts else "Otro"
-            _zoc_sel  = st.pills("Metros de zócalo", _zoc_opts, default=_zoc_pre_s, key="p2_zocalo_pills")
-            _zoc_sel  = _zoc_sel if _zoc_sel else _zoc_pre_s  # Fix 1: prevenir None
-            if _zoc_sel == "Otro" or _zoc_sel is None:
-                zocalo_ml = st.number_input("Metros lineales de zócalo", min_value=0.0,
-                                             value=_zoc_pre, step=0.5, key="cdir_zocalo_ml")
-            else:
-                zocalo_ml = float(_zoc_sel.replace(" ml",""))
+        # ── Zócalos — Resumen geométrico automático ─────────────────
+        # Los zócalos ya se configuran por pieza en el Paso 1 (checkboxes geométricos).
+        # Aquí solo se muestra el resumen calculado automáticamente.
+        from calculos import calcular_zocalo_geometrico as _czg
+        _piezas_p2      = st.session_state.get("piezas", pre.get("piezas", []))
+        _zocalo_ml_auto = _czg(_piezas_p2)
+        # Variables legacy para retrocompatibilidad con el pre y el paso 4
+        zocalo_activo   = _zocalo_ml_auto > 0
+        zocalo_ml       = _zocalo_ml_auto
+
+        if _zocalo_ml_auto > 0:
+            _piezas_con_zoc = [
+                p for p in _piezas_p2
+                if p.get("zoc_trasero") or p.get("zoc_izq") or p.get("zoc_der")
+            ]
+            st.info(
+                f"📐 **Zócalos del proyecto: {_zocalo_ml_auto:.2f} ml** — "
+                f"calculados automáticamente desde {len(_piezas_con_zoc)} "
+                f"pieza{'s' if len(_piezas_con_zoc) != 1 else ''}. "
+                f"Para editar, vuelve al **Paso 1** y ajusta los checkboxes de cada pieza.",
+                icon=None,
+            )
+        else:
+            st.markdown(
+                "<div style='font-size:0.85rem;opacity:0.55;margin-bottom:4px'>"
+                "📐 Sin zócalos — actívalos en el Paso 1 dentro de cada pieza.</div>",
+                unsafe_allow_html=True,
+            )
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
@@ -3527,19 +3656,25 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 )
 
             with _lk2:
-                # Peajes — segmented control 0-4+
-                _pj_opts = ["0", "1", "2", "3", "4+"]
+                # ── Innovación 7: Peajes Exactos ─────────────────────────────
+                # Se reemplaza el "peaje promedio" por dos inputs:
+                # cantidad de peajes × costo unitario = costo exacto de la ruta.
                 _pj_pre  = int(pre.get("peajes", 0))
-                # FIX-1: garantizar que el default exista en la lista de opciones
-                _pj_pre_s = str(_pj_pre) if str(_pj_pre) in _pj_opts else ("4+" if _pj_pre > 3 else _pj_opts[0])
-                _pj_sel  = st.pills("Peajes ida+vuelta", _pj_opts, default=_pj_pre_s, key="p3_peajes_pills")
-                _pj_sel  = _pj_sel if _pj_sel else _pj_pre_s  # Fix 1: prevenir None
-                if _pj_sel == "4+" or _pj_sel is None:
-                    peajes = st.number_input("Peajes (exacto)", min_value=0, value=_pj_pre, step=1, key="p3_peajes_custom")
-                else:
-                    peajes = int(_pj_sel)
+                _cpu_pre = float(pre.get("costo_peaje_unitario", 0.0))
+                peajes = st.number_input(
+                    "Cantidad de peajes (ida y vuelta)",
+                    min_value=0, value=_pj_pre, step=1, key="p3_peajes_cantidad",
+                    help="Cuente todos los peajes que paga en la ruta completa (ida + vuelta)."
+                )
+                costo_peaje_unitario = st.number_input(
+                    "Costo por peaje ($COP)",
+                    min_value=0, value=int(_cpu_pre), step=500, key="p3_costo_peaje_unit",
+                    help="Ingresa el valor cobrado en cada caseta. Ej: $19.500 en Galapa."
+                )
+                if peajes > 0 and costo_peaje_unitario > 0:
+                    st.caption(f"💰 Total peajes: **${peajes * costo_peaje_unitario:,.0f}** ({peajes} × ${costo_peaje_unitario:,.0f})".replace(",", "."))
 
-        # ── Foráneo ──────────────────────────────────────────────────
+        # ── Innovación 6: Constructor de Viáticos ────────────────────────
         with st.container(border=True):
             st.markdown("**✈️ ¿El proyecto es fuera de Barranquilla?**")
             foraneo_activo = st.toggle(
@@ -3548,9 +3683,16 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 key="cb_cdir_foraneo",
                 on_change=_cb_cdir_foraneo,
             )
-            viaticos_activos = False; tipo_aloj = "pueblo"; noches = 0
+            # Valores por defecto para cuando foráneo está desactivado
+            viaticos_activos  = False
+            tipo_aloj         = "pueblo"
+            noches            = 0
+            num_instaladores  = pre.get("num_instaladores", 2)
+            incluir_hospedaje = pre.get("incluir_hospedaje", True)
+            tipo_alimentacion = pre.get("tipo_alimentacion", "completa")
+
             if foraneo_activo:
-                _fa1, _fa2, _fa3 = st.columns(3)
+                _fa1, _fa2 = st.columns(2)
                 with _fa1:
                     viaticos_activos = st.toggle(
                         "Incluir viáticos",
@@ -3566,17 +3708,51 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         key="cb_cdir_tipo_aloj",
                         on_change=_cb_cdir_tipo_aloj,
                     )]
-                with _fa3:
-                    _nc_opts  = ["1", "2", "3", "4", "5+"]
-                    _nc_pre   = int(pre.get("noches", 1))
-                    # FIX-1: garantizar que el default exista en la lista de opciones
-                    _nc_pre_s = str(_nc_pre) if str(_nc_pre) in _nc_opts else ("5+" if _nc_pre > 4 else _nc_opts[0])
-                    _nc_sel   = st.pills("Noches", _nc_opts, default=_nc_pre_s, key="p3_noches_pills")
-                    _nc_sel   = _nc_sel if _nc_sel else _nc_pre_s  # Fix 1: prevenir None
-                    if _nc_sel == "5+" or _nc_sel is None:
-                        noches = st.number_input("Noches (exacto)", min_value=0, value=_nc_pre, step=1, key="p3_noches_custom")
-                    else:
-                        noches = int(_nc_sel)
+
+                if viaticos_activos:
+                    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                    _vb1, _vb2, _vb3 = st.columns(3)
+                    with _vb1:
+                        # Número de instaladores (determina cuántas personas cobrar)
+                        num_instaladores = st.number_input(
+                            "N° instaladores", min_value=1, max_value=10,
+                            value=int(pre.get("num_instaladores", 2)), step=1,
+                            key="p3_num_instaladores",
+                            help="Cuántas personas van al proyecto (operarios + técnicos)."
+                        )
+                    with _vb2:
+                        # Noches de trabajo fuera de la ciudad
+                        _nc_opts  = ["1", "2", "3", "4", "5+"]
+                        _nc_pre   = int(pre.get("noches", 1))
+                        _nc_pre_s = str(_nc_pre) if str(_nc_pre) in _nc_opts else ("5+" if _nc_pre > 4 else _nc_opts[0])
+                        _nc_sel   = st.pills("Días de trabajo", _nc_opts, default=_nc_pre_s, key="p3_noches_pills")
+                        _nc_sel   = _nc_sel if _nc_sel else _nc_pre_s
+                        if _nc_sel == "5+":
+                            noches = st.number_input("Días (exacto)", min_value=1, value=_nc_pre, step=1, key="p3_noches_custom")
+                        else:
+                            noches = int(_nc_sel)
+                    with _vb3:
+                        # Constructor granular: hospedaje
+                        incluir_hospedaje = st.checkbox(
+                            "Requiere hospedaje",
+                            value=bool(pre.get("incluir_hospedaje", True)),
+                            key="p3_incluir_hospedaje",
+                        )
+                    # Alimentación: radio exclusivo (3 comidas / solo almuerzo / sin alimentos)
+                    _alim_opts = {"3 comidas (desayuno+almuerzo+cena)": "completa",
+                                  "Solo almuerzos": "almuerzo",
+                                  "Sin alimentación incluida": "ninguna"}
+                    _alim_pre_val = pre.get("tipo_alimentacion", "completa")
+                    _alim_pre_lbl = next((k for k, v in _alim_opts.items() if v == _alim_pre_val),
+                                         "3 comidas (desayuno+almuerzo+cena)")
+                    _alim_sel = st.radio(
+                        "Alimentación", list(_alim_opts.keys()),
+                        index=list(_alim_opts.keys()).index(_alim_pre_lbl),
+                        key="p3_tipo_alimentacion", horizontal=True
+                    )
+                    tipo_alimentacion = _alim_opts[_alim_sel]
+                    # Actualizar personas desde num_instaladores
+                    personas = num_instaladores
 
         # ── Adicionales ──────────────────────────────────────────────
         with st.container(border=True):
@@ -3617,14 +3793,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 else:
                     st.warning("Sin IVA — aplica régimen simplificado.", icon="⚠️")
 
-        # Guardar en pre
+        # Guardar en pre — incluye nuevos campos de viáticos y peajes
         _etapa_labels = {v: k for k, v in ETAPAS_OBRA.items()}
         st.session_state.pre = {
             **st.session_state.pre,
             "agente_externo_taller": agente_ext_taller,
-            "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes,
+            "vehiculo_entrega": vehiculo, "km": km,
+            # Innovación 7: peajes exactos
+            "peajes": peajes,
+            "costo_peaje_unitario": costo_peaje_unitario if "costo_peaje_unitario" in dir() else 0.0,
             "foraneo_activo": foraneo_activo, "viaticos_activos": viaticos_activos,
             "tipo_aloj": tipo_aloj, "noches": noches,
+            # Innovación 6: constructor de viáticos
+            "num_instaladores":  num_instaladores if "num_instaladores" in dir() else personas,
+            "incluir_hospedaje": incluir_hospedaje if "incluir_hospedaje" in dir() else True,
+            "tipo_alimentacion": tipo_alimentacion if "tipo_alimentacion" in dir() else "completa",
             "adicionales_activos": adicionales_activos, "cantidades_add": cantidades_add,
             "incluir_iva": incluir_iva,
         }
@@ -3748,6 +3931,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     logistica_override=st.session_state.get("logistica_custom"),
                     vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
                     tarifas_override=st.session_state.get("tarifas_custom"),
+                    piezas=_piezas,
+                    # Innovación 7: peaje exacto por caseta
+                    costo_peaje_unitario=float(pre.get("costo_peaje_unitario", 0.0)),
+                    # Innovación 6: constructor de viáticos granular
+                    incluir_hospedaje=bool(pre.get("incluir_hospedaje", True)),
+                    tipo_alimentacion=pre.get("tipo_alimentacion", "completa"),
                 )
                 resultado["_estado_guardado"] = _pre_snapshot
                 resultado["incluir_iva"]      = incluir_iva
@@ -3789,12 +3978,18 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _m1.metric("Aprovechamiento", f"{r['aprovechamiento']:.1f}%", f"Retal: {fmt_m2(r['retal'])}")
             _m2_met.metric("Costo/m²", numero_completo(r["costo_total"] / max(r["m2_real"], 0.001)))
 
+            # ── Innovación 2: Explicación de merma inteligente ────────────────
+            _merma_info = r.get("merma_info", {})
+            if _merma_info and _merma_info.get("merma_total_m2", 0) > 0:
+                with st.expander(f"📊 Cálculo de merma: **{_merma_info['merma_total_m2']:.3f} m²** desperdicio proyectado", expanded=False):
+                    st.markdown(_merma_info.get("explicacion_txt", ""), unsafe_allow_html=False)
+
             # Desglose de costos de producción
             st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
             _items_d = [
                 ("Material",    r["c1_material"]),
                 ("Producción",  r["c2_mano_obra"]),
-                ("Zócalos",     r["c3_zocalos"]),
+                ("Zócalos",     r["c3_zocalos"]),  # ML: r.get("zocalo_ml_efectivo", 0)
                 ("Insumos",     r["c4_insumos"]),
                 ("Logística",   r["c5_logistica"]),
                 ("Viáticos",    r["c6_viaticos"]),
@@ -3963,7 +4158,20 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         with _nav_l:
             if paso > 0:
                 if st.button("← Atrás", use_container_width=True, key="btn_wizard_back"):
+                    # ── Innovación 8: bugfix navegación ──────────────────────
+                    # Al retroceder desde Resultados (paso 4) hacia cualquier paso anterior,
+                    # hay que destruir la vista de resultados explícitamente.
+                    # Sin estos dos flags el widget de resultados queda en pantalla
+                    # aunque el paso haya cambiado, porque cotizacion persiste en session.
                     st.session_state.cdir_paso -= 1
+                    if st.session_state.cdir_paso < 4:
+                        # Invalidar resultado calculado para forzar recálculo en el paso 4
+                        st.session_state["cotizacion"]            = None
+                        st.session_state["_recalcular_paso4"]     = True
+                        st.session_state["_cotiz_guardada"]       = False
+                        # cdir_success = False garantiza que el wizard se muestre,
+                        # no la pantalla de éxito post-guardado
+                        st.session_state["cdir_success"]          = False
                     # ── store_permanente: persistir paso (sobrevive nav) ──────
                     _sp_set("cdir_paso", st.session_state.cdir_paso)
                     _sp_commit_borrador()
@@ -6222,22 +6430,31 @@ elif pagina == "Parametros":
                             st.session_state.params_wizard_chat.append({"role": "user", "content": _lbl})
                             with st.spinner(""):
                                 _r_cmd = _chat_parametros(st.session_state.params_wizard_chat[:-1], _msg_cmd)
+                            # Innovación 4 — interceptor unificado de JSON de IA
+                            _ia_accion = _interceptar_accion_ia(_r_cmd)
                             _aplicado_cmd = False
-                            if "```json" in _r_cmd:
+                            if _ia_accion:
                                 try:
-                                    _js = _r_cmd.split("```json")[1].split("```")[0]
-                                    _d = json.loads(_js)
-                                    if "pueblo" in _d or "ciudad" in _d:
+                                    _ac = _ia_accion["accion"]; _d = _ia_accion["datos"]
+                                    if _ac == "actualizar_viaticos":
                                         _antes = (st.session_state.viaticos_custom or VIATICOS).copy()
                                         st.session_state.viaticos_custom = _d
+                                        _sp()["params_viaticos"] = _d
                                         st.session_state.params_cambios_aplicados.append({"tipo": "viaticos", "antes": _antes, "despues": _d})
                                         try: _guardar_config("viaticos_custom", _d)
                                         except Exception: pass
-                                    elif any(k in _d for k in ["Mármol", "Granito", "Sinterizado"]):
+                                    elif _ac == "actualizar_tarifas":
                                         _antes = (st.session_state.tarifas_custom or TARIFAS).copy()
                                         st.session_state.tarifas_custom = _d
                                         st.session_state.params_cambios_aplicados.append({"tipo": "tarifas", "antes": _antes, "despues": _d})
                                         try: _guardar_config("tarifas_custom", _d)
+                                        except Exception: pass
+                                    elif _ac == "actualizar_logistica":
+                                        _antes = (st.session_state.logistica_custom or LOGISTICA).copy()
+                                        _logist_nuevo = {**_antes, **_d}
+                                        st.session_state.logistica_custom = _logist_nuevo
+                                        st.session_state.params_cambios_aplicados.append({"tipo": "logistica", "antes": _antes, "despues": _logist_nuevo})
+                                        try: _guardar_config("logistica_custom", _logist_nuevo)
                                         except Exception: pass
                                     _aplicado_cmd = True
                                 except Exception:
@@ -6303,22 +6520,31 @@ elif pagina == "Parametros":
                 if _penviar and _pnuevo.strip():
                     with st.spinner(""):
                         _pr = _chat_parametros(st.session_state.params_wizard_chat, _pnuevo.strip())
+                    # Innovación 4 — interceptor unificado de JSON de IA
+                    _ia_accion_p = _interceptar_accion_ia(_pr)
                     _p_aplic = False
-                    if "```json" in _pr:
+                    if _ia_accion_p:
                         try:
-                            _pjs = _pr.split("```json")[1].split("```")[0]
-                            _pd = json.loads(_pjs)
-                            if "pueblo" in _pd or "ciudad" in _pd:
+                            _acp = _ia_accion_p["accion"]; _pd = _ia_accion_p["datos"]
+                            if _acp == "actualizar_viaticos":
                                 _pantes = (st.session_state.viaticos_custom or VIATICOS).copy()
                                 st.session_state.viaticos_custom = _pd
+                                _sp()["params_viaticos"] = _pd
                                 st.session_state.params_cambios_aplicados.append({"tipo": "viaticos", "antes": _pantes, "despues": _pd})
                                 try: _guardar_config("viaticos_custom", _pd)
                                 except Exception: pass
-                            elif any(k in _pd for k in ["Mármol", "Granito", "Sinterizado"]):
+                            elif _acp == "actualizar_tarifas":
                                 _pantes = (st.session_state.tarifas_custom or TARIFAS).copy()
                                 st.session_state.tarifas_custom = _pd
                                 st.session_state.params_cambios_aplicados.append({"tipo": "tarifas", "antes": _pantes, "despues": _pd})
                                 try: _guardar_config("tarifas_custom", _pd)
+                                except Exception: pass
+                            elif _acp == "actualizar_logistica":
+                                _pantes = (st.session_state.logistica_custom or LOGISTICA).copy()
+                                _logist_n = {**_pantes, **_pd}
+                                st.session_state.logistica_custom = _logist_n
+                                st.session_state.params_cambios_aplicados.append({"tipo": "logistica", "antes": _pantes, "despues": _logist_n})
+                                try: _guardar_config("logistica_custom", _logist_n)
                                 except Exception: pass
                             _p_aplic = True
                         except Exception:
