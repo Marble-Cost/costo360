@@ -13,7 +13,7 @@
 #   Mano de obra siempre se paga en ML (operario cobra por ml cortado e instalado),
 #   EXCEPTO pisos y revestimientos donde se paga por m² (menos cortes).
 
-from parametros import LOGISTICA, VIATICOS, TARIFAS, VEHICULOS_CONFIG
+from parametros import LOGISTICA, VIATICOS, TARIFAS, VEHICULOS_CONFIG, PROPIEDADES_MATERIAL
 
 
 # ── Conversor ML → m² ────────────────────────────────────────────────────────
@@ -21,6 +21,95 @@ def ml_a_m2(ml: float, ancho_m: float) -> float:
     """Convierte metros lineales × ancho a m² de material."""
     return round(ml * ancho_m, 4)
 
+
+
+def calcular_peso_proyecto(piezas: list, categoria: str) -> float:
+    """
+    Calcula el PESO TOTAL del proyecto en kg.
+
+    Fórmula: Σ (área_pieza_m² × grosor_std_m × densidad_kg_m³)
+
+    El grosor estándar y la densidad dependen del material (PROPIEDADES_MATERIAL).
+    Si hay piezas de materiales distintos, se usa la densidad de cada pieza
+    si está definida; si no, se usa la del material principal (categoria).
+
+    Parámetros:
+        piezas    : lista de piezas con llaves 'largo', 'ancho', 'categoria' (opcional)
+        categoria : material principal del proyecto (fallback cuando pieza no tiene categoria)
+    """
+    props_default = PROPIEDADES_MATERIAL.get(categoria, PROPIEDADES_MATERIAL["Mármol"])
+    peso_total = 0.0
+    for p in piezas:
+        # Soporte multi-material: cada pieza puede tener su propia categoría
+        cat_pieza = p.get("categoria", categoria)
+        props = PROPIEDADES_MATERIAL.get(cat_pieza, props_default)
+        largo = float(p.get("largo", p.get("ml", 0.0)))
+        ancho = float(p.get("ancho", 0.60))
+        area_pieza = largo * ancho                             # m²
+        grosor     = props["grosor_std_m"]                     # m
+        densidad   = props["densidad_kg_m3"]                   # kg/m³
+        # kg = m² × m × kg/m³ = volumen_m³ × densidad_kg_m³
+        peso_total += area_pieza * grosor * densidad
+    return round(peso_total, 2)
+
+
+def calcular_merma_inteligente(piezas: list, categoria: str) -> dict:
+    """
+    Calcula el desperdicio por pieza usando el factor merma_base de cada material.
+
+    Si hay piezas de distintos materiales, el desperdicio se calcula
+    independientemente para cada pieza y se suma.
+
+    Retorna:
+        merma_total_m2  : m² totales de merma proyectada
+        detalle         : lista de dicts {nombre, material, area_m2, merma_pct, merma_m2}
+        explicacion_txt : texto en lenguaje natural para mostrar en st.info()
+    """
+    props_default = PROPIEDADES_MATERIAL.get(categoria, PROPIEDADES_MATERIAL["Mármol"])
+    detalle = []
+    merma_total = 0.0
+    categorias_usadas = set()
+
+    for p in piezas:
+        cat_pieza = p.get("categoria", categoria)
+        categorias_usadas.add(cat_pieza)
+        props = PROPIEDADES_MATERIAL.get(cat_pieza, props_default)
+        largo  = float(p.get("largo", p.get("ml", 0.0)))
+        ancho  = float(p.get("ancho", 0.60))
+        area   = largo * ancho
+        merma_pct = props["merma_base"]
+        merma_m2  = area * merma_pct
+        merma_total += merma_m2
+        detalle.append({
+            "nombre":    p.get("nombre", "Pieza"),
+            "material":  cat_pieza,
+            "area_m2":   round(area, 3),
+            "merma_pct": merma_pct,
+            "merma_m2":  round(merma_m2, 3),
+        })
+
+    # Construir texto explicativo en lenguaje natural
+    lineas = []
+    for d in detalle:
+        lineas.append(
+            f"• **{d['nombre']}** ({d['material']}): {d['area_m2']:.2f} m² "
+            f"× {d['merma_pct']*100:.0f}% merma = **{d['merma_m2']:.3f} m²** desperdicio"
+        )
+    explicacion = (
+        "**Cálculo de merma por material** — cada pieza se evalúa de forma independiente "
+        "según el factor de desperdicio propio de su material:\n" + "\n".join(lineas)
+    )
+    if "Sinterizado" in categorias_usadas:
+        explicacion += (
+            "\n\n⚠️ El **Sinterizado** tiene merma base del 15% por riesgo de fisura "
+            "térmica durante el corte con disco diamantado."
+        )
+
+    return {
+        "merma_total_m2": round(merma_total, 3),
+        "detalle":        detalle,
+        "explicacion_txt": explicacion,
+    }
 
 # ── Calcular totales de piezas ────────────────────────────────────────────────
 def calcular_totales_piezas(piezas: list) -> dict:
@@ -66,15 +155,32 @@ def calcular_totales_piezas(piezas: list) -> dict:
 def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo: bool,
                        personas: int = 2, categoria: str = "Mármol",
                        logistica_override: dict = None,
-                       vehiculos_custom: dict = None) -> dict:
-    """Calcula costo logístico completo desglosado."""
+                       vehiculos_custom: dict = None,
+                       peso_carga_kg: float = 0.0,
+                       costo_peaje_unitario: float = 0.0) -> dict:
+    """
+    Calcula costo logístico completo desglosado.
+
+    Innovación 3 — Logística por Peso y Mantenimiento:
+      • El rendimiento km/gal se penaliza según el peso de la carga.
+        Fórmula: rend_efectivo = rend_base × (1 - factor_penalizacion)
+        factor_penalizacion = min(0.30, peso_kg / (peso_max × 2))
+        — El vehículo pierde hasta un 30% de rendimiento a carga máxima.
+      • Se suma costo_mantenimiento_por_km × km × 2 (ida y vuelta)
+        como aporte al fondo de rodamiento (llantas, aceite, filtros).
+
+    Innovación 7 — Peajes Exactos:
+      • Si se pasa costo_peaje_unitario > 0, se usa num_peajes × costo_peaje_unitario.
+      • Si no, se usa el peaje promedio del diccionario de logística (comportamiento legacy).
+    """
     p = logistica_override or LOGISTICA
 
     veh_cfg = (vehiculos_custom or {}).get(vehiculo) or VEHICULOS_CONFIG.get(vehiculo, VEHICULOS_CONFIG["externo"])
     es_externo = veh_cfg.get("tipo") == "externo"
 
+    costo_mantenimiento = 0.0
+
     if es_externo:
-        # Soporte para externo como dict {"flete": N} o como int legacy
         _ext_src = p.get("externo", {})
         _ext_flete_default = _ext_src.get("flete", 165_000) if isinstance(_ext_src, dict) else int(_ext_src)
         flete_ext = veh_cfg.get("flete", _ext_flete_default)
@@ -83,40 +189,93 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
         costo_base = 0.0
     else:
         gasolina   = p.get("gasolina", LOGISTICA["gasolina"])
-        rend       = veh_cfg.get("rend",     7.2)
+        rend_base  = veh_cfg.get("rend",     7.2)
         desg       = veh_cfg.get("desgaste", 148)
         costo_base = veh_cfg.get("base",  65_000)
-        costo_por_km = (gasolina / rend) + desg
-        costo_km     = costo_por_km * km * 2
-        costo_vehiculo = costo_base + costo_km
+        mant_por_km = veh_cfg.get("costo_mantenimiento_por_km", 0)
 
-    costo_peajes = num_peajes * p.get("peaje", LOGISTICA["peaje"])
+        # ── Penalización km/gal por peso de carga ─────────────────────────────
+        # A mayor peso, el motor trabaja más → menor rendimiento de gasolina.
+        # Escalamos linealmente: 0 kg = sin penalización, peso_max = 30% menos.
+        # peso_max = 2 × peso_max_penalizacion del material (aprox. capacidad útil).
+        props_mat = PROPIEDADES_MATERIAL.get(categoria, {})
+        peso_max_ref = props_mat.get("peso_max_penalizacion_kg", 300) * 2
+        if peso_carga_kg > 0 and peso_max_ref > 0:
+            factor_pen = min(0.30, peso_carga_kg / peso_max_ref)
+        else:
+            factor_pen = 0.0
+        rend_efectivo = rend_base * (1 - factor_pen)
+
+        costo_por_km = (gasolina / rend_efectivo) + desg
+        costo_km     = costo_por_km * km * 2           # ida y vuelta
+        # Fondo de rodamiento: aporte por km recorrido (llantas, aceite, filtros)
+        costo_mantenimiento = mant_por_km * km * 2
+        costo_vehiculo = costo_base + costo_km + costo_mantenimiento
+
+    # ── Peajes exactos ────────────────────────────────────────────────────────
+    # Si el usuario ingresó el costo unitario por peaje, se usa ese valor exacto.
+    # Si no, se usa el peaje promedio configurado en LOGISTICA (modo legacy).
+    if costo_peaje_unitario > 0:
+        costo_peajes = num_peajes * costo_peaje_unitario
+    else:
+        costo_peajes = num_peajes * p.get("peaje", LOGISTICA["peaje"])
+
     costo_herram = p.get("herram", LOGISTICA["herram"])
     costo_agente = p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
 
     costo_total = costo_vehiculo + costo_peajes + costo_herram + costo_agente
 
     return {
-        "total":    costo_total,
-        "vehiculo": costo_vehiculo,
-        "base":     costo_base if not es_externo else 0,
-        "km_costo": costo_km,
-        "peajes":   costo_peajes,
-        "herram":   costo_herram,
-        "agente":   costo_agente,
+        "total":        costo_total,
+        "vehiculo":     costo_vehiculo,
+        "base":         costo_base if not es_externo else 0,
+        "km_costo":     costo_km,
+        "mantenimiento": costo_mantenimiento,
+        "peajes":       costo_peajes,
+        "herram":       costo_herram,
+        "agente":       costo_agente,
+        "peso_carga_kg": peso_carga_kg,
+        "rend_efectivo": locals().get("rend_efectivo", 0),
     }
 
 
-def calcular_viaticos(activo: bool, tipo_aloj: str, noches: int, personas: int, viaticos_override: dict = None) -> float:
+def calcular_viaticos(activo: bool, tipo_aloj: str, noches: int, personas: int,
+                      viaticos_override: dict = None,
+                      incluir_hospedaje: bool = True,
+                      tipo_alimentacion: str = "completa") -> float:
+    """
+    Calcula el costo de viáticos con control granular por componente.
+
+    Innovación 6 — Constructor de Viáticos:
+      incluir_hospedaje   : True = suma hospedaje. False = solo alimentación + transporte.
+      tipo_alimentacion   : "completa" = desayuno+almuerzo+cena ($65.000/día)
+                            "almuerzo" = solo almuerzo ($25.000/día)
+                            "ninguna"  = sin costo de alimentación
+
+    Fórmula: (hospedaje_dia × incluir_hospedaje + comida_dia + transporte_dia)
+              × dias × personas
+    """
     if not activo or noches <= 0:
         return 0.0
     v_data = viaticos_override or VIATICOS
     tarifa_dict = v_data.get(tipo_aloj, v_data["pueblo"])
-    # Soporte formato legacy (valor plano) y nuevo formato desglosado (dict)
-    if isinstance(tarifa_dict, dict):
-        costo_diario = sum(tarifa_dict.values())
+
+    # Soporte formato legacy (valor plano) — retrocompatibilidad total
+    if not isinstance(tarifa_dict, dict):
+        return noches * personas * float(tarifa_dict)
+
+    # Componentes individuales del viático diario
+    c_hospedaje   = tarifa_dict.get("hospedaje", 60_000)      if incluir_hospedaje       else 0
+    c_transporte  = tarifa_dict.get("transporte_local", 20_000)
+
+    if tipo_alimentacion == "almuerzo":
+        c_alimento = tarifa_dict.get("almuerzo", 25_000)       # Solo almuerzo
+    elif tipo_alimentacion == "completa":
+        c_alimento = tarifa_dict.get("alimentacion", 65_000)   # Desayuno + almuerzo + cena
     else:
-        costo_diario = tarifa_dict
+        c_alimento = 0                                          # Sin alimentación
+
+    costo_diario = c_hospedaje + c_alimento + c_transporte
     return noches * personas * costo_diario
 
 
@@ -129,6 +288,41 @@ def calcular_adicionales(activos: bool, cantidades: list, etapa: str, lista: lis
         total += qty * a.get(etapa, a["terminada"])
     return total
 
+
+
+def calcular_zocalo_geometrico(piezas: list) -> float:
+    """
+    Calcula el total de ML de zócalo a partir de los checkboxes geométricos
+    almacenados en cada pieza.
+
+    Por cada pieza se evalúan 3 lados independientes:
+      - zoc_trasero  : True → suma el LARGO de la pieza (ml_unitario × cantidad)
+      - zoc_izq      : True → suma el ANCHO de la pieza × cantidad
+      - zoc_der      : True → suma el ANCHO de la pieza × cantidad
+
+    El cálculo usa `ml_unitario` (largo de UNA pieza) para el trasero, porque
+    el zócalo sigue el perímetro de cada unidad, y multiplica por `cantidad`.
+    Para los laterales usa `ancho_custom` (profundidad de la pieza).
+
+    Retorna: float → total de ML de zócalo del proyecto.
+    """
+    total_ml_zocalo = 0.0
+    for p in piezas:
+        cantidad    = int(p.get("cantidad", 1))
+        ml_unitario = float(p.get("ml_unitario", p.get("ml", 0.0)))
+        ancho       = float(p.get("ancho_custom", 0.60))
+
+        if p.get("zoc_trasero", False):
+            # Lado trasero = largo de la pieza × cantidad
+            total_ml_zocalo += ml_unitario * cantidad
+        if p.get("zoc_izq", False):
+            # Lateral izquierdo = ancho de la pieza × cantidad
+            total_ml_zocalo += ancho * cantidad
+        if p.get("zoc_der", False):
+            # Lateral derecho = ancho de la pieza × cantidad
+            total_ml_zocalo += ancho * cantidad
+
+    return round(total_ml_zocalo, 3)
 
 def calcular_cotizacion_directa(
     categoria: str,
@@ -222,8 +416,25 @@ def calcular_cotizacion_directa(
     c2_m2 = m2_piezas * tarifa_prod_m2
     c2    = c2_ml + c2_m2
 
-    # ── ③ Zócalos ─────────────────────────────────────────────────────────────
-    c3 = (zocalo_ml * tar["zocalo"]) if zocalo_activo else 0.0
+    # ── ③ Zócalos — Geométrico por pieza (Innovación) ───────────────────────────
+    # Si alguna pieza tiene checkboxes de zócalo geométrico → calcular_zocalo_geometrico().
+    # Fallback: modo legacy con zocalo_activo + zocalo_ml (para recálculos de historial
+    # y el atajo del sidebar donde las piezas antiguas no tienen estos campos).
+    _piezas_zoc = kwargs.get("piezas", [])
+    _tiene_zoc_geometrico = any(
+        p.get("zoc_trasero") or p.get("zoc_izq") or p.get("zoc_der")
+        for p in _piezas_zoc
+    )
+    if _tiene_zoc_geometrico:
+        # Modo geométrico: ML calculados automáticamente desde los lados de cada pieza
+        zocalo_ml_calc = calcular_zocalo_geometrico(_piezas_zoc)
+        c3 = zocalo_ml_calc * tar["zocalo"]
+    else:
+        # Modo legacy: el usuario ingresó el total manual (zocalo_activo + zocalo_ml)
+        zocalo_ml_calc = zocalo_ml if zocalo_activo else 0.0
+        c3 = zocalo_ml_calc * tar["zocalo"]
+    # Exponer el ML real usado (para el PDF y el desglose en UI)
+    zocalo_ml_efectivo = zocalo_ml_calc
 
     # ── ④ Insumos, Consumibles y Riesgo ──────────────────────────────────────
     m2_disco = m2_cortados if m2_cortados > 0 else m2_real
@@ -232,17 +443,30 @@ def calcular_cotizacion_directa(
     costo_riesgo      = costo_material * tar.get("riesgo_rotura", 0.02)  # % provisión rotura
     c4 = costo_disco_maq + costo_consumibles + costo_riesgo
 
-    # ── ⑤ Logística ──────────────────────────────────────────────────────────
+    # ── ⑤ Logística con peso de carga y peajes exactos ──────────────────────
+    # Calculamos el peso total para penalizar el rendimiento km/gal del vehículo
+    _piezas_log = kwargs.get("piezas", [])
+    peso_carga_kg = calcular_peso_proyecto(_piezas_log, categoria) if _piezas_log else 0.0
     log_dict = calcular_logistica(
         vehiculo=vehiculo_entrega, km=km, num_peajes=num_peajes,
         agente_externo=agente_externo_taller, personas=personas, categoria=categoria,
         logistica_override=kwargs.get("logistica_override"),
         vehiculos_custom=kwargs.get("vehiculos_custom"),
+        peso_carga_kg=peso_carga_kg,
+        costo_peaje_unitario=kwargs.get("costo_peaje_unitario", 0.0),
     )
     c5 = log_dict["total"]
 
-    # ── ⑥ Viáticos ───────────────────────────────────────────────────────────
-    c6 = calcular_viaticos(foraneo_activo and viaticos_activos, tipo_aloj, noches, personas)
+    # ── ⑥ Viáticos con constructor granular ───────────────────────────────────
+    c6 = calcular_viaticos(
+        activo=foraneo_activo and viaticos_activos,
+        tipo_aloj=tipo_aloj,
+        noches=noches,
+        personas=personas,
+        viaticos_override=kwargs.get("viaticos_override"),
+        incluir_hospedaje=kwargs.get("incluir_hospedaje", True),
+        tipo_alimentacion=kwargs.get("tipo_alimentacion", "completa"),
+    )
 
     # ── ⑦ Adicionales ────────────────────────────────────────────────────────
     c7 = calcular_adicionales(adicionales_activos, cantidades_add, etapa, adicionales_lista)
@@ -263,6 +487,9 @@ def calcular_cotizacion_directa(
     m2_ref = m2_usados if m2_usados > 0 else m2_real
     retal  = max(0.0, area_placa_comprada - m2_ref)
     aprovechamiento = min(100.0, m2_ref / area_placa_comprada * 100) if area_placa_comprada > 0 else 0.0
+
+    # ── Merma inteligente multi-material ─────────────────────────────────────
+    _merma_info = calcular_merma_inteligente(kwargs.get("piezas", []), categoria)
 
     return {
         # Identificación
@@ -287,6 +514,7 @@ def calcular_cotizacion_directa(
         "c2_ml":             c2_ml,
         "c2_m2":             c2_m2,
         "c3_zocalos":        c3,
+        "zocalo_ml_efectivo": zocalo_ml_efectivo,
         "c4_insumos":        c4,
         "c4_disco_maq":      costo_disco_maq,
         "c4_consumibles":    costo_consumibles,
@@ -304,6 +532,10 @@ def calcular_cotizacion_directa(
         # Retal
         "aprovechamiento":   aprovechamiento,
         "retal":             retal,
+        # Peso y merma
+        "peso_carga_kg":     peso_carga_kg,
+        "merma_info":        _merma_info,
+        "merma_total_m2":    _merma_info["merma_total_m2"],
     }
 
 
