@@ -3237,23 +3237,22 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         unsafe_allow_html=True,
                     )
 
-                # ── Material de la pieza (Asignación Dinámica) ───────────────
-                # Permite enlazar cada pieza con su material específico para
-                # calcular mano de obra y zócalo con las tarifas correctas.
-                _mats_p1_disp = st.session_state.get("materiales_proyecto", [])
-                if _mats_p1_disp:
-                    _mat_opciones = [f"{m['cat']} — {m['ref'] or m['cat']}" for m in _mats_p1_disp]
-                    _mat_cats     = [m["cat"] for m in _mats_p1_disp]
+                # ── Material de la pieza (Asignación Dinámica por Pieza) ─────
+                # Vincula cada pieza con su material para usar tarifas correctas.
+                _mats_paso1 = st.session_state.get("materiales_proyecto", [])
+                if _mats_paso1:
+                    _mat_opciones = [f"{m['cat']} — {m.get('ref') or m['cat']}" for m in _mats_paso1]
+                    _mat_cats     = [m["cat"] for m in _mats_paso1]
                     _cat_previa   = pieza.get("categoria", _mat_cats[0])
                     _cat_idx      = _mat_cats.index(_cat_previa) if _cat_previa in _mat_cats else 0
-                    _mat_sel_lbl  = st.selectbox(
+                    _mat_lbl = st.selectbox(
                         "Material de la pieza",
                         _mat_opciones,
                         index=_cat_idx,
                         key=f"pmat_{idx}",
-                        help="Selecciona el material específico de esta pieza. Cada material tiene sus propias tarifas de producción.",
+                        help="Material específico de esta pieza. Sus tarifas de producción y zócalo se aplican de forma independiente.",
                     )
-                    _cat_pieza = _mat_cats[_mat_opciones.index(_mat_sel_lbl)]
+                    _cat_pieza = _mat_cats[_mat_opciones.index(_mat_lbl)]
                 else:
                     _cat_pieza = st.selectbox(
                         "Material de la pieza",
@@ -3261,7 +3260,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
                               if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
                         key=f"pmat_{idx}",
-                        help="Categoría de material para esta pieza.",
+                        help="Categoría del material. Completa el Paso 1 para ver las opciones de tu proyecto.",
                     )
 
                 # ── Submódulo: Zócalo Geométrico por pieza ────────────────
@@ -3331,7 +3330,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             f"(altura {_altura_zoc:.1f} cm)"
                         )
 
-                # Guardar pieza con nombre_personalizado + checkboxes de zócalo
+                # Guardar pieza con nombre_personalizado + checkboxes de zócalo + material
                 _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
                 piezas_nuevas.append({
                     "nombre":              nombre_p,
