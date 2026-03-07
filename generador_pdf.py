@@ -994,10 +994,10 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
 
-    # ③ ALCANCE DEL PROYECTO: Servicios Adicionales — visible SOLO si hay adicionales
-    #    Oculta la sección por completo cuando c7_adicionales == 0,
-    #    produciendo un PDF más limpio sin tablas vacías.
-    if _c7_adicionales > 0:
+    # ③ ALCANCE DEL PROYECTO: Servicios Adicionales (oculta si no hay adicionales)
+    #    Validamos c7_adicionales para no imprimir secciones vacías en el PDF.
+    costo_adicionales = float(datos.get('c7_adicionales', 0.0))
+    if costo_adicionales > 0:
         story.append(Spacer(1, 7))
         story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
 
