@@ -2450,6 +2450,7 @@ elif pagina == "Cotizacion Directa":
                             referencia=_ref_sb,
                             precio_m2=_pm2_sb,
                             area_placa_comprada=_area_sb,
+                            materiales_lista=_mats_sb,
                             m2_real=float(_pre_sb.get("m2_proyecto", _area_sb)),
                             m2_cortados=float(_pre_sb.get("m2_cortados_input", 0)),
                             m2_usados=float(_pre_sb.get("m2_usados", _area_sb)),
@@ -3963,6 +3964,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 resultado = calcular_cotizacion_directa(
                     categoria=cat_sel, referencia=referencia, precio_m2=precio_m2_efectivo,
                     area_placa_comprada=area_placa, m2_real=m2_real, m2_cortados=m2_cortados_total,
+                    materiales_lista=st.session_state.get("materiales_proyecto", []),
                     m2_usados=m2_usados, margen_pct=margen_pct, dias=dias, personas=personas,
                     zocalo_activo=zocalo_activo, zocalo_ml=zocalo_ml,
                     agente_externo_taller=agente_ext_taller, vehiculo_entrega=vehiculo,
