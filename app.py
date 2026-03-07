@@ -1678,7 +1678,8 @@ def _sp_agregar_pieza():
                    "ml": 1.0, "ml_unitario": 1.0, "cantidad": 1,
                    "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60,
                    # Zócalo geométrico — desactivado por defecto
-                   "zoc_trasero": False, "zoc_izq": False, "zoc_der": False})
+                   "zoc_trasero": False, "zoc_izq": False, "zoc_der": False,
+                   "altura_zocalo_cm": 7.0})
     _sp_set("cdir_piezas", piezas)
     st.session_state.piezas = piezas
     _sp_commit_borrador()
@@ -1698,7 +1699,7 @@ def _sp_eliminar_pieza(idx: int):
         _keys_pieza = [
             f"pnom_{idx}", f"ptip_{idx}", f"pml_{idx}", f"pcant_{idx}",
             f"panc_{idx}", f"pcustom_{idx}",
-            f"zoc_t_{idx}", f"zoc_i_{idx}", f"zoc_d_{idx}",
+            f"zoc_t_{idx}", f"zoc_i_{idx}", f"zoc_d_{idx}", f"zoc_h_{idx}",
         ]
         for _k in _keys_pieza:
             st.session_state.pop(_k, None)
@@ -3265,6 +3266,29 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             key=f"zoc_d_{idx}",
                             help=f"Lateral derecho = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                         )
+                    # ── Altura del zócalo (visible SOLO cuando hay algún lado activo) ──
+                    _hay_zocalo = _zoc_t or _zoc_i or _zoc_d
+                    if _hay_zocalo:
+                        _altura_pre = float(pieza.get("altura_zocalo_cm", 7.0))
+                        _altura_zoc = st.number_input(
+                            "Altura del zócalo (cm)",
+                            min_value=1.0,
+                            max_value=50.0,
+                            value=_altura_pre,
+                            step=0.5,
+                            key=f"zoc_h_{idx}",
+                            help=(
+                                "Franja de piedra que sube por la pared. "
+                                "Estándar residencial: 7 cm. Baños: 10–15 cm. "
+                                "La app calcula el m² de material extra automáticamente."
+                            ),
+                        )
+                    else:
+                        # Sin checkboxes activos → altura no aplica; tomamos el default
+                        # para no generar un widget sin contexto (Streamlit requiere
+                        # que los keys sean estables entre reruns).
+                        _altura_zoc = float(pieza.get("altura_zocalo_cm", 7.0))
+
                     # Preview en tiempo real del aporte de esta pieza
                     _ml_zoc_pieza = (
                         (ml_p * cantidad_p if _zoc_t else 0.0) +
@@ -3272,7 +3296,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         (ancho_p * cantidad_p if _zoc_d else 0.0)
                     )
                     if _ml_zoc_pieza > 0:
-                        st.caption(f"↳ Zócalo de esta pieza: **{_ml_zoc_pieza:.2f} ml**")
+                        _m2_zoc_pieza = _ml_zoc_pieza * (_altura_zoc / 100.0)
+                        st.caption(
+                            f"↳ Zócalo: **{_ml_zoc_pieza:.2f} ml** · "
+                            f"**{_m2_zoc_pieza:.4f} m²** de material "
+                            f"(altura {_altura_zoc:.1f} cm)"
+                        )
 
                 # Guardar pieza con nombre_personalizado + checkboxes de zócalo
                 _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
@@ -3284,10 +3313,11 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     "ancho_tipo":          ancho_tipo_p,
                     "ancho_custom":        ancho_p,
                     "nombre_personalizado": _nom_personalizado,
-                    # Checkboxes de zócalo geométrico
+                    # Checkboxes y configuración de zócalo geométrico
                     "zoc_trasero":         _zoc_t,
                     "zoc_izq":             _zoc_i,
                     "zoc_der":             _zoc_d,
+                    "altura_zocalo_cm":    _altura_zoc,    # altura franja del zócalo
                 })
 
         # Sync piezas to store_permanente (event-driven — persists across navigation)
@@ -3306,11 +3336,25 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _ml_total = sum(p.get("ml",0) for p in st.session_state.piezas)  # ya es ml efectivo (unitario × cantidad)
                 # ── Calcular total de zócalo en tiempo real para mostrar en el totalizador ──
                 from calculos import calcular_zocalo_geometrico as _czg_p1
-                _ml_zoc_total = _czg_p1(piezas_nuevas)
-                _zoc_badge = (
-                    f"<div style='font-size:0.75rem;margin-top:4px;opacity:0.75'>"
-                    f"📐 Zócalo: <strong>{_ml_zoc_total:.2f} ml</strong></div>"
-                ) if _ml_zoc_total > 0 else ""
+                _zoc_geo_p1   = _czg_p1(piezas_nuevas)
+                _ml_zoc_total = _zoc_geo_p1["ml"]
+                # Bug fix: div completamente autocontenido en una sola string
+                # → imposible dejar un </div> huérfano cuando _ml_zoc_total == 0
+                if _ml_zoc_total > 0:
+                    # Calcular también el m² total del zócalo para el badge
+                    from calculos import calcular_zocalo_geometrico as _czg_badge
+                    _zoc_geo_badge = _czg_badge(piezas_nuevas)
+                    _zoc_m2_badge  = _zoc_geo_badge["m2"]
+                    _zoc_m2_txt    = f" · {_zoc_m2_badge:.3f} m²" if _zoc_m2_badge > 0 else ""
+                    _zoc_badge = (
+                        f"<div style='font-size:0.75rem;margin-top:4px;opacity:0.75;"
+                        f"border-top:1px solid rgba(27,95,168,0.15);padding-top:4px'>"
+                        f"📐 Zócalo: <strong>{_ml_zoc_total:.2f} ml</strong>"
+                        f"<span style='opacity:0.7'>{_zoc_m2_txt} de piedra</span>"
+                        f"</div>"
+                    )
+                else:
+                    _zoc_badge = ""
                 st.markdown(
                     f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
                     border-radius:10px;padding:12px 18px;text-align:center">
@@ -3446,7 +3490,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         # Aquí solo se muestra el resumen calculado automáticamente.
         from calculos import calcular_zocalo_geometrico as _czg
         _piezas_p2      = st.session_state.get("piezas", pre.get("piezas", []))
-        _zocalo_ml_auto = _czg(_piezas_p2)
+        _zoc_geo_p2     = _czg(_piezas_p2)          # ahora devuelve dict
+        _zocalo_ml_auto = _zoc_geo_p2["ml"]
+        _zocalo_m2_auto = _zoc_geo_p2["m2"]
         # Variables legacy para retrocompatibilidad con el pre y el paso 4
         zocalo_activo   = _zocalo_ml_auto > 0
         zocalo_ml       = _zocalo_ml_auto
@@ -3456,17 +3502,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 p for p in _piezas_p2
                 if p.get("zoc_trasero") or p.get("zoc_izq") or p.get("zoc_der")
             ]
+            _m2_txt = f" · **{_zocalo_m2_auto:.4f} m²** de material" if _zocalo_m2_auto > 0 else ""
             st.info(
-                f"📐 **Zócalos del proyecto: {_zocalo_ml_auto:.2f} ml** — "
+                f"📐 **Zócalos del proyecto: {_zocalo_ml_auto:.2f} ml**"
+                f"{_m2_txt} — "
                 f"calculados automáticamente desde {len(_piezas_con_zoc)} "
                 f"pieza{'s' if len(_piezas_con_zoc) != 1 else ''}. "
                 f"Para editar, vuelve al **Paso 1** y ajusta los checkboxes de cada pieza.",
                 icon=None,
             )
         else:
+            # Bug fix: div completamente autocontenido → nunca hay </div> huérfano
             st.markdown(
                 "<div style='font-size:0.85rem;opacity:0.55;margin-bottom:4px'>"
-                "📐 Sin zócalos — actívalos en el Paso 1 dentro de cada pieza.</div>",
+                "📐 Sin zócalos — actívalos en el Paso 1 dentro de cada pieza."
+                "</div>",
                 unsafe_allow_html=True,
             )
 
