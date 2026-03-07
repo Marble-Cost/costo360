@@ -290,39 +290,50 @@ def calcular_adicionales(activos: bool, cantidades: list, etapa: str, lista: lis
 
 
 
-def calcular_zocalo_geometrico(piezas: list) -> float:
+def calcular_zocalo_geometrico(piezas: list) -> dict:
     """
-    Calcula el total de ML de zócalo a partir de los checkboxes geométricos
-    almacenados en cada pieza.
+    Calcula el total de ML y m² de zócalo a partir de los checkboxes geométricos
+    y la altura de zócalo almacenados en cada pieza.
 
     Por cada pieza se evalúan 3 lados independientes:
-      - zoc_trasero  : True → suma el LARGO de la pieza (ml_unitario × cantidad)
-      - zoc_izq      : True → suma el ANCHO de la pieza × cantidad
-      - zoc_der      : True → suma el ANCHO de la pieza × cantidad
+      - zoc_trasero      : True → suma el LARGO de la pieza (ml_unitario × cantidad)
+      - zoc_izq / zoc_der: True → suma el ANCHO de la pieza × cantidad
 
-    El cálculo usa `ml_unitario` (largo de UNA pieza) para el trasero, porque
-    el zócalo sigue el perímetro de cada unidad, y multiplica por `cantidad`.
-    Para los laterales usa `ancho_custom` (profundidad de la pieza).
+    Los ML se usan para la mano de obra (tarifa por metro lineal).
+    Los m² = ML × (altura_zocalo_cm / 100) se suman al consumo de material
+    de la placa para que el costo de piedra incluya la franja del zócalo.
 
-    Retorna: float → total de ML de zócalo del proyecto.
+    Retorna: dict con claves:
+        "ml"  → float, total de metros lineales de zócalo
+        "m2"  → float, área total de material consumido por el zócalo
     """
-    total_ml_zocalo = 0.0
+    total_ml = 0.0
+    total_m2 = 0.0
+
     for p in piezas:
-        cantidad    = int(p.get("cantidad", 1))
-        ml_unitario = float(p.get("ml_unitario", p.get("ml", 0.0)))
-        ancho       = float(p.get("ancho_custom", 0.60))
+        cantidad       = int(p.get("cantidad", 1))
+        ml_unitario    = float(p.get("ml_unitario", p.get("ml", 0.0)))
+        ancho          = float(p.get("ancho_custom", 0.60))
+        # altura_zocalo_cm: valor guardado por pieza; default 7 cm (estándar en obra residencial)
+        altura_cm      = float(p.get("altura_zocalo_cm", 7.0))
+        altura_cm      = max(1.0, min(altura_cm, 50.0))   # límites razonables
 
+        ml_pieza = 0.0
         if p.get("zoc_trasero", False):
-            # Lado trasero = largo de la pieza × cantidad
-            total_ml_zocalo += ml_unitario * cantidad
+            ml_pieza += ml_unitario * cantidad
         if p.get("zoc_izq", False):
-            # Lateral izquierdo = ancho de la pieza × cantidad
-            total_ml_zocalo += ancho * cantidad
+            ml_pieza += ancho * cantidad
         if p.get("zoc_der", False):
-            # Lateral derecho = ancho de la pieza × cantidad
-            total_ml_zocalo += ancho * cantidad
+            ml_pieza += ancho * cantidad
 
-    return round(total_ml_zocalo, 3)
+        total_ml += ml_pieza
+        # m² de material que consume el zócalo de esta pieza
+        total_m2 += ml_pieza * (altura_cm / 100.0)
+
+    return {
+        "ml": round(total_ml, 3),
+        "m2": round(total_m2, 4),
+    }
 
 def calcular_cotizacion_directa(
     categoria: str,
@@ -357,6 +368,9 @@ def calcular_cotizacion_directa(
     tar = _tarifas_src.get(categoria, TARIFAS["Mármol"])
 
     # ── ① Costo del material ──────────────────────────────────────────────────
+    # costo_material base = costo de la placa comprada al proveedor.
+    # El m² del zócalo se suma DESPUÉS de calcular zocalo_m2_calc (bloque ③),
+    # por eso se inicializa aquí sin el extra y se ajusta más abajo.
     costo_material = precio_m2 * area_placa_comprada
 
     # ── ② Producción ──────────────────────────────────────────────────────────
@@ -426,15 +440,29 @@ def calcular_cotizacion_directa(
         for p in _piezas_zoc
     )
     if _tiene_zoc_geometrico:
-        # Modo geométrico: ML calculados automáticamente desde los lados de cada pieza
-        zocalo_ml_calc = calcular_zocalo_geometrico(_piezas_zoc)
+        # Modo geométrico: ML y m² calculados automáticamente desde los lados/altura
+        _zoc_geo         = calcular_zocalo_geometrico(_piezas_zoc)
+        zocalo_ml_calc   = _zoc_geo["ml"]
+        zocalo_m2_calc   = _zoc_geo["m2"]   # área de piedra que consume el zócalo
         c3 = zocalo_ml_calc * tar["zocalo"]
     else:
         # Modo legacy: el usuario ingresó el total manual (zocalo_activo + zocalo_ml)
         zocalo_ml_calc = zocalo_ml if zocalo_activo else 0.0
+        zocalo_m2_calc = 0.0   # sin dato de altura → no suma m² (retrocompatible)
         c3 = zocalo_ml_calc * tar["zocalo"]
-    # Exponer el ML real usado (para el PDF y el desglose en UI)
+    # Exponer el ML real y los m² de material usados en zócalos (para PDF y UI)
     zocalo_ml_efectivo = zocalo_ml_calc
+    zocalo_m2_efectivo = zocalo_m2_calc
+
+    # ── Ajuste de costo de material por m² de zócalo ─────────────────────────
+    # Los zócalos se cortan de la misma placa comprada. Si el proveedor no vendió
+    # una placa extra para el zócalo, el m² ya está en area_placa_comprada y
+    # costo_material ya cubre ese material. Este extra se activa SOLO cuando
+    # zocalo_m2_calc > 0 (modo geométrico con altura), y representa el costo de
+    # la fracción de piedra asignada al zócalo que, de otro modo, no quedaría
+    # reflejada en el costo (porque area_placa_comprada es la lámina principal).
+    costo_extra_material_zocalo = zocalo_m2_calc * precio_m2
+    costo_material_total = costo_material + costo_extra_material_zocalo
 
     # ── ④ Insumos, Consumibles y Riesgo ──────────────────────────────────────
     m2_disco = m2_cortados if m2_cortados > 0 else m2_real
@@ -471,7 +499,7 @@ def calcular_cotizacion_directa(
     # ── ⑦ Adicionales ────────────────────────────────────────────────────────
     c7 = calcular_adicionales(adicionales_activos, cantidades_add, etapa, adicionales_lista)
 
-    costo_total = costo_material + c2 + c3 + c4 + c5 + c6 + c7
+    costo_total = costo_material_total + c2 + c3 + c4 + c5 + c6 + c7
 
     # ── Precio sugerido global ────────────────────────────────────────────────
     margen = max(0.01, min(margen_pct / 100, 0.99))
@@ -509,12 +537,15 @@ def calcular_cotizacion_directa(
         "dias":              dias,
         "personas":          personas,
         # Costos
-        "c1_material":       costo_material,
+        "c1_material":       costo_material_total,   # incluye m² del zócalo
+        "c1_material_placa":  costo_material,          # solo placa principal
+        "c1_material_zocalo": costo_extra_material_zocalo,  # extra por zócalo
         "c2_mano_obra":      c2,
         "c2_ml":             c2_ml,
         "c2_m2":             c2_m2,
         "c3_zocalos":        c3,
         "zocalo_ml_efectivo": zocalo_ml_efectivo,
+        "zocalo_m2_efectivo": zocalo_m2_efectivo,  # m² de material consumido en zócalos
         "c4_insumos":        c4,
         "c4_disco_maq":      costo_disco_maq,
         "c4_consumibles":    costo_consumibles,
