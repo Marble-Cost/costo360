@@ -3,6 +3,58 @@
 
 CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
 
+# ── PROPIEDADES FÍSICAS POR MATERIAL ─────────────────────────────────────────
+# Usadas para:
+#   • Cálculo de PESO TOTAL del proyecto (Área × grosor_std × densidad_kg_m3)
+#   • Penalización de rendimiento km/gal según peso cargado
+#   • Factor de merma base por tipo de material
+#   • Factor de dureza Mohs: cuánto desgasta el material en disco/máquina
+#
+# densidad_kg_m3  : peso volumétrico estándar en kg/m³
+# grosor_std_m    : grosor estándar de una lámina en metros (ej: 2 cm = 0.02)
+# merma_base      : % de desperdicio base por fisuras, ajuste de corte y manipulación
+#                   0.08 = 8% | El Sinterizado tiene mayor merma por riesgo de fisura térmica
+# dureza_mohs     : escala de dureza relativa (1=blando, 10=diamante)
+#                   Directamente proporcional al desgaste de disco y máquina
+# peso_max_penalizacion_kg : peso a partir del cual el rendimiento km/gal comienza a bajar
+PROPIEDADES_MATERIAL = {
+    "Mármol": {
+        "densidad_kg_m3":            2_700,   # Caliza metamórfica — ~2.700 kg/m³
+        "grosor_std_m":              0.020,   # Espesor estándar: 2 cm
+        "merma_base":                0.08,    # 8%: venas irregulares, ajuste de plomada
+        "dureza_mohs":               3.5,     # Suave — disco dura mucho más
+        "peso_max_penalizacion_kg":  300,     # >300 kg empieza a bajar el km/gal
+    },
+    "Granito": {
+        "densidad_kg_m3":            2_750,
+        "grosor_std_m":              0.020,
+        "merma_base":                0.06,    # 6%: material muy regular y predecible
+        "dureza_mohs":               6.5,     # Duro — mayor desgaste de disco
+        "peso_max_penalizacion_kg":  300,
+    },
+    "Sinterizado": {
+        "densidad_kg_m3":            2_400,   # Más liviano que piedra natural
+        "grosor_std_m":              0.012,   # Lámina delgada: 1.2 cm
+        "merma_base":                0.15,    # 15%: alta merma por fisura térmica en corte
+        "dureza_mohs":               7.5,     # Muy duro — desgasta disco rápido
+        "peso_max_penalizacion_kg":  200,     # Láminas grandes pero livianas
+    },
+    "Quarztone": {
+        "densidad_kg_m3":            2_300,
+        "grosor_std_m":              0.020,
+        "merma_base":                0.07,    # 7%: cuarzo compactado, corte predecible
+        "dureza_mohs":               6.0,
+        "peso_max_penalizacion_kg":  300,
+    },
+    "Quarzita": {
+        "densidad_kg_m3":            2_650,
+        "grosor_std_m":              0.020,
+        "merma_base":                0.10,    # 10%: piedra natural dura, veneteado impredecible
+        "dureza_mohs":               7.0,     # Muy dura — desgaste alto de disco
+        "peso_max_penalizacion_kg":  300,
+    },
+}
+
 # ── TARIFAS DE PRODUCCIÓN ────────────────────────────────────────────────────
 # En Colombia la mano de obra en marmolería se paga POR METRO LINEAL (ml),
 # no por hora ni por m². El operario cobra según lo que corta e instala.
@@ -90,11 +142,13 @@ VIATICOS = {
     # Desglose real por componente — suma = costo diario por persona
     "pueblo": {
         "hospedaje":         60_000,  # Alojamiento en pueblo/corregimiento
-        "alimentacion":      65_000,  # Desayuno + almuerzo + cena
+        "almuerzo":          25_000,  # Solo almuerzo
+        "alimentacion":      65_000,  # Desayuno + almuerzo + cena (3 comidas)
         "transporte_local":  20_000,  # Movilidad local (moto, taxi, buseta)
     },
     "ciudad": {
         "hospedaje":         90_000,  # Hotel o posada en ciudad capital
+        "almuerzo":          28_000,  # Solo almuerzo (ciudad más caro)
         "alimentacion":      68_000,  # Comidas en ciudad (ligeramente más caro)
         "transporte_local":  20_000,  # Transporte urbano
     },
@@ -134,6 +188,8 @@ VEHICULOS_CONFIG = {
         "rend": 7.2,
         "desgaste": 148,
         "base": 65_000,
+        # Aporte al fondo de rodamiento por km recorrido (llantas, aceite, filtros)
+        "costo_mantenimiento_por_km": 85,
         "descripcion": "Camioneta pickup — carga media, ideal transporte losa",
     },
     "cheyenne": {
@@ -142,6 +198,8 @@ VEHICULOS_CONFIG = {
         "rend": 4.1,
         "desgaste": 340,
         "base": 85_000,
+        # Aporte al fondo de rodamiento por km recorrido (llantas, aceite, filtros)
+        "costo_mantenimiento_por_km": 160,
         "descripcion": "Camión grande — carga pesada, varios proyectos",
     },
     "externo": {
