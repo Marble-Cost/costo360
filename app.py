@@ -3338,31 +3338,26 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 from calculos import calcular_zocalo_geometrico as _czg_p1
                 _zoc_geo_p1   = _czg_p1(piezas_nuevas)
                 _ml_zoc_total = _zoc_geo_p1["ml"]
-                # Bug fix: div completamente autocontenido en una sola string
-                # → imposible dejar un </div> huérfano cuando _ml_zoc_total == 0
+
+                # ── PATRÓN BLINDADO: html_dimensiones construido en 3 pasos ──
+                # 1. Abrir contenedor principal con datos fijos (SIN cerrar el <div> aquí)
+                html_dimensiones = f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);border-radius:10px;padding:12px 18px;text-align:center">
+<div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total</div>
+<div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{fmt_ml(_ml_total)}</div>
+<div style="font-size:0.85rem;opacity:0.7">{fmt_m2(m2_real)} de material</div>
+"""
+                # 2. Inyectar zócalos SOLO si existen — NUNCA se cierra el <div> principal aquí
                 if _ml_zoc_total > 0:
-                    # Calcular también el m² total del zócalo para el badge
-                    from calculos import calcular_zocalo_geometrico as _czg_badge
-                    _zoc_geo_badge = _czg_badge(piezas_nuevas)
-                    _zoc_m2_badge  = _zoc_geo_badge["m2"]
-                    _zoc_m2_txt    = f" · {_zoc_m2_badge:.3f} m²" if _zoc_m2_badge > 0 else ""
-                    _zoc_badge = (
-                        f"<div style='font-size:0.75rem;margin-top:4px;opacity:0.75;"
-                        f"border-top:1px solid rgba(27,95,168,0.15);padding-top:4px'>"
-                        f"📐 Zócalo: <strong>{_ml_zoc_total:.2f} ml</strong>"
-                        f"<span style='opacity:0.7'>{_zoc_m2_txt} de piedra</span>"
-                        f"</div>"
-                    )
-                else:
-                    _zoc_badge = ""
-                st.markdown(
-                    f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
-                    border-radius:10px;padding:12px 18px;text-align:center">
-                    <div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total</div>
-                    <div style="font-size:2rem;font-weight:900;font-family:'Playfair Display',serif">{fmt_ml(_ml_total)}</div>
-                    <div style="font-size:0.85rem;opacity:0.7">{fmt_m2(m2_real)} de material</div>
-                    {_zoc_badge}
-                    </div>''', unsafe_allow_html=True)
+                    _zoc_geo_p1b = _czg_p1(piezas_nuevas)
+                    _zoc_m2_p1   = _zoc_geo_p1b["m2"]
+                    _zoc_m2_txt  = f" · {_zoc_m2_p1:.3f} m²" if _zoc_m2_p1 > 0 else ""
+                    html_dimensiones += f"""<div style="font-size:0.75rem;margin-top:4px;opacity:0.75;border-top:1px solid rgba(27,95,168,0.15);padding-top:4px">📐 Zócalo: <strong>{_ml_zoc_total:.2f} ml</strong><span style="opacity:0.7">{_zoc_m2_txt} de piedra</span></div>
+"""
+                # 3. Cerrar el contenedor principal UNA SOLA VEZ, siempre fuera del condicional
+                html_dimensiones += "</div>"
+
+                # 4. Renderizar
+                st.markdown(html_dimensiones, unsafe_allow_html=True)
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
@@ -3497,28 +3492,27 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         zocalo_activo   = _zocalo_ml_auto > 0
         zocalo_ml       = _zocalo_ml_auto
 
+        # ── PATRÓN BLINDADO: html_zoc_resumen construido en 3 pasos ──
+        # 1. Abrir contenedor principal con datos fijos (SIN cerrar el <div> aquí)
+        html_zoc_resumen = """<div style="font-size:0.85rem;border-radius:8px;padding:10px 14px;margin-bottom:4px;background:var(--secondary-background-color);border:1px solid var(--border-color)">
+"""
+        # 2. Inyectar contenido según condición — NUNCA cierra el <div> principal aquí
         if _zocalo_ml_auto > 0:
             _piezas_con_zoc = [
                 p for p in _piezas_p2
                 if p.get("zoc_trasero") or p.get("zoc_izq") or p.get("zoc_der")
             ]
-            _m2_txt = f" · **{_zocalo_m2_auto:.4f} m²** de material" if _zocalo_m2_auto > 0 else ""
-            st.info(
-                f"📐 **Zócalos del proyecto: {_zocalo_ml_auto:.2f} ml**"
-                f"{_m2_txt} — "
-                f"calculados automáticamente desde {len(_piezas_con_zoc)} "
-                f"pieza{'s' if len(_piezas_con_zoc) != 1 else ''}. "
-                f"Para editar, vuelve al **Paso 1** y ajusta los checkboxes de cada pieza.",
-                icon=None,
-            )
+            _m2_txt_p2 = f" · <strong>{_zocalo_m2_auto:.4f} m²</strong> de material" if _zocalo_m2_auto > 0 else ""
+            html_zoc_resumen += f"""<span style="font-weight:700">📐 Zócalos del proyecto: {_zocalo_ml_auto:.2f} ml</span>{_m2_txt_p2} — calculados automáticamente desde {len(_piezas_con_zoc)} pieza{'s' if len(_piezas_con_zoc) != 1 else ''}. Para editar, vuelve al <strong>Paso 1</strong> y ajusta los checkboxes de cada pieza.
+"""
         else:
-            # Bug fix: div completamente autocontenido → nunca hay </div> huérfano
-            st.markdown(
-                "<div style='font-size:0.85rem;opacity:0.55;margin-bottom:4px'>"
-                "📐 Sin zócalos — actívalos en el Paso 1 dentro de cada pieza."
-                "</div>",
-                unsafe_allow_html=True,
-            )
+            html_zoc_resumen += """<span style="opacity:0.55">📐 Sin zócalos — actívalos en el Paso 1 dentro de cada pieza.</span>
+"""
+        # 3. Cerrar el contenedor principal UNA SOLA VEZ, siempre fuera de cualquier condicional
+        html_zoc_resumen += "</div>"
+
+        # 4. Renderizar
+        st.markdown(html_zoc_resumen, unsafe_allow_html=True)
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
