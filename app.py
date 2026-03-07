@@ -3237,30 +3237,55 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         unsafe_allow_html=True,
                     )
 
-                # ── Material de la pieza (Asignación Dinámica por Pieza) ─────
-                # Vincula cada pieza con su material para usar tarifas correctas.
+                # ── Asignación de Pieza a Lote Físico de Placa ─────────────
+                # Sistema de etiquetado por Lotes: cada pieza se vincula al lote
+                # físico exacto del que se cortará, diferenciando placas del mismo
+                # material por sus dimensiones reales. Clave para el motor de nesting.
                 _mats_paso1 = st.session_state.get("materiales_proyecto", [])
                 if _mats_paso1:
-                    _mat_opciones = [f"{m['cat']} — {m.get('ref') or m['cat']}" for m in _mats_paso1]
-                    _mat_cats     = [m["cat"] for m in _mats_paso1]
-                    _cat_previa   = pieza.get("categoria", _mat_cats[0])
-                    _cat_idx      = _mat_cats.index(_cat_previa) if _cat_previa in _mat_cats else 0
-                    _mat_lbl = st.selectbox(
-                        "Material de la pieza",
-                        _mat_opciones,
-                        index=_cat_idx,
+                    # format_func convierte el índice en etiqueta descriptiva del lote.
+                    # Incluye categoría, referencia, dimensiones reales y área.
+                    def _fmt_lote(i, _mats=_mats_paso1):
+                        _m      = _mats[i]
+                        _largo  = float(_m.get("placas_largo", _m.get("largo", 0.0)))
+                        _ancho  = float(_m.get("placas_ancho", _m.get("ancho", 0.0)))
+                        _cant   = int(_m.get("placas_cant", 1))
+                        _area   = float(_m.get("area_placa", _largo * _ancho * _cant))
+                        _ref    = _m.get("ref") or _m.get("cat", "")
+                        _cat    = _m.get("cat", "")
+                        _dims   = f"{_largo:.2f}m × {_ancho:.2f}m" if _largo > 0 and _ancho > 0 else "sin dimensiones"
+                        _suffix = f" ×{_cant}" if _cant > 1 else ""
+                        return f"[Lote #{i+1}] {_cat} — {_ref}{_suffix} ({_dims}) | {_area:.2f} m²"
+
+                    _lote_indices = list(range(len(_mats_paso1)))
+                    # Restaurar la selección previa del lote si existe
+                    _lote_prev    = int(pieza.get("id_lote_origen", 0))
+                    _lote_idx_def = _lote_prev if _lote_prev < len(_mats_paso1) else 0
+                    _sel_lote_idx = st.selectbox(
+                        "🪨 Asignar a la placa (Lote físico)",
+                        _lote_indices,
+                        index=_lote_idx_def,
+                        format_func=_fmt_lote,
                         key=f"pmat_{idx}",
-                        help="Material específico de esta pieza. Sus tarifas de producción y zócalo se aplican de forma independiente.",
+                        help=(
+                            "Selecciona de qué lámina física se cortará esta pieza. "
+                            "Cada lote se diferencia por sus dimensiones reales para "
+                            "un nesting preciso y trazabilidad de material."
+                        ),
                     )
-                    _cat_pieza = _mat_cats[_mat_opciones.index(_mat_lbl)]
+                    _mat_seleccionado = _mats_paso1[_sel_lote_idx]
+                    _cat_pieza        = _mat_seleccionado.get("cat", "Mármol")
                 else:
+                    # Fallback cuando no hay materiales en el Paso 1
+                    _sel_lote_idx     = None
+                    _mat_seleccionado = {}
                     _cat_pieza = st.selectbox(
-                        "Material de la pieza",
+                        "🪨 Material de la pieza",
                         CATEGORIAS_MATERIAL,
                         index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
                               if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
                         key=f"pmat_{idx}",
-                        help="Categoría del material. Completa el Paso 1 para ver las opciones de tu proyecto.",
+                        help="Completa el Paso 1 para asignar piezas a lotes físicos de placa.",
                     )
 
                 # ── Submódulo: Zócalo Geométrico por pieza ────────────────
@@ -3330,7 +3355,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             f"(altura {_altura_zoc:.1f} cm)"
                         )
 
-                # Guardar pieza con nombre_personalizado + checkboxes de zócalo + material
+                # Guardar pieza con nombre_personalizado + checkboxes de zócalo + lote
                 _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
                 piezas_nuevas.append({
                     "nombre":              nombre_p,
@@ -3340,8 +3365,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     "ancho_tipo":          ancho_tipo_p,
                     "ancho_custom":        ancho_p,
                     "nombre_personalizado": _nom_personalizado,
-                    # Material específico de esta pieza (Asignación Dinámica)
+                    # Trazabilidad de lote: categoría y vínculo al lote físico de origen
                     "categoria":           _cat_pieza,
+                    "id_lote_origen":      _sel_lote_idx,   # índice en materiales_proyecto (None si fallback)
                     # Checkboxes y configuración de zócalo geométrico
                     "zoc_trasero":         _zoc_t,
                     "zoc_izq":             _zoc_i,
