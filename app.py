@@ -3414,6 +3414,67 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 # 4. Renderizar
                 st.markdown(html_dimensiones, unsafe_allow_html=True)
 
+                # ── 🟡 INNOVACIÓN B: Monitor "Retal en Vivo" por Lote ─────────
+                # Calcula consumo real de cada placa usando id_lote_origen de las
+                # piezas. Retrocompatible: piezas sin id_lote_origen se ignoran
+                # en el monitor pero no rompen el cálculo global.
+                _mats_rv  = st.session_state.get("materiales_proyecto", [])
+                _piezas_rv = piezas_nuevas  # lista recién construida en este render
+
+                if _mats_rv:
+                    st.markdown(
+                        "<p style='font-size:0.72rem;font-weight:700;color:#1B5FA8;"
+                        "text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px 0'>"
+                        "🪨 Estado de consumo por lote</p>",
+                        unsafe_allow_html=True,
+                    )
+                    for _li, _lm in enumerate(_mats_rv):
+                        # Área disponible del lote (largo × ancho × cantidad de placas)
+                        _ll = float(_lm.get("placas_largo", _lm.get("largo", 0.0)))
+                        _la = float(_lm.get("placas_ancho", _lm.get("ancho", 0.0)))
+                        _lc = int(_lm.get("placas_cant", 1))
+                        _area_lote = _ll * _la * _lc if _ll > 0 and _la > 0 else float(_lm.get("area_placa", 0.0))
+
+                        # Área consumida: suma de piezas asignadas a este lote
+                        _consumido = sum(
+                            float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
+                            * float(p.get("ancho_custom", p.get("ancho", 0.60)))
+                            for p in _piezas_rv
+                            if p.get("id_lote_origen") == _li   # None != _li → excluye piezas sin lote
+                        )
+                        _retal_lote = _area_lote - _consumido
+                        _overflow   = _consumido > _area_lote and _area_lote > 0
+
+                        # Etiqueta del lote
+                        _lote_ref  = _lm.get("ref") or _lm.get("cat", f"Lote {_li+1}")
+                        _lote_cat  = _lm.get("cat", "")
+                        _dims_txt  = f"{_ll:.2f}×{_la:.2f}m" if _ll > 0 and _la > 0 else ""
+                        _lote_lbl  = f"[Lote #{_li+1}] {_lote_cat} — {_lote_ref}"
+                        if _dims_txt:
+                            _lote_lbl += f" ({_dims_txt})"
+
+                        # Progress bar (clamp a 1.0 para no romper st.progress)
+                        _pct = min(1.0, _consumido / _area_lote) if _area_lote > 0 else 0.0
+
+                        if _overflow:
+                            st.error(
+                                f"🔴 **{_lote_lbl}** · Área comprada: **{_area_lote:.2f} m²** "
+                                f"· Consumido: **{_consumido:.2f} m²** "
+                                f"· ⚠️ Déficit: **{abs(_retal_lote):.2f} m²** — Falta material.",
+                                icon=None,
+                            )
+                        else:
+                            st.markdown(
+                                f"<div style='font-size:0.78rem;margin-bottom:2px'>"
+                                f"<strong>{_lote_lbl}</strong> &nbsp;"
+                                f"<span style='opacity:0.65'>Comprado: {_area_lote:.2f} m² · "
+                                f"Usado: {_consumido:.2f} m² · "
+                                f"<span style='color:#16A34A;font-weight:700'>Retal: {max(0.0,_retal_lote):.2f} m²</span>"
+                                f"</span></div>",
+                                unsafe_allow_html=True,
+                            )
+                            st.progress(_pct)
+
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ── Margen y m² usados ────────────────────────────────────────
@@ -8293,6 +8354,58 @@ elif pagina == "Planos de Taller (IA)":
     if "nesting_id_counter" not in st.session_state:
         st.session_state.nesting_id_counter = 2
 
+    # ── 🟡 INNOVACIÓN A: Lienzo Inteligente — Vincular con Inventario ─────────
+    # Recupera los lotes de material del Paso 1 para pre-poblar las dimensiones
+    # de la placa y añadir contexto al chat de IA automáticamente.
+    _mats_inv = st.session_state.get("materiales_proyecto", [])
+    _opciones_lienzo = ["🆓 Modo Libre — Plano Independiente"]
+    for _mi, _mm in enumerate(_mats_inv):
+        _ml_inv = float(_mm.get("placas_largo", _mm.get("largo", 0.0)))
+        _ma_inv = float(_mm.get("placas_ancho", _mm.get("ancho", 0.0)))
+        _mc_inv = int(_mm.get("placas_cant", 1))
+        _mr_inv = _mm.get("ref") or _mm.get("cat", f"Lote {_mi+1}")
+        _cat_inv = _mm.get("cat", "")
+        _dims_inv = f"{_ml_inv:.2f}×{_ma_inv:.2f}m" if _ml_inv > 0 and _ma_inv > 0 else "sin medidas"
+        _suffix_inv = f" ×{_mc_inv}" if _mc_inv > 1 else ""
+        _opciones_lienzo.append(
+            f"[Lote #{_mi+1}] {_cat_inv} — {_mr_inv}{_suffix_inv} ({_dims_inv})"
+        )
+
+    _lbl_lienzo = st.selectbox(
+        "📏 Vincular plano con inventario actual (Opcional):",
+        _opciones_lienzo,
+        index=0,
+        key="nesting_lienzo_lote",
+        help=(
+            "Selecciona un lote para cargar automáticamente sus dimensiones como lienzo base. "
+            "El asistente IA también recibirá el contexto de la placa seleccionada."
+        ),
+    )
+
+    # Si se seleccionó un lote real (no Modo Libre), pre-cargar sus dimensiones
+    _lienzo_idx = _opciones_lienzo.index(_lbl_lienzo) - 1   # -1 porque índice 0 = Modo Libre
+    _lienzo_contexto_txt = ""   # texto que se pre-concatena al prompt del chat IA
+    if _lienzo_idx >= 0 and _lienzo_idx < len(_mats_inv):
+        _lm_sel = _mats_inv[_lienzo_idx]
+        _lm_largo = float(_lm_sel.get("placas_largo", _lm_sel.get("largo", 2.80)))
+        _lm_ancho = float(_lm_sel.get("placas_ancho", _lm_sel.get("ancho", 1.60)))
+        _lm_cat   = _lm_sel.get("cat", "")
+        _lm_ref   = _lm_sel.get("ref") or _lm_cat
+        # Pre-cargar en los number_inputs del nesting vía session_state
+        st.session_state["nesting_placa_largo"] = _lm_largo
+        st.session_state["nesting_placa_ancho"] = _lm_ancho
+        # Construir el texto de contexto invisible para el chat de IA
+        _lienzo_contexto_txt = (
+            f"[Contexto del sistema: El usuario requiere dibujar sobre un lienzo base "
+            f"de {_lm_largo:.2f}m × {_lm_ancho:.2f}m correspondiente a la placa de "
+            f"{_lm_cat} — {_lm_ref}]. "
+        )
+        st.caption(
+            f"↳ Lienzo activo: **{_lm_cat} — {_lm_ref}** "
+            f"({_lm_largo:.2f}m × {_lm_ancho:.2f}m). "
+            f"Dimensiones cargadas en la sección de placa."
+        )
+
     # ══════════════════════════════════════════════════════════════════════════
     # LAYOUT MAESTRO-DETALLE
     # col_form (izq): Placa + Formulario de ingreso
@@ -8466,6 +8579,55 @@ elif pagina == "Planos de Taller (IA)":
             ):
                 st.session_state.nesting_piezas = []
                 st.rerun()
+
+    # ── 🟡 INNOVACIÓN A (cont.): Chat IA del Lienzo Inteligente ─────────────
+    # Si hay un lote seleccionado, ofrece un text_input para que el usuario
+    # describa el proyecto en lenguaje natural. El contexto del lote se
+    # pre-concatena de forma invisible antes de enviarlo a extraer_coordenadas_plano.
+    if ia_disponible():
+        with st.expander("🤖 Describir proyecto con IA (Opcional)", expanded=False):
+            st.caption(
+                "Describe en lenguaje natural las piezas a cortar. "
+                "La IA extraerá las medidas y las añadirá a la lista automáticamente."
+                + (f" Lienzo base activo: **{_lbl_lienzo}**." if _lienzo_idx >= 0 else "")
+            )
+            _ia_desc = st.text_area(
+                "Describe las piezas:",
+                placeholder="Ej: necesito un mesón de 3.20 m × 0.60 m y dos baños de 1.10 m × 0.55 m",
+                height=80,
+                key="nesting_ia_descripcion",
+                label_visibility="collapsed",
+            )
+            if st.button("✨ Extraer medidas con IA", key="nesting_ia_extraer",
+                         disabled=not _ia_desc.strip()):
+                # Pre-concatenar contexto del lote si está activo
+                _prompt_ia = (_lienzo_contexto_txt + _ia_desc.strip()) if _lienzo_contexto_txt else _ia_desc.strip()
+                with st.spinner("Interpretando descripción…"):
+                    _coords = extraer_coordenadas_plano(_prompt_ia)
+                if _coords and _coords.get("piezas"):
+                    _importadas = 0
+                    for _pp in _coords["piezas"]:
+                        _p_largo = float(_pp.get("largo") or 0.0)
+                        _p_ancho = float(_pp.get("ancho") or 0.0)
+                        _p_cant  = int(_pp.get("cantidad") or 1)
+                        _p_nom   = str(_pp.get("nombre") or "Pieza IA")
+                        if _p_largo > 0 and _p_ancho > 0:
+                            for _ in range(_p_cant):
+                                st.session_state.nesting_piezas.append({
+                                    "id":       uuid.uuid4().hex[:8],
+                                    "nombre":   _p_nom,
+                                    "largo":    _p_largo,
+                                    "ancho":    _p_ancho,
+                                    "cantidad": 1,
+                                })
+                                _importadas += 1
+                    if _importadas:
+                        st.success(f"✅ {_importadas} pieza(s) añadidas desde la descripción.")
+                        st.rerun()
+                    else:
+                        st.warning("No se encontraron piezas con medidas válidas en la descripción.")
+                else:
+                    st.error("La IA no pudo interpretar la descripción. Intenta ser más específico con las medidas.")
 
     # ══════════════════════════════════════════════════════════════════════════
     # ZONA FULL-WIDTH — Botón optimizar + SVG + métricas
