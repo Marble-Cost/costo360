@@ -362,6 +362,7 @@ def calcular_cotizacion_directa(
     adicionales_lista: list,
     tipo_proyecto: str = "",
     nombre_cliente: str = "",
+    materiales_lista: list = None,   # Lista de dicts {cat, ref, precio_m2, area_placa} por material
     **kwargs,
 ) -> dict:
     _tarifas_src = kwargs.get("tarifas_override") or TARIFAS
@@ -371,7 +372,17 @@ def calcular_cotizacion_directa(
     # costo_material base = costo de la placa comprada al proveedor.
     # El m² del zócalo se suma DESPUÉS de calcular zocalo_m2_calc (bloque ③),
     # por eso se inicializa aquí sin el extra y se ajusta más abajo.
-    costo_material = precio_m2 * area_placa_comprada
+    # MULTI-MATERIAL: si se recibe materiales_lista, el costo se calcula
+    # sumando (area_placa × precio_m2) de cada material individualmente.
+    # Esto evita aplicar el precio_m2 del primer material al área total.
+    # FALLBACK retrocompatible: si no hay lista, usa parámetros clásicos.
+    if materiales_lista:
+        costo_material = sum(
+            float(m.get("area_placa", 0)) * float(m.get("precio_m2", 0))
+            for m in materiales_lista
+        )
+    else:
+        costo_material = precio_m2 * area_placa_comprada
 
     # ── ② Producción ──────────────────────────────────────────────────────────
     # ARQUITECTURA DUAL ML vs m²:
@@ -461,14 +472,28 @@ def calcular_cotizacion_directa(
     # zocalo_m2_calc > 0 (modo geométrico con altura), y representa el costo de
     # la fracción de piedra asignada al zócalo que, de otro modo, no quedaría
     # reflejada en el costo (porque area_placa_comprada es la lámina principal).
-    costo_extra_material_zocalo = zocalo_m2_calc * precio_m2
-    costo_material_total = costo_material + costo_extra_material_zocalo
+    # FIX: Los zócalos se cortan de la placa principal ya costeada.
+    # costo_extra_material_zocalo = 0 elimina el doble cobro.
+    # La mano de obra del zócalo sí se sigue cobrando en c3.
+    costo_extra_material_zocalo = 0.0
+    costo_material_total = costo_material   # sin doble cobro
 
     # ── ④ Insumos, Consumibles y Riesgo ──────────────────────────────────────
     m2_disco = m2_cortados if m2_cortados > 0 else m2_real
     costo_disco_maq  = (m2_disco * tar.get("disco", 2_200)) + (dias * tar.get("maquina", 20_000))
     costo_consumibles = m2_real * tar.get("consumibles", 10_000)   # Lijas, masilla, ceras, sellador
-    costo_riesgo      = costo_material * tar.get("riesgo_rotura", 0.02)  # % provisión rotura
+    # RIESGO POR MATERIAL: si hay lista multi-material, se calcula el riesgo
+    # de rotura individualmente por categoría (sinterizado tiene mayor riesgo).
+    # FALLBACK retrocompatible: aplica la tarifa de la categoría principal.
+    if materiales_lista:
+        _tarifas_riesgo_src = kwargs.get("tarifas_override") or TARIFAS
+        costo_riesgo = sum(
+            float(m.get("area_placa", 0)) * float(m.get("precio_m2", 0))
+            * _tarifas_riesgo_src.get(m.get("cat", categoria), TARIFAS["Mármol"]).get("riesgo_rotura", 0.02)
+            for m in materiales_lista
+        )
+    else:
+        costo_riesgo = costo_material * tar.get("riesgo_rotura", 0.02)  # % provisión rotura
     c4 = costo_disco_maq + costo_consumibles + costo_riesgo
 
     # ── ⑤ Logística con peso de carga y peajes exactos ──────────────────────
