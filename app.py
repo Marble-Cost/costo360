@@ -6263,14 +6263,25 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
             _border_color = "#15803d" if _rr_est == "Disponible" else "#6b7280"
 
             # ── Tarjeta compacta por sobrante ─────────────────────────────────
-            with st.container():
+            # FIX: se usa st.container(border=True) en lugar de abrir/cerrar
+            # <div> con st.markdown separados. Streamlit renderiza cada llamada
+            # a st.markdown como un fragmento HTML autónomo, por lo que un
+            # st.markdown('<div>') sin cierre Y un st.markdown('</div>') posterior
+            # se muestran como texto literal en pantalla. st.container() resuelve
+            # el wrapper sin tocar el HTML interno.
+            with st.container(border=True):
+                # Cabecera de la tarjeta: ícono de estado + badge de disponibilidad
                 st.markdown(
-                    f'<div style="border:1px solid {_border_color};border-left:4px solid {_border_color};'
-                    f'border-radius:10px;padding:12px 16px 10px;margin-bottom:10px;background:{_bg_card}">',
+                    f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+                    f'<span style="width:10px;height:10px;border-radius:50%;'
+                    f'background:{_est_color};display:inline-block;flex-shrink:0"></span>'
+                    f'<span style="font-size:0.72rem;font-weight:800;color:{_est_color};'
+                    f'text-transform:uppercase;letter-spacing:0.06em">{_rr_est}</span>'
+                    f'</div>',
                     unsafe_allow_html=True
                 )
 
-                # Fila superior: material + ref + m² + origen + fecha + badge estado
+                # Fila superior: material + ref + m² + origen + fecha + botón eliminar
                 _ca, _cb, _cc, _cd, _ce, _cf = st.columns([1.6, 1.4, 0.9, 1.4, 1.1, 0.9])
                 _ca.markdown(
                     f'<div style="font-size:0.85rem;font-weight:800">{_rr_cat}</div>'
@@ -6311,7 +6322,7 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                             st.session_state.pop(_del_retal_key, None)
                             st.rerun()
 
-                # Barra de progreso de cuánto queda
+                # Barra de progreso de cuánto queda (solo si hay datos y está disponible)
                 if _rr_m2o > 0 and _rr_est == "Disponible":
                     st.markdown(
                         f'<div style="height:4px;background:rgba(0,0,0,0.1);border-radius:2px;margin:10px 0 8px">'
@@ -6320,11 +6331,11 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                         unsafe_allow_html=True
                     )
 
-                # Fila inferior: precio de recuperación — con guía clara
+                # Fila inferior: precio de recuperación (solo si está disponible)
                 if _rr_est == "Disponible":
                     st.markdown(
                         '<div style="border-top:1px solid var(--border-color);margin-top:10px;'
-                        'padding-top:10px"></div>',
+                        'padding-top:10px;margin-bottom:4px"></div>',
                         unsafe_allow_html=True
                     )
                     _pr_col1, _pr_col2, _pr_col3 = st.columns([1.6, 1.5, 4.9])
@@ -6355,7 +6366,11 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                                 "de margen reflejarán la rentabilidad real del proyecto."
                             ),
                         )
-                        st.markdown(f"<div style='margin-top:-2px; margin-bottom:10px; font-size:0.85rem; color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(_nuevo_precio_rec)}</div>", unsafe_allow_html=True)
+                        st.markdown(
+                            f"<div style='margin-top:-2px; margin-bottom:10px; font-size:0.85rem; "
+                            f"color:#1B5FA8; font-weight:600;'>💰 Equivalencia: {cop(_nuevo_precio_rec)}</div>",
+                            unsafe_allow_html=True
+                        )
                         if _nuevo_precio_rec != int(_rr_precio_rec):
                             try:
                                 _conn_pr = _get_db_connection()
@@ -6372,25 +6387,24 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                                 st.error(f"Error al guardar: {_e_pr}")
                     with _pr_col3:
                         if _nuevo_precio_rec == 0:
-                            _hint_icon = "⚠️"
-                            _hint_txt  = "Precio en $0 — Atención: esto generará un margen ilusorio en tus reportes. Ingresa al menos el costo base del material para reflejar la rentabilidad real."
+                            _hint_icon  = "⚠️"
+                            _hint_txt   = "Precio en $0 — Atención: esto generará un margen ilusorio en tus reportes. Ingresa al menos el costo base del material para reflejar la rentabilidad real."
                             _hint_color = "#b45309"
                         elif _nuevo_precio_rec < 50_000:
-                            _hint_icon = "🟡"
-                            _hint_txt  = f"Cobras {numero_completo(_nuevo_precio_rec)}/m² por este sobrante — precio simbólico, buen margen."
+                            _hint_icon  = "🟡"
+                            _hint_txt   = f"Cobras {numero_completo(_nuevo_precio_rec)}/m² por este sobrante — precio simbólico, buen margen."
                             _hint_color = "#d97706"
                         else:
-                            _hint_icon = "🔵"
-                            _hint_txt  = f"Cobras {numero_completo(_nuevo_precio_rec)}/m² — precio de mercado parcial. El margen sigue siendo mejor que comprar nuevo."
+                            _hint_icon  = "🔵"
+                            _hint_txt   = f"Cobras {numero_completo(_nuevo_precio_rec)}/m² — precio de mercado parcial. El margen sigue siendo mejor que comprar nuevo."
                             _hint_color = "#1B5FA8"
                         st.markdown(
-                            f'<div style="font-size:0.77rem;padding-top:8px;color:{_hint_color};font-weight:600">' +
+                            f'<div style="font-size:0.77rem;padding-top:8px;color:{_hint_color};font-weight:600">'
                             f'{_hint_icon} {_hint_txt}</div>',
                             unsafe_allow_html=True
                         )
 
-                st.markdown('</div>', unsafe_allow_html=True)
-                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+            st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
