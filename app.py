@@ -3237,6 +3237,33 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         unsafe_allow_html=True,
                     )
 
+                # ── Material de la pieza (Asignación Dinámica) ───────────────
+                # Permite enlazar cada pieza con su material específico para
+                # calcular mano de obra y zócalo con las tarifas correctas.
+                _mats_p1_disp = st.session_state.get("materiales_proyecto", [])
+                if _mats_p1_disp:
+                    _mat_opciones = [f"{m['cat']} — {m['ref'] or m['cat']}" for m in _mats_p1_disp]
+                    _mat_cats     = [m["cat"] for m in _mats_p1_disp]
+                    _cat_previa   = pieza.get("categoria", _mat_cats[0])
+                    _cat_idx      = _mat_cats.index(_cat_previa) if _cat_previa in _mat_cats else 0
+                    _mat_sel_lbl  = st.selectbox(
+                        "Material de la pieza",
+                        _mat_opciones,
+                        index=_cat_idx,
+                        key=f"pmat_{idx}",
+                        help="Selecciona el material específico de esta pieza. Cada material tiene sus propias tarifas de producción.",
+                    )
+                    _cat_pieza = _mat_cats[_mat_opciones.index(_mat_sel_lbl)]
+                else:
+                    _cat_pieza = st.selectbox(
+                        "Material de la pieza",
+                        CATEGORIAS_MATERIAL,
+                        index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
+                              if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
+                        key=f"pmat_{idx}",
+                        help="Categoría de material para esta pieza.",
+                    )
+
                 # ── Submódulo: Zócalo Geométrico por pieza ────────────────
                 # Calcula automáticamente los ML de zócalo según los lados
                 # seleccionados — elimina el campo global "Total ML de Zócalo".
@@ -3314,6 +3341,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     "ancho_tipo":          ancho_tipo_p,
                     "ancho_custom":        ancho_p,
                     "nombre_personalizado": _nom_personalizado,
+                    # Material específico de esta pieza (Asignación Dinámica)
+                    "categoria":           _cat_pieza,
                     # Checkboxes y configuración de zócalo geométrico
                     "zoc_trasero":         _zoc_t,
                     "zoc_izq":             _zoc_i,
