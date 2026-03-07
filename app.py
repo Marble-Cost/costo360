@@ -2543,8 +2543,8 @@ elif pagina == "Cotizacion Directa":
                       color:rgba(255,255,255,0.55);font-weight:700;margin-bottom:6px">
             {"Precio de venta (sin IVA)" if _iva_act else "Precio de venta"}
           </div>
-          <div style="font-size:3.8rem;font-weight:900;font-family:'Playfair Display',serif;
-                      line-height:1;margin-bottom:8px">{numero_completo(r["precio_sugerido"])}</div>
+          <div style="font-size:clamp(1.5rem,5vw,3.8rem);font-weight:900;font-family:'Playfair Display',serif;
+                      line-height:1.1;margin-bottom:8px;word-break:break-word">{numero_completo(r["precio_sugerido"])}</div>
           <div style="opacity:0.75;font-size:0.9rem">
             Margen: {r["margen_pct"]:.0f}% &nbsp;·&nbsp; Utilidad: {numero_completo(r["utilidad"])}
             &nbsp;·&nbsp; {r.get("tipo_proyecto","Proyecto")} — {r.get("categoria","")}
@@ -4006,7 +4006,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
           <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:8px">
             Precio de venta sugerido {"(sin IVA)" if _iva_act else ""}
           </div>
-          <div style="font-size:3.2rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
+          <div style="font-size:clamp(1.5rem,5vw,3.2rem);font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:8px;word-break:break-word">
             {numero_completo(r["precio_sugerido"])}
           </div>
           <div style="opacity:0.8;font-size:0.85rem">
@@ -4303,7 +4303,7 @@ elif pagina == "Cotizacion AIU":
             </div>
           </div>
           <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.12em;color:rgba(255,255,255,0.55);font-weight:700;margin-bottom:6px">Precio total del contrato (A+I+U+IVA)</div>
-          <div style="font-size:3.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
+          <div style="font-size:clamp(1.5rem,5vw,3.8rem);font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:8px;word-break:break-word">
             {numero_completo(r_aiu["precio_total"])}
           </div>
           <div style="opacity:0.75;font-size:0.9rem">
@@ -4853,7 +4853,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
           <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:8px">
             Precio total del contrato (AIU)
           </div>
-          <div style="font-size:3.2rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">
+          <div style="font-size:clamp(1.5rem,5vw,3.2rem);font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:8px;word-break:break-word">
             {numero_completo(r["precio_total"])}
           </div>
           <div style="opacity:0.8;font-size:0.85rem">
@@ -5315,7 +5315,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
         st.markdown(f"""
         <div style="background:#1B5FA8; border-radius:14px;padding:32px 36px;margin:8px 0 20px; color:white;">
           <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:10px">Precio total del contrato (AIU)</div>
-          <div style="font-size:2.8rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1;margin-bottom:8px">{numero_completo(r['precio_total'])}</div>
+          <div style="font-size:clamp(1.5rem,5vw,2.8rem);font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:8px;word-break:break-word">{numero_completo(r['precio_total'])}</div>
           <div style="opacity:0.8;font-size:0.85rem">Margen Efectivo: {r['margen_pct']:.1f}%</div>
         </div>""", unsafe_allow_html=True)
 
