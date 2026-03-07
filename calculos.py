@@ -394,63 +394,98 @@ def calcular_cotizacion_directa(
     # El tipo_proyecto actúa como tiebreaker en el fallback sin piezas.
     piezas = kwargs.get("piezas", [])
 
-    ml_piezas = sum(
-        float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
-        for p in piezas if p.get("unidad_venta", "ml") == "ml"
-    )
-    m2_piezas = sum(
-        ml_a_m2(float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1)))), float(p.get("ancho", 0.60)))
-        for p in piezas if p.get("unidad_venta", "ml") == "m2"
-    )
-
     # Tipos de proyecto que se pagan por área (no por borde)
     _TIPOS_AREA = {"Piso", "Fachada", "Revestimiento"}
     _es_tipo_area = any(t.strip() in _TIPOS_AREA for t in tipo_proyecto.split(",")) if tipo_proyecto else False
 
-    # Fallback cuando no hay piezas explícitas (carga desde pre, atajo, etc.)
-    ml_proyecto = kwargs.get("ml_proyecto", 0.0)
-    if ml_piezas <= 0 and ml_proyecto > 0:
-        ml_piezas = ml_proyecto
+    # ── ② Producción + ③ Zócalos — ASIGNACIÓN DINÁMICA POR PIEZA ────────────
+    # Cada pieza itera con su propia categoría y sus tarifas específicas.
+    # Esto elimina la subcotización cuando el proyecto mezcla materiales
+    # de distinta dureza (ej: Mármol + Sinterizado en la misma cocina).
+    #
+    # FALLBACK RETROCOMPATIBLE: si no hay lista de piezas (historial antiguo,
+    # cotizaciones rápidas, atajo del sidebar), se usa la lógica global con
+    # ml_proyecto y las tarifas del material principal.
+    if piezas:
+        c2_ml_acum = 0.0
+        c2_m2_acum = 0.0
+        c3_acum    = 0.0
+        ml_piezas  = 0.0   # acumulado para precio_por_ml y fallbacks de UI
+        m2_piezas  = 0.0
 
-    if ml_piezas <= 0 and m2_piezas <= 0:
-        if _es_tipo_area:
-            # Proyecto de área: costear todo por m², sin convertir a ML ficticio
-            m2_piezas = m2_real
-        else:
-            # Proyecto de borde: estimado razonable — 1 ML = 0.60 m de ancho estándar
-            # Solo se usa cuando no hay piezas detalladas disponibles
-            ml_piezas = m2_real / 0.60
+        for p in piezas:
+            # Identificar categoría real de esta pieza (fallback a la global)
+            cat_p = p.get("categoria", categoria)
+            tar_p = _tarifas_src.get(cat_p, TARIFAS["Mármol"])
 
-    tarifa_prod_ml = tar.get("prod_ml", 60_000)
-    # prod_m2 viene de TARIFAS (valor real calibrado por material).
-    # El fallback 0.55×prod_ml se mantiene solo para retrocompatibilidad
-    # con instalaciones donde prod_m2 aún no esté en la BD de config.
-    tarifa_prod_m2 = tar.get("prod_m2", round(tarifa_prod_ml * 0.55))
+            # Longitud real: usa "ml" (ya escalado) o largo × cantidad
+            largo_total = float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
+            ancho_p     = float(p.get("ancho_custom", p.get("ancho", 0.60)))
+            uv          = p.get("unidad_venta", "ml")
 
-    c2_ml = ml_piezas * tarifa_prod_ml
-    c2_m2 = m2_piezas * tarifa_prod_m2
-    c2    = c2_ml + c2_m2
+            tarifa_prod_ml_p = tar_p.get("prod_ml", 60_000)
+            tarifa_prod_m2_p = tar_p.get("prod_m2", round(tarifa_prod_ml_p * 0.55))
 
-    # ── ③ Zócalos — Geométrico por pieza (Innovación) ───────────────────────────
-    # Si alguna pieza tiene checkboxes de zócalo geométrico → calcular_zocalo_geometrico().
-    # Fallback: modo legacy con zocalo_activo + zocalo_ml (para recálculos de historial
-    # y el atajo del sidebar donde las piezas antiguas no tienen estos campos).
-    _piezas_zoc = kwargs.get("piezas", [])
-    _tiene_zoc_geometrico = any(
-        p.get("zoc_trasero") or p.get("zoc_izq") or p.get("zoc_der")
-        for p in _piezas_zoc
-    )
-    if _tiene_zoc_geometrico:
-        # Modo geométrico: ML y m² calculados automáticamente desde los lados/altura
+            if uv == "ml":
+                ml_piezas  += largo_total
+                c2_ml_acum += largo_total * tarifa_prod_ml_p
+            else:
+                area_p    = ml_a_m2(largo_total, ancho_p)
+                m2_piezas += area_p
+                c2_m2_acum += area_p * tarifa_prod_m2_p
+
+            # ── Zócalo geométrico individual por pieza ────────────────────
+            # Calcula los ML de zócalo exclusivamente de los lados de ESTA pieza
+            # y los multiplica por la tarifa de zócalo de SU material.
+            cantidad_p   = int(p.get("cantidad", 1))
+            ml_unit_p    = float(p.get("ml_unitario", p.get("largo", largo_total / max(cantidad_p, 1))))
+            altura_cm_p  = max(1.0, min(float(p.get("altura_zocalo_cm", 7.0)), 50.0))
+            ml_zoc_p     = 0.0
+            if p.get("zoc_trasero"):
+                ml_zoc_p += ml_unit_p * cantidad_p
+            if p.get("zoc_izq"):
+                ml_zoc_p += ancho_p * cantidad_p
+            if p.get("zoc_der"):
+                ml_zoc_p += ancho_p * cantidad_p
+            c3_acum += ml_zoc_p * tar_p.get("zocalo", tar.get("zocalo", 12_000))
+
+        c2_ml = c2_ml_acum
+        c2_m2 = c2_m2_acum
+        c2    = c2_ml + c2_m2
+        c3    = c3_acum
+
+        # Métricas de zócalo para PDF y UI (modo geométrico aggregado)
+        _piezas_zoc = piezas
         _zoc_geo         = calcular_zocalo_geometrico(_piezas_zoc)
         zocalo_ml_calc   = _zoc_geo["ml"]
-        zocalo_m2_calc   = _zoc_geo["m2"]   # área de piedra que consume el zócalo
-        c3 = zocalo_ml_calc * tar["zocalo"]
+        zocalo_m2_calc   = _zoc_geo["m2"]
+
     else:
-        # Modo legacy: el usuario ingresó el total manual (zocalo_activo + zocalo_ml)
+        # ── FALLBACK GLOBAL (historial antiguo / cotización rápida) ──────
+        # Usa ml_proyecto y las tarifas del material principal (tar).
+        ml_piezas  = 0.0
+        m2_piezas  = 0.0
+        ml_proyecto = kwargs.get("ml_proyecto", 0.0)
+
+        if ml_proyecto > 0:
+            ml_piezas = ml_proyecto
+        elif _es_tipo_area:
+            m2_piezas = m2_real
+        else:
+            ml_piezas = m2_real / 0.60
+
+        tarifa_prod_ml = tar.get("prod_ml", 60_000)
+        tarifa_prod_m2 = tar.get("prod_m2", round(tarifa_prod_ml * 0.55))
+
+        c2_ml = ml_piezas * tarifa_prod_ml
+        c2_m2 = m2_piezas * tarifa_prod_m2
+        c2    = c2_ml + c2_m2
+
+        # Zócalo modo legacy (total ML ingresado manualmente)
         zocalo_ml_calc = zocalo_ml if zocalo_activo else 0.0
-        zocalo_m2_calc = 0.0   # sin dato de altura → no suma m² (retrocompatible)
+        zocalo_m2_calc = 0.0
         c3 = zocalo_ml_calc * tar["zocalo"]
+
     # Exponer el ML real y los m² de material usados en zócalos (para PDF y UI)
     zocalo_ml_efectivo = zocalo_ml_calc
     zocalo_m2_efectivo = zocalo_m2_calc
