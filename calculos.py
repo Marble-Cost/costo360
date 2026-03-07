@@ -43,9 +43,9 @@ def calcular_peso_proyecto(piezas: list, categoria: str) -> float:
         # Soporte multi-material: cada pieza puede tener su propia categoría
         cat_pieza = p.get("categoria", categoria)
         props = PROPIEDADES_MATERIAL.get(cat_pieza, props_default)
-        largo = float(p.get("largo", p.get("ml", 0.0)))
+        largo_total = float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
         ancho = float(p.get("ancho", 0.60))
-        area_pieza = largo * ancho                             # m²
+        area_pieza = largo_total * ancho                       # m²
         grosor     = props["grosor_std_m"]                     # m
         densidad   = props["densidad_kg_m3"]                   # kg/m³
         # kg = m² × m × kg/m³ = volumen_m³ × densidad_kg_m³
@@ -74,9 +74,9 @@ def calcular_merma_inteligente(piezas: list, categoria: str) -> dict:
         cat_pieza = p.get("categoria", categoria)
         categorias_usadas.add(cat_pieza)
         props = PROPIEDADES_MATERIAL.get(cat_pieza, props_default)
-        largo  = float(p.get("largo", p.get("ml", 0.0)))
+        largo_total = float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
         ancho  = float(p.get("ancho", 0.60))
-        area   = largo * ancho
+        area   = largo_total * ancho
         merma_pct = props["merma_base"]
         merma_m2  = area * merma_pct
         merma_total += merma_m2
@@ -133,15 +133,15 @@ def calcular_totales_piezas(piezas: list) -> dict:
     m2_material = 0.0
 
     for p in piezas:
-        largo = float(p.get("largo", p.get("ml", 0.0)))
+        largo_total = float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
         ancho = float(p.get("ancho", 0.60))
         uv    = p.get("unidad_venta", "ml")
-        # "ml" ya viene como el total efectivo (ml_unitario × cantidad) desde app.py
-        # "largo" es el valor escalado. La cantidad ya está absorbida en "ml".
-        m2_p  = ml_a_m2(largo, ancho)
+        # largo_total usa "ml" (ya escalado por cantidad desde app.py) o
+        # calcula largo × cantidad cuando "ml" no está presente.
+        m2_p  = ml_a_m2(largo_total, ancho)
         m2_material += m2_p
         if uv == "ml":
-            ml_total += largo
+            ml_total += largo_total
         else:
             m2_total += m2_p
 
@@ -312,7 +312,7 @@ def calcular_zocalo_geometrico(piezas: list) -> dict:
 
     for p in piezas:
         cantidad       = int(p.get("cantidad", 1))
-        ml_unitario    = float(p.get("ml_unitario", p.get("ml", 0.0)))
+        ml_unitario    = float(p.get("ml_unitario", p.get("largo", 0.0)))
         ancho          = float(p.get("ancho_custom", 0.60))
         # altura_zocalo_cm: valor guardado por pieza; default 7 cm (estándar en obra residencial)
         altura_cm      = float(p.get("altura_zocalo_cm", 7.0))
@@ -394,14 +394,12 @@ def calcular_cotizacion_directa(
     # El tipo_proyecto actúa como tiebreaker en el fallback sin piezas.
     piezas = kwargs.get("piezas", [])
 
-    # p["ml"] ya viene escalado (ml_unitario × cantidad) desde app.py
-    # → no se necesita multiplicar aquí; la cantidad ya está absorbida.
     ml_piezas = sum(
-        float(p.get("largo", p.get("ml", 0)))
+        float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
         for p in piezas if p.get("unidad_venta", "ml") == "ml"
     )
     m2_piezas = sum(
-        ml_a_m2(float(p.get("largo", p.get("ml", 0))), float(p.get("ancho", 0.60)))
+        ml_a_m2(float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1)))), float(p.get("ancho", 0.60)))
         for p in piezas if p.get("unidad_venta", "ml") == "m2"
     )
 
