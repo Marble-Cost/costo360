@@ -416,19 +416,6 @@ TOUR_PASOS = [
 ]
 
 
-# ── CATÁLOGO ESTANDARIZADO GRAMAR 2024 ────────────────────────────────────────
-# Diccionario {categoria: [lista de referencias]}
-# Usado en el selectbox de la UI para evitar datos sucios.
-# Al final de cada lista la UI añade "Otra referencia..." como opción libre.
-MATERIALES_CATALOGO_LEGACY = [
-    {"nombre": "Crema Marfil Clásico",  "categoria": "Mármol",      "precio_m2": 220_000, "area_placa": 5.94},
-    {"nombre": "New Cremo Sicilia",     "categoria": "Mármol",      "precio_m2": 240_000, "area_placa": 2.212},
-    {"nombre": "Ducal Gold 1200×2800",  "categoria": "Sinterizado", "precio_m2":  88_000, "area_placa": 3.36},
-    {"nombre": "Blanco Polar",          "categoria": "Quarztone",   "precio_m2": 169_000, "area_placa": 5.168},
-    {"nombre": "Alpine Premium",        "categoria": "Granito",     "precio_m2": 475_000, "area_placa": 5.12},
-    {"nombre": "Calacatta Dorato",      "categoria": "Sinterizado", "precio_m2": 580_000, "area_placa": 5.12},
-]
-
 # ── MAPA DE CROSS-SELLING ──────────────────────────────────────────────────────
 # Formato: {referencia_seleccionada: {"alternativa": str, "categoria": str, "razon": str}}
 # La UI muestra una alerta cuando el usuario elige una llave — sugiere
