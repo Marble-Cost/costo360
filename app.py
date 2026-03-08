@@ -2479,6 +2479,9 @@ elif pagina == "Cotizacion Directa":
                             vehiculos_custom={**VEHICULOS_CONFIG,
                                               **(st.session_state.get("vehiculos_custom") or {})},
                             tarifas_override=st.session_state.get("tarifas_custom"),
+                            # C-05: pasar IVA para que precio_por_ml y precio_por_m2_venta
+                            # reflejen el precio FINAL al cliente (con IVA), no el subtotal.
+                            incluir_iva=_pre_sb.get("incluir_iva", False),
                         )
                         _r_atajo["_estado_guardado"] = _pre_sb
                         _r_atajo["incluir_iva"]      = _pre_sb.get("incluir_iva", False)
@@ -4127,6 +4130,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     tipo_alimentacion=pre.get("tipo_alimentacion", "completa"),
                     # Innovación 8: Doble Estrategia de Precio
                     estrategia_precio=_estrategia_val,
+                    # C-05: pasar IVA para que precio_por_ml y precio_por_m2_venta
+                    # reflejen el precio FINAL al cliente (con IVA), no el subtotal.
+                    incluir_iva=incluir_iva,
                 )
                 resultado["_estado_guardado"] = _pre_snapshot
                 resultado["incluir_iva"]      = incluir_iva
