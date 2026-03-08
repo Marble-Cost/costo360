@@ -4961,6 +4961,13 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                     agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu,
                     # FIX-3: iva en vivo — nunca stale
                     incluir_iva=_current_iva,
+                    # C-03: pasar overrides para que AIU use las tarifas
+                    # personalizadas del usuario (mismo comportamiento que
+                    # Cotización Directa — IVA AIU sigue siendo solo sobre U).
+                    logistica_override=st.session_state.get("logistica_custom"),
+                    viaticos_override=st.session_state.get("viaticos_custom"),
+                    vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+                    costo_peaje_unitario=float(st.session_state.pre.get("costo_peaje_unitario", 0.0)),
                 )
                 res_aiu["tipo_proyecto"]   = "Licitación AIU"
                 res_aiu["categoria"]       = "Proyecto Constructora"
@@ -5355,8 +5362,16 @@ no sobre el total del contrato. La app calcula esto automáticamente.
     )
 
     if _ejecutar_aiu:
-        res_aiu = calcular_aiu(cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu, agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu,
-                              incluir_iva=incluir_iva_aiu)
+        res_aiu = calcular_aiu(
+            cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu,
+            agente_aiu, foraneo_aiu, tipo_aloj_aiu, noches_aiu, pers_aiu,
+            incluir_iva=incluir_iva_aiu,
+            # C-03: overrides de tarifas personalizadas del usuario
+            logistica_override=st.session_state.get("logistica_custom"),
+            viaticos_override=st.session_state.get("viaticos_custom"),
+            vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+            costo_peaje_unitario=float(st.session_state.pre.get("costo_peaje_unitario", 0.0)),
+        )
 
         # Preparación de campos para compatibilidad con BD y PDF
         res_aiu["tipo_proyecto"]   = "Licitación AIU"
@@ -5447,6 +5462,11 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             int(_pre.get("personas", 2)),
             # FIX-3b: IVA en vivo — coherente con el live-fetching del paso 2
             incluir_iva=_iva_defensiva,
+            # C-03: recálculo defensivo también debe respetar tarifas personalizadas
+            logistica_override=st.session_state.get("logistica_custom"),
+            viaticos_override=st.session_state.get("viaticos_custom"),
+            vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+            costo_peaje_unitario=float(_pre.get("costo_peaje_unitario", 0.0)),
         )
         _res_aiu_pre["tipo_proyecto"]   = "Licitación AIU"
         _res_aiu_pre["categoria"]       = "Proyecto Constructora"
