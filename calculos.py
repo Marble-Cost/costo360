@@ -665,23 +665,46 @@ def analizar_precio_real(precio_real: float, costo_total: float, precio_sugerido
 
 def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
                  agente_externo, foraneo_activo, tipo_aloj, noches, personas,
-                 incluir_iva: bool = True):
+                 incluir_iva: bool = True,
+                 logistica_override: dict = None,
+                 viaticos_override: dict = None,
+                 vehiculos_custom: dict = None,
+                 costo_peaje_unitario: float = 0.0):
     """
     Cálculo AIU normativo colombiano.
     IVA (19%) solo sobre Utilidad (U) — Art. 3° Decreto 1372/92.
 
     incluir_iva=False: cotización exenta (régimen simplificado).
     En ese caso val_iva=0 y el total se ajusta dinámicamente.
+
+    logistica_override / viaticos_override / vehiculos_custom:
+        Permiten que el módulo AIU use las tarifas personalizadas que el
+        Admin configuró en Parámetros, exactamente igual que Cotización Directa.
+        Sin estos overrides, AIU ignoraba los cambios del usuario y cotizaba
+        siempre con los valores hardcodeados de LOGISTICA/VIATICOS (C-03).
     """
     val_a   = cd * (pct_a / 100)
     val_i   = cd * (pct_i / 100)
     val_u   = cd * (pct_u / 100)
-    # IVA solo sobre Utilidad — si exento, val_iva es 0 y no suma al total
+    # IVA solo sobre Utilidad (U) — Decreto 1372/92.
+    # La Cotización Directa (venta comercial) aplica IVA sobre el subtotal total
+    # bajo el régimen general del Estatuto Tributario. Esa lógica es exclusiva
+    # de app.py (línea ~4138) y NO debe tocarse aquí.
     val_iva = val_u * 0.19 if incluir_iva else 0.0
     sub_aiu = val_a + val_i + val_u + val_iva
-    log_dict  = calcular_logistica(vehiculo, km, num_peajes, agente_externo)
+
+    # Pasar overrides para que AIU use las tarifas personalizadas del usuario
+    log_dict = calcular_logistica(
+        vehiculo, km, num_peajes, agente_externo,
+        logistica_override=logistica_override,
+        vehiculos_custom=vehiculos_custom,
+        costo_peaje_unitario=costo_peaje_unitario,
+    )
     logistica = log_dict["total"]
-    viaticos  = calcular_viaticos(foraneo_activo, tipo_aloj, noches, personas)
+    viaticos  = calcular_viaticos(
+        foraneo_activo, tipo_aloj, noches, personas,
+        viaticos_override=viaticos_override,
+    )
     precio_total = cd + sub_aiu + logistica + viaticos
     margen_pct   = ((val_u + val_iva) / precio_total * 100) if precio_total > 0 else 0
     return {
