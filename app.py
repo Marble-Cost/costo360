@@ -2,6 +2,7 @@
 # Mármoles Collante & Castro Ltda.
 
 import io
+import html as _html_mod   # M-04: escape de caracteres HTML en respuestas IA (XSS)
 import time
 import uuid
 import hashlib
@@ -447,6 +448,7 @@ def _marcar_retal_usado(retal_id: int, m2_consumidos: float):
                     cur.execute("UPDATE inventario_retales SET m2_disponibles=%s WHERE id=%s", (nuevo, retal_id))
                 conn.commit()
 
+@st.cache_data(show_spinner=False)
 def _listar_retales(usuario_id=None, rol="Admin") -> list:
     """Lista el banco de retales. Operario ve solo los suyos; Admin ve todos."""
     with _db_conn() as conn:
@@ -476,12 +478,17 @@ def _actualizar_notas_retal(retal_id: int, notas: str):
         with conn.cursor() as cur:
             cur.execute("UPDATE inventario_retales SET notas=%s WHERE id=%s", (notas, retal_id))
         conn.commit()
+    # M-07: UPDATE en inventario_retales → solo afecta lecturas de retales
+    _listar_retales.clear()
 
 def _eliminar_retal(retal_id: int):
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM inventario_retales WHERE id=%s", (retal_id,))
         conn.commit()
+    # M-07: DELETE en inventario_retales → afecta lista y stats de retales
+    _listar_retales.clear()
+    _stats_retales.clear()
 
 def _guardar_cotizacion(numero, cliente, resultado):
     _uid = st.session_state.get("usuario_actual", {}).get("id")
@@ -497,7 +504,9 @@ def _guardar_cotizacion(numero, cliente, resultado):
                  json.dumps(resultado, ensure_ascii=False, default=str), _uid)
             )
         conn.commit()
-    st.cache_data.clear()
+    # M-07: invalidación quirúrgica — solo las lecturas afectadas por un INSERT en cotizaciones
+    _listar_cotizaciones.clear()
+    _stats_db.clear()
 
 def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: dict):
     """
@@ -575,8 +584,13 @@ def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: di
         except Exception:
             pass  # No bloquear el guardado si falla el descuento de inventario
 
-    st.cache_data.clear()
+    # M-07: invalidación quirúrgica — UPDATE en cotizaciones + posible UPDATE en retales
+    _listar_cotizaciones.clear()
+    _stats_db.clear()
+    _listar_retales.clear()     # por si se consumió un retal en esta edición
+    _stats_retales.clear()      # ídem
 
+@st.cache_data(show_spinner=False)
 def _listar_cotizaciones(busqueda="", usuario_id=None, rol="Admin"):
     with _db_conn() as conn:
         with conn.cursor() as cur:
@@ -630,14 +644,20 @@ def _actualizar_estado(cot_id, nuevo_estado):
                     _referencia = _datos.get("referencia", "")
                     _precio_m2_orig = float(_datos.get("precio_m2", 0))
                     if _retal > 0.05:
-                        st.cache_data.clear()
+                        # M-07: aprobación con retal → afecta cotizaciones, stats y retales
+                        _listar_cotizaciones.clear()
+                        _stats_db.clear()
+                        _listar_retales.clear()
+                        _stats_retales.clear()
                         _inyectar_retal(cot_id, _numero, _cliente, _material, _referencia, _retal,
                                         precio_m2_original=_precio_m2_orig)
                         return
                 except Exception:
                     pass
 
-    st.cache_data.clear()
+    # M-07: cambio de estado sin retal → solo afecta cotizaciones y stats
+    _listar_cotizaciones.clear()
+    _stats_db.clear()
 
 def _eliminar_cotizacion(cot_id):
     """Elimina la cotizacion y sus sobrantes asociados del inventario."""
@@ -651,8 +671,13 @@ def _eliminar_cotizacion(cot_id):
             # Luego eliminar la cotizacion
             cur.execute("DELETE FROM cotizaciones WHERE id=%s", (cot_id,))
         conn.commit()
-    st.cache_data.clear()
+    # M-07: DELETE en cascada afecta cotizaciones Y retales asociados
+    _listar_cotizaciones.clear()
+    _stats_db.clear()
+    _listar_retales.clear()
+    _stats_retales.clear()
 
+@st.cache_data(show_spinner=False)
 def _stats_db(usuario_id=None, rol="Admin"):
     with _db_conn() as conn:
         with conn.cursor() as cur:
@@ -687,6 +712,7 @@ def _stats_db(usuario_id=None, rol="Admin"):
     return s
 
 
+@st.cache_data(show_spinner=False)
 def _stats_retales(usuario_id=None, rol="Admin") -> dict:
     """Calcula el capital inmovilizado y métricas del banco de retales."""
     with _db_conn() as conn:
@@ -2120,13 +2146,24 @@ with st.sidebar:
 
         # ── Respuesta de la IA (fondo azul suave) ─────────────────────────────
         if st.session_state.get("_sos_ultima_respuesta"):
+            # M-04 FIX — Prevención XSS:
+            # La respuesta viene de la API de Anthropic, pero puede contener
+            # caracteres HTML especiales si el modelo genera código, URLs con
+            # parámetros, o si un atacante logra inyectar contenido vía el
+            # campo de pregunta (prompt injection → reflected XSS).
+            # html.escape() convierte <, >, &, " y ' a sus entidades seguras
+            # ANTES de que el string entre al bloque unsafe_allow_html.
+            # Solo después se restauran los saltos de línea como <br> legítimos.
+            _respuesta_escapada = _html_mod.escape(
+                st.session_state["_sos_ultima_respuesta"]
+            ).replace("\n", "<br>")
             st.markdown(
                 f"<div style='background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.25);"
                 f"border-left:3px solid #1B5FA8;border-radius:8px;"
                 f"padding:10px 12px;margin-top:8px;font-size:0.8rem;line-height:1.6'>"
                 f"<div style='font-size:0.65rem;font-weight:700;color:#1B5FA8;"
                 f"text-transform:uppercase;margin-bottom:6px'>✨ Copiloto responde</div>"
-                f"{st.session_state['_sos_ultima_respuesta'].replace(chr(10), '<br>')}"
+                f"{_respuesta_escapada}"
                 f"</div>",
                 unsafe_allow_html=True
             )
@@ -6439,6 +6476,9 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                                     (_ncat, _nref, _nm2, _nm2, _hoy().isoformat(), _nnota, _uid_manual)
                                 )
                             conn.commit()
+                        # M-07: INSERT manual en inventario_retales
+                        _listar_retales.clear()
+                        _stats_retales.clear()
                         st.session_state["retal_form_abierto"] = False
                         st.success("Retal registrado.")
                         st.rerun()
