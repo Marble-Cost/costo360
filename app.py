@@ -26,7 +26,7 @@ from calculos import (
 from parametros import (
     CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA, VEHICULOS,
     ALOJAMIENTO, AIU_DEFAULTS, TARIFAS, LOGISTICA, VIATICOS,
-    BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO, MATERIALES_CATALOGO_LEGACY,
+    BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
@@ -2980,11 +2980,6 @@ elif pagina == "Cotizacion Directa":
                         )
                     else:
                         referencia_m = ref_sel_m
-                        # Lookup en lista legacy para autocompletar precio/área si hay ficha
-                        m_cat_data = next(
-                            (m for m in MATERIALES_CATALOGO_LEGACY if m["nombre"] == ref_sel_m),
-                            None
-                        )
 
                 # ── Cross-selling: alerta de oportunidad de margen ────────────
                 _cs_data = CROSS_SELLING_MAP.get(referencia_m)
@@ -3188,7 +3183,15 @@ elif pagina == "Cotizacion Directa":
         referencia  = " + ".join(_refs_unicas) if len(_refs_unicas) > 1 else (_refs_unicas[0] if _refs_unicas else "")
         precio_m2   = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
         area_placa  = sum(m["area_placa"] for m in mats_nuevos)
-        precio_m2_efectivo = mats_nuevos[0]["precio_m2"] if mats_nuevos else 220_000
+        # B-05 FIX: precio_m2_efectivo es el fallback global que recibe calcular_cotizacion_directa
+        # cuando alguna pieza no tiene su propio material en materiales_lista.
+        # Con un solo material → precio exacto. Con varios materiales a distintos precios
+        # → promedio ponderado por área (más honesto que tomar siempre el primero).
+        _area_total_mats = sum(m["area_placa"] for m in mats_nuevos) or 1.0
+        precio_m2_efectivo = (
+            sum(m["precio_m2"] * m["area_placa"] for m in mats_nuevos) / _area_total_mats
+            if mats_nuevos else 220_000
+        )
         costo_material_total = sum(m["precio_m2"] * m["area_placa"] for m in mats_nuevos)
 
         _c_paso.__exit__(None, None, None)
@@ -3824,7 +3827,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _mats_p3    = st.session_state.get("materiales_proyecto", [])
         cat_sel     = _mats_p3[0]["cat"] if _mats_p3 else pre.get("categoria","Mármol")
         area_placa  = sum(m["area_placa"] for m in _mats_p3) if _mats_p3 else pre.get("area_placa_comprada", 5.94)
-        precio_m2_efectivo = _mats_p3[0]["precio_m2"] if _mats_p3 else pre.get("precio_m2", 220_000)
+        # B-05 FIX: promedio ponderado por área — ver comentario en paso 0.
+        _area_total_p3 = sum(m["area_placa"] for m in _mats_p3) or 1.0
+        precio_m2_efectivo = (
+            sum(m["precio_m2"] * m["area_placa"] for m in _mats_p3) / _area_total_p3
+            if _mats_p3 else pre.get("precio_m2", 220_000)
+        )
         _piezas_p3  = st.session_state.get("piezas", pre.get("piezas",[]))
         m2_real     = sum(ml_a_m2(float(p.get("ml",0)), float(p.get("ancho_custom",0.60))) for p in _piezas_p3) or pre.get("m2_proyecto", 4.0)
         m2_cortados_total = pre.get("m2_cortados_input", m2_real)
@@ -4080,8 +4088,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _refs_raw2  = [m["ref"] or m["cat"] for m in _mats]
         _refs_unicas2 = list(dict.fromkeys(_refs_raw2))  # Preserva orden, elimina duplicados
         referencia         = " + ".join(_refs_unicas2) if len(_refs_unicas2) > 1 else (_refs_unicas2[0] if _refs_unicas2 else "")
-        precio_m2          = _mats[0]["precio_m2"] if _mats else pre.get("precio_m2", 220_000)
-        precio_m2_efectivo = precio_m2
+        # B-05 FIX: promedio ponderado por área — ver comentario en paso 0.
+        _area_total_p4 = sum(m["area_placa"] for m in _mats) or 1.0
+        precio_m2_efectivo = (
+            sum(m["precio_m2"] * m["area_placa"] for m in _mats) / _area_total_p4
+            if _mats else pre.get("precio_m2", 220_000)
+        )
         area_placa         = sum(m["area_placa"] for m in _mats) if _mats else pre.get("area_placa_comprada", 5.94)
 
         m2_real           = sum(ml_a_m2(float(p.get("ml",0)), float(p.get("ancho_custom",0.60))) for p in _piezas) or pre.get("m2_proyecto", 4.0)
