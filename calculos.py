@@ -582,9 +582,22 @@ def calcular_cotizacion_directa(
     utilidad = precio_sugerido - costo_total
 
     # ── Precio unitario de venta desglosado por unidad ────────────────────────
-    # Permite mostrar al cliente: "X ml × $YY.000/ml" y "Z m² × $WW.000/m²"
-    precio_por_ml = (precio_sugerido / ml_piezas) if ml_piezas > 0 else 0.0
-    precio_por_m2 = (precio_sugerido / max(m2_real, 0.001))
+    # C-05 FIX: los precios unitarios deben calcularse sobre el precio FINAL
+    # (con IVA incluido cuando aplica), no sobre el subtotal sin IVA.
+    # De lo contrario, en el PDF:  X ml × precio_por_ml ≠ total de la factura.
+    #
+    # Régimen fiscal de Cotización Directa (Estatuto Tributario general):
+    #   IVA 19% se aplica sobre el Subtotal completo (Costo + Utilidad).
+    #   precio_final = precio_sugerido * 1.19  (si incluir_iva=True)
+    #   precio_final = precio_sugerido         (si incluir_iva=False)
+    #
+    # Nota: incluir_iva llega vía **kwargs. Default True para no romper
+    # llamadas legadas que no lo pasen explícitamente.
+    _incluir_iva_cd = kwargs.get("incluir_iva", True)
+    precio_final_cd = precio_sugerido * (1.19 if _incluir_iva_cd else 1.0)
+
+    precio_por_ml = (precio_final_cd / ml_piezas) if ml_piezas > 0 else 0.0
+    precio_por_m2 = (precio_final_cd / max(m2_real, 0.001))
 
     # ── Retal y aprovechamiento ───────────────────────────────────────────────
     m2_ref = m2_usados if m2_usados > 0 else m2_real
