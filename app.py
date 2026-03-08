@@ -3464,7 +3464,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         # Sync piezas to store_permanente (event-driven — persists across navigation)
         _sp_sync_piezas(piezas_nuevas)
         st.session_state.piezas = piezas_nuevas
-        m2_real         = total_m2_piezas
+
+        # ZOC-FIX 1: recalcular total_m2_piezas sumando el área de los zócalos
+        # geométricos. El acumulador del loop solo sumó el área base de cada pieza;
+        # los zócalos consumen material adicional de la misma lámina y deben
+        # reflejarse en m2_real / m2_cortados_total para que el motor de costos
+        # y el monitor de retal sean precisos.
+        from calculos import calcular_zocalo_geometrico
+        _m2_piezas_base   = sum(
+            ml_a_m2(float(p.get("ml", 0)), float(p.get("ancho_custom", 0.60)))
+            for p in st.session_state.piezas
+        )
+        _m2_zocalos_total = calcular_zocalo_geometrico(st.session_state.piezas)["m2"]
+        total_m2_piezas   = _m2_piezas_base + _m2_zocalos_total
+
+        m2_real           = total_m2_piezas
         m2_cortados_total = total_m2_piezas
 
         _col_add, _col_tot = st.columns([1, 2])
@@ -3521,13 +3535,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         _lc = int(_lm.get("placas_cant", 1))
                         _area_lote = _ll * _la * _lc if _ll > 0 and _la > 0 else float(_lm.get("area_placa", 0.0))
 
-                        # Área consumida: suma de piezas asignadas a este lote
-                        _consumido = sum(
+                        # Área consumida: suma de piezas asignadas a este lote + sus zócalos
+                        # ZOC-FIX 2: los zócalos se cortan del mismo lote físico que la
+                        # pieza a la que pertenecen — deben descontarse del retal del lote.
+                        _piezas_lote = [
+                            p for p in _piezas_rv
+                            if p.get("id_lote_origen") == _li  # None != _li → excluye sin lote
+                        ]
+                        _consumido_base = sum(
                             float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
                             * float(p.get("ancho_custom", p.get("ancho", 0.60)))
-                            for p in _piezas_rv
-                            if p.get("id_lote_origen") == _li   # None != _li → excluye piezas sin lote
+                            for p in _piezas_lote
                         )
+                        from calculos import calcular_zocalo_geometrico
+                        _consumido_zoc = calcular_zocalo_geometrico(_piezas_lote)["m2"]
+                        _consumido = _consumido_base + _consumido_zoc
                         _retal_lote = _area_lote - _consumido
                         _overflow   = _consumido > _area_lote and _area_lote > 0
 
