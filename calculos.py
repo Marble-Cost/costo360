@@ -179,6 +179,9 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     es_externo = veh_cfg.get("tipo") == "externo"
 
     costo_mantenimiento = 0.0
+    rend_efectivo = 0.0   # B-03: inicializado aquí para que sea accesible en el return
+                          # tanto si el vehículo es externo (queda en 0.0) como interno
+                          # (se sobreescribe en el bloque else con el valor real penalizado).
 
     if es_externo:
         _ext_src = p.get("externo", {})
@@ -235,7 +238,7 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
         "herram":       costo_herram,
         "agente":       costo_agente,
         "peso_carga_kg": peso_carga_kg,
-        "rend_efectivo": locals().get("rend_efectivo", 0),
+        "rend_efectivo": rend_efectivo,
     }
 
 
@@ -491,7 +494,6 @@ def calcular_cotizacion_directa(
         if zocalo_ml_calc == 0.0 and zocalo_activo and zocalo_ml > 0:
             zocalo_ml_calc = zocalo_ml
             c3 = zocalo_ml_calc * tar["zocalo"]
-        zocalo_m2_calc = zocalo_m2_calc  # m² de piedra consumida en zócalos
 
     else:
         # ── FALLBACK GLOBAL — historial antiguo / cotización rápida ──────────
