@@ -73,11 +73,34 @@ else:
     st.session_state.radio_ui = st.session_state.nav_radio
 
 # ── BASE DE DATOS POSTGRESQL (SUPABASE) ───────────────────────────────────────
-def _get_db_connection():
-    return psycopg2.connect(st.secrets["DATABASE_URL"])
+# ── M-01: _init_db se ejecuta UNA SOLA VEZ por proceso Streamlit ──────────────
+# @st.cache_resource persiste entre reruns y entre usuarios en el mismo worker.
+# Las funciones CRUD ya NO llaman _init_db() — el DDL de arranque está garantizado
+# por el bloque `try: _init_db()` en el nivel raíz (línea ~1279, junto a
+# _cargar_config_desde_db). Si la BD no está disponible al arrancar, las funciones
+# CRUD fallarán igualmente — no tiene sentido reintentar el DDL en cada query.
+#
+# M-02: _db_conn() es el único punto de creación de conexiones.
+# Usar SIEMPRE como context manager:
+#
+#   with _db_conn() as conn:
+#       with conn.cursor() as cur:
+#           cur.execute(...)
+#       conn.commit()          # ← explícito; psycopg2 no auto-commit
+#
+# psycopg2: `with conn` solo gestiona transacciones (commit/rollback).
+# El cierre de la conexión lo hace el bloque `finally` interno del helper.
+# Esto garantiza que NUNCA queden conexiones abiertas, evitando el agotamiento
+# del pool de Supabase (error "too many clients").
 
+@st.cache_resource
 def _init_db():
-    conn = _get_db_connection()
+    """
+    Ejecuta todo el DDL de arranque (CREATE TABLE IF NOT EXISTS + migraciones).
+    Llamado UNA VEZ por proceso via @st.cache_resource. No retorna nada útil;
+    el decorador cachea el resultado (None) y nunca vuelve a ejecutar el cuerpo.
+    """
+    conn = psycopg2.connect(st.secrets["DATABASE_URL"])
     cur = conn.cursor()
 
     # ── Tabla de usuarios (Multi-Tenant) ────────────────────────────────────────────
@@ -161,7 +184,40 @@ def _init_db():
     cur.close()
     conn.close()
 
-# ── Persistencia de configuración en Supabase ────────────────────────────────
+
+from contextlib import contextmanager
+
+@contextmanager
+def _db_conn():
+    """
+    Context manager que abre, entrega y cierra una conexión psycopg2.
+
+    Uso canónico en todas las funciones CRUD:
+
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(...)
+            conn.commit()
+
+    Garantías:
+    - La conexión SIEMPRE se cierra (bloque finally), evitando agotamiento
+      del pool de Supabase ("too many clients already").
+    - En caso de excepción, psycopg2 hace rollback automático al salir
+      del bloque `with conn` y luego el finally cierra la conexión.
+    - No es un pool real (SQLAlchemy lo haría mejor), pero sí es seguro
+      frente a fugas de conexiones que tumbaban la BD en la versión anterior.
+    """
+    conn = psycopg2.connect(st.secrets["DATABASE_URL"])
+    try:
+        yield conn
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+
 # Por qué: session_state se pierde en cada F5 / reinicio del servidor.
 # Solución: guardar en tabla app_config (key-value) y recargar al arrancar.
 
@@ -173,30 +229,24 @@ def _guardar_config(clave: str, valor) -> None:
     nativamente y lanzaría TypeError silencioso. Se conserva `default=str`
     como red de seguridad, pero la responsabilidad primaria es del llamador.
     """
-    _init_db()
-    conn = _get_db_connection()
-    cur  = conn.cursor()
-    cur.execute(
-        """INSERT INTO app_config (clave, valor, actualizado)
-           VALUES (%s, %s, %s)
-           ON CONFLICT (clave) DO UPDATE
-           SET valor = EXCLUDED.valor, actualizado = EXCLUDED.actualizado""",
-        (clave, json.dumps(valor, ensure_ascii=False, default=str), _hoy().isoformat())
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO app_config (clave, valor, actualizado)
+                   VALUES (%s, %s, %s)
+                   ON CONFLICT (clave) DO UPDATE
+                   SET valor = EXCLUDED.valor, actualizado = EXCLUDED.actualizado""",
+                (clave, json.dumps(valor, ensure_ascii=False, default=str), _hoy().isoformat())
+            )
+        conn.commit()
 
 def _leer_config(clave: str, defecto=None):
     """Lee un valor de app_config. Devuelve `defecto` si la clave no existe."""
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute("SELECT valor FROM app_config WHERE clave = %s", (clave,))
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT valor FROM app_config WHERE clave = %s", (clave,))
+                row = cur.fetchone()
         return json.loads(row[0]) if row else defecto
     except Exception:
         return defecto
@@ -330,25 +380,22 @@ def _inyectar_retal(cot_id: int, numero: str, cliente: str, categoria: str, refe
     if m2_retal <= 0:
         return
     _uid_act = st.session_state.get("usuario_actual", {}).get("id")
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    # Evitar duplicados: solo inyectar una vez por cotización
-    cur.execute("SELECT COUNT(*) FROM inventario_retales WHERE origen_cotizacion_id = %s", (cot_id,))
-    if cur.fetchone()[0] == 0:
-        cur.execute(
-            """INSERT INTO inventario_retales
-               (material_categoria, referencia, m2_disponibles, m2_original,
-                origen_cotizacion_id, origen_numero, origen_cliente, fecha_ingreso,
-                estado, precio_recuperacion, precio_mercado_m2, usuario_id)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible', 0, %s, %s)""",
-            (categoria, referencia or "", round(m2_retal, 4), round(m2_retal, 4),
-             cot_id, numero, cliente or "Sin nombre", _hoy().isoformat(),
-             round(precio_m2_original, 0), _uid_act)
-        )
-        conn.commit()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            # Evitar duplicados: solo inyectar una vez por cotización
+            cur.execute("SELECT COUNT(*) FROM inventario_retales WHERE origen_cotizacion_id = %s", (cot_id,))
+            if cur.fetchone()[0] == 0:
+                cur.execute(
+                    """INSERT INTO inventario_retales
+                       (material_categoria, referencia, m2_disponibles, m2_original,
+                        origen_cotizacion_id, origen_numero, origen_cliente, fecha_ingreso,
+                        estado, precio_recuperacion, precio_mercado_m2, usuario_id)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Disponible', 0, %s, %s)""",
+                    (categoria, referencia or "", round(m2_retal, 4), round(m2_retal, 4),
+                     cot_id, numero, cliente or "Sin nombre", _hoy().isoformat(),
+                     round(precio_m2_original, 0), _uid_act)
+                )
+                conn.commit()
 
 def _consultar_retal(categoria: str, referencia: str,
                      usuario_id: int | None = None, rol: str = "Admin") -> list:
@@ -356,33 +403,30 @@ def _consultar_retal(categoria: str, referencia: str,
     Retorna retales disponibles para un material/referencia.
     Multi-Tenant: Operario solo ve sus propios retales; Admin ve todos.
     """
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    if rol == "Operario" and usuario_id is not None:
-        cur.execute(
-            """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
-               FROM inventario_retales
-               WHERE material_categoria = %s
-                 AND estado = 'Disponible'
-                 AND m2_disponibles > 0.05
-                 AND usuario_id = %s
-               ORDER BY fecha_ingreso ASC""",
-            (categoria, usuario_id)
-        )
-    else:
-        cur.execute(
-            """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
-               FROM inventario_retales
-               WHERE material_categoria = %s
-                 AND estado = 'Disponible'
-                 AND m2_disponibles > 0.05
-               ORDER BY fecha_ingreso ASC""",
-            (categoria,)
-        )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            if rol == "Operario" and usuario_id is not None:
+                cur.execute(
+                    """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
+                       FROM inventario_retales
+                       WHERE material_categoria = %s
+                         AND estado = 'Disponible'
+                         AND m2_disponibles > 0.05
+                         AND usuario_id = %s
+                       ORDER BY fecha_ingreso ASC""",
+                    (categoria, usuario_id)
+                )
+            else:
+                cur.execute(
+                    """SELECT id, referencia, m2_disponibles, origen_numero, origen_cliente, fecha_ingreso
+                       FROM inventario_retales
+                       WHERE material_categoria = %s
+                         AND estado = 'Disponible'
+                         AND m2_disponibles > 0.05
+                       ORDER BY fecha_ingreso ASC""",
+                    (categoria,)
+                )
+            rows = cur.fetchall()
     # Si hay referencia específica, filtrar por ella; si no, devolver todos del material
     if referencia and referencia.strip():
         filtradas = [r for r in rows if r[1].strip().lower() == referencia.strip().lower()]
@@ -391,271 +435,287 @@ def _consultar_retal(categoria: str, referencia: str,
 
 def _marcar_retal_usado(retal_id: int, m2_consumidos: float):
     """Descuenta m² usados; si queda menos de 0.05 m², pasa a Usado."""
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT m2_disponibles FROM inventario_retales WHERE id = %s", (retal_id,))
-    row = cur.fetchone()
-    if row:
-        nuevo = round(row[0] - m2_consumidos, 4)
-        if nuevo <= 0.05:
-            cur.execute("UPDATE inventario_retales SET m2_disponibles=0, estado='Usado' WHERE id=%s", (retal_id,))
-        else:
-            cur.execute("UPDATE inventario_retales SET m2_disponibles=%s WHERE id=%s", (nuevo, retal_id))
-        conn.commit()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT m2_disponibles FROM inventario_retales WHERE id = %s", (retal_id,))
+            row = cur.fetchone()
+            if row:
+                nuevo = round(row[0] - m2_consumidos, 4)
+                if nuevo <= 0.05:
+                    cur.execute("UPDATE inventario_retales SET m2_disponibles=0, estado='Usado' WHERE id=%s", (retal_id,))
+                else:
+                    cur.execute("UPDATE inventario_retales SET m2_disponibles=%s WHERE id=%s", (nuevo, retal_id))
+                conn.commit()
 
 def _listar_retales(usuario_id=None, rol="Admin") -> list:
     """Lista el banco de retales. Operario ve solo los suyos; Admin ve todos."""
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    if rol == "Operario" and usuario_id is not None:
-        cur.execute(
-            """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
-                      origen_numero, origen_cliente, fecha_ingreso, estado, notas,
-                      COALESCE(precio_recuperacion, 0)
-               FROM inventario_retales
-               WHERE usuario_id = %s
-               ORDER BY estado ASC, fecha_ingreso DESC""",
-            (usuario_id,)
-        )
-    else:
-        cur.execute(
-            """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
-                      origen_numero, origen_cliente, fecha_ingreso, estado, notas,
-                      COALESCE(precio_recuperacion, 0)
-               FROM inventario_retales
-               ORDER BY estado ASC, fecha_ingreso DESC"""
-        )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            if rol == "Operario" and usuario_id is not None:
+                cur.execute(
+                    """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
+                              origen_numero, origen_cliente, fecha_ingreso, estado, notas,
+                              COALESCE(precio_recuperacion, 0)
+                       FROM inventario_retales
+                       WHERE usuario_id = %s
+                       ORDER BY estado ASC, fecha_ingreso DESC""",
+                    (usuario_id,)
+                )
+            else:
+                cur.execute(
+                    """SELECT id, material_categoria, referencia, m2_disponibles, m2_original,
+                              origen_numero, origen_cliente, fecha_ingreso, estado, notas,
+                              COALESCE(precio_recuperacion, 0)
+                       FROM inventario_retales
+                       ORDER BY estado ASC, fecha_ingreso DESC"""
+                )
+            return cur.fetchall()
 
 def _actualizar_notas_retal(retal_id: int, notas: str):
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE inventario_retales SET notas=%s WHERE id=%s", (notas, retal_id))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE inventario_retales SET notas=%s WHERE id=%s", (notas, retal_id))
+        conn.commit()
 
 def _eliminar_retal(retal_id: int):
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM inventario_retales WHERE id=%s", (retal_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM inventario_retales WHERE id=%s", (retal_id,))
+        conn.commit()
 
 def _guardar_cotizacion(numero, cliente, resultado):
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
     _uid = st.session_state.get("usuario_actual", {}).get("id")
-    cur.execute(
-        "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json,usuario_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-        (numero, _hoy().isoformat(), cliente or "Sin nombre",
-         resultado.get("categoria",""), resultado.get("tipo_proyecto",""),
-         resultado.get("m2_real",0), resultado.get("ml_proyecto",0),
-         resultado.get("costo_total",0), resultado.get("precio_sugerido",0),
-         resultado.get("margen_pct",0), "Pendiente",
-         json.dumps(resultado, ensure_ascii=False, default=str), _uid)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO cotizaciones (numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json,usuario_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (numero, _hoy().isoformat(), cliente or "Sin nombre",
+                 resultado.get("categoria",""), resultado.get("tipo_proyecto",""),
+                 resultado.get("m2_real",0), resultado.get("ml_proyecto",0),
+                 resultado.get("costo_total",0), resultado.get("precio_sugerido",0),
+                 resultado.get("margen_pct",0), "Pendiente",
+                 json.dumps(resultado, ensure_ascii=False, default=str), _uid)
+            )
+        conn.commit()
     st.cache_data.clear()
 
 def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: dict):
-    """Actualiza una cotización existente en la BD (modo edición)."""
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """UPDATE cotizaciones
-           SET numero=%s, cliente=%s, material=%s, tipo=%s, m2=%s, ml=%s,
-               costo=%s, precio=%s, margen=%s, datos_json=%s
-           WHERE id=%s""",
-        (
-            numero,
-            cliente or "Sin nombre",
-            resultado.get("categoria", ""),
-            resultado.get("tipo_proyecto", ""),
-            resultado.get("m2_real", 0),
-            resultado.get("ml_proyecto", 0),
-            resultado.get("costo_total", 0),
-            resultado.get("precio_sugerido", 0),
-            resultado.get("margen_pct", 0),
-            json.dumps(resultado, ensure_ascii=False, default=str),
-            cot_id,
-        ),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    """
+    Actualiza una cotización existente en la BD (modo edición).
+
+    C-07 FIX — Inventario Fantasma:
+    Al editar una cotización que consume un retal, el inventario debe
+    descontarse exactamente igual que en _guardar_cotizacion nueva.
+
+    Lógica de detección: cualquier material en `materiales_proyecto`
+    donde `es_retal == True` y `retal_id` sea un entero válido.
+
+    Protección contra doble descuento: _marcar_retal_usado solo hace
+    UPDATE si aún hay m² disponibles (la función ya es idempotente cuando
+    el estado pasa a 'Usado'). Para mayor seguridad, verificamos aquí que
+    el retal no haya sido consumido previamente por ESTA cotización antes
+    de descontar, comparando con los materiales del JSON original en BD.
+    """
+    # ── 1. Leer materiales_proyecto del JSON actualmente en BD ────────────────
+    # Esto permite detectar qué retales ya se descontaron en guardados previos
+    # y evitar doble descuento si el usuario edita sin cambiar los materiales.
+    _retales_ya_descontados: set[int] = set()
+    try:
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT datos_json FROM cotizaciones WHERE id = %s", (cot_id,))
+                _row_prev = cur.fetchone()
+        if _row_prev and _row_prev[0]:
+            _datos_prev = json.loads(_row_prev[0])
+            for _mp in _datos_prev.get("materiales_proyecto", []):
+                if _mp.get("es_retal") and _mp.get("retal_id"):
+                    _retales_ya_descontados.add(int(_mp["retal_id"]))
+    except Exception:
+        pass  # Si falla la lectura previa, procedemos sin protección de doble descuento
+
+    # ── 2. Actualizar el registro principal ───────────────────────────────────
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE cotizaciones
+                   SET numero=%s, cliente=%s, material=%s, tipo=%s, m2=%s, ml=%s,
+                       costo=%s, precio=%s, margen=%s, datos_json=%s,
+                       fecha=%s
+                   WHERE id=%s""",
+                (
+                    numero,
+                    cliente or "Sin nombre",
+                    resultado.get("categoria", ""),
+                    resultado.get("tipo_proyecto", ""),
+                    resultado.get("m2_real", 0),
+                    resultado.get("ml_proyecto", 0),
+                    resultado.get("costo_total", 0),
+                    resultado.get("precio_sugerido", 0),
+                    resultado.get("margen_pct", 0),
+                    json.dumps(resultado, ensure_ascii=False, default=str),
+                    # C-06 FIX (incluido aquí): actualizar la fecha para que
+                    # el dashboard registre la edición en el período correcto.
+                    _hoy().isoformat(),
+                    cot_id,
+                ),
+            )
+        conn.commit()
+
+    # ── 3. C-07: descontar retales nuevos del inventario ─────────────────────
+    # Solo se descuentan retales que NO estaban en el JSON anterior (nuevos en
+    # esta edición). Los que ya existían no se tocan para evitar doble descuento.
+    for _md in resultado.get("materiales_proyecto", []):
+        if not (_md.get("es_retal") and _md.get("retal_id")):
+            continue
+        _rid = int(_md["retal_id"])
+        if _rid in _retales_ya_descontados:
+            continue  # Este retal ya fue descontado en un guardado anterior
+        try:
+            _marcar_retal_usado(_rid, _md.get("area_placa", 0))
+        except Exception:
+            pass  # No bloquear el guardado si falla el descuento de inventario
+
     st.cache_data.clear()
 
 def _listar_cotizaciones(busqueda="", usuario_id=None, rol="Admin"):
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    # Multi-tenant: Operario solo ve sus cotizaciones; Admin ve todas
-    if rol == "Operario" and usuario_id is not None:
-        if busqueda:
-            q = ("SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
-                 "FROM cotizaciones "
-                 "WHERE usuario_id = %s AND (cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s) "
-                 "ORDER BY id DESC LIMIT 200")
-            cur.execute(q, (usuario_id, f"%{busqueda}%", f"%{busqueda}%", f"%{busqueda}%"))
-        else:
-            cur.execute(
-                "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
-                "FROM cotizaciones WHERE usuario_id = %s ORDER BY id DESC LIMIT 200",
-                (usuario_id,)
-            )
-    else:
-        if busqueda:
-            q = ("SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
-                 "FROM cotizaciones "
-                 "WHERE cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s "
-                 "ORDER BY id DESC LIMIT 200")
-            cur.execute(q, (f"%{busqueda}%",)*3)
-        else:
-            cur.execute(
-                "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
-                "FROM cotizaciones ORDER BY id DESC LIMIT 200"
-            )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            # Multi-tenant: Operario solo ve sus cotizaciones; Admin ve todas
+            if rol == "Operario" and usuario_id is not None:
+                if busqueda:
+                    q = ("SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                         "FROM cotizaciones "
+                         "WHERE usuario_id = %s AND (cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s) "
+                         "ORDER BY id DESC LIMIT 200")
+                    cur.execute(q, (usuario_id, f"%{busqueda}%", f"%{busqueda}%", f"%{busqueda}%"))
+                else:
+                    cur.execute(
+                        "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                        "FROM cotizaciones WHERE usuario_id = %s ORDER BY id DESC LIMIT 200",
+                        (usuario_id,)
+                    )
+            else:
+                if busqueda:
+                    q = ("SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                         "FROM cotizaciones "
+                         "WHERE cliente ILIKE %s OR numero ILIKE %s OR material ILIKE %s "
+                         "ORDER BY id DESC LIMIT 200")
+                    cur.execute(q, (f"%{busqueda}%",)*3)
+                else:
+                    cur.execute(
+                        "SELECT id,numero,fecha,cliente,material,ml,precio,margen,estado,datos_json "
+                        "FROM cotizaciones ORDER BY id DESC LIMIT 200"
+                    )
+            return cur.fetchall()
 
 def _actualizar_estado(cot_id, nuevo_estado):
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE cotizaciones SET estado=%s WHERE id=%s", (nuevo_estado, cot_id))
-    conn.commit()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE cotizaciones SET estado=%s WHERE id=%s", (nuevo_estado, cot_id))
+        conn.commit()
 
-    # ── Automatización: inyectar retal cuando se aprueba ─────────────────────
-    if nuevo_estado == "Aprobada":
-        cur.execute(
-            "SELECT numero, cliente, material, datos_json FROM cotizaciones WHERE id=%s",
-            (cot_id,)
-        )
-        row = cur.fetchone()
-        if row:
-            _numero, _cliente, _material, _datos_json = row
-            try:
-                _datos = json.loads(_datos_json) if _datos_json else {}
-                _retal = float(_datos.get("retal", 0))
-                _referencia = _datos.get("referencia", "")
-                _precio_m2_orig = float(_datos.get("precio_m2", 0))
-                if _retal > 0.05:
-                    cur.close()
-                    conn.close()
-                    st.cache_data.clear()
-                    _inyectar_retal(cot_id, _numero, _cliente, _material, _referencia, _retal,
-                                    precio_m2_original=_precio_m2_orig)
-                    return
-            except Exception:
-                pass
+        # ── Automatización: inyectar retal cuando se aprueba ─────────────────────
+        if nuevo_estado == "Aprobada":
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT numero, cliente, material, datos_json FROM cotizaciones WHERE id=%s",
+                    (cot_id,)
+                )
+                row = cur.fetchone()
+            if row:
+                _numero, _cliente, _material, _datos_json = row
+                try:
+                    _datos = json.loads(_datos_json) if _datos_json else {}
+                    _retal = float(_datos.get("retal", 0))
+                    _referencia = _datos.get("referencia", "")
+                    _precio_m2_orig = float(_datos.get("precio_m2", 0))
+                    if _retal > 0.05:
+                        st.cache_data.clear()
+                        _inyectar_retal(cot_id, _numero, _cliente, _material, _referencia, _retal,
+                                        precio_m2_original=_precio_m2_orig)
+                        return
+                except Exception:
+                    pass
 
-    cur.close()
-    conn.close()
     st.cache_data.clear()
 
 def _eliminar_cotizacion(cot_id):
     """Elimina la cotizacion y sus sobrantes asociados del inventario."""
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    # Primero eliminar los sobrantes que provienen de esta cotizacion
-    cur.execute(
-        "DELETE FROM inventario_retales WHERE origen_cotizacion_id = %s",
-        (cot_id,)
-    )
-    # Luego eliminar la cotizacion
-    cur.execute("DELETE FROM cotizaciones WHERE id=%s", (cot_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            # Primero eliminar los sobrantes que provienen de esta cotizacion
+            cur.execute(
+                "DELETE FROM inventario_retales WHERE origen_cotizacion_id = %s",
+                (cot_id,)
+            )
+            # Luego eliminar la cotizacion
+            cur.execute("DELETE FROM cotizaciones WHERE id=%s", (cot_id,))
+        conn.commit()
     st.cache_data.clear()
 
 def _stats_db(usuario_id=None, rol="Admin"):
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    s = {}
-    # Multi-tenant: Operario solo ve sus propias cotizaciones
-    _es_op = (rol == "Operario" and usuario_id is not None)
-    _w  = "WHERE usuario_id = %s" if _es_op else "WHERE TRUE"
-    _p  = (usuario_id,) if _es_op else ()
-    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w}", _p)
-    s["total"]       = cur.fetchone()[0]
-    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
-    s["aprobadas"]   = cur.fetchone()[0]
-    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Pendiente'", _p)
-    s["pendientes"]  = cur.fetchone()[0]
-    # Rechazadas: query directa — NO se infiere como total-aprobadas-pendientes
-    # porque pueden existir otros estados (ej: "En revisión").
-    cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Rechazada'", _p)
-    s["rechazadas"]  = cur.fetchone()[0]
-    cur.execute(f"SELECT SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
-    s["facturacion"] = cur.fetchone()[0] or 0
-    cur.execute(f"SELECT AVG(margen) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
-    s["margen_prom"] = cur.fetchone()[0] or 0
-    cur.execute(f"SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada' GROUP BY material", _p)
-    s["por_material"] = cur.fetchall()
-    cur.execute(f"SELECT SUBSTR(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada' GROUP BY SUBSTR(fecha,1,7) ORDER BY SUBSTR(fecha,1,7) DESC LIMIT 6", _p)
-    s["por_mes"]     = cur.fetchall()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            s = {}
+            # Multi-tenant: Operario solo ve sus propias cotizaciones
+            _es_op = (rol == "Operario" and usuario_id is not None)
+            _w  = "WHERE usuario_id = %s" if _es_op else "WHERE TRUE"
+            _p  = (usuario_id,) if _es_op else ()
+            cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w}", _p)
+            s["total"]       = cur.fetchone()[0]
+            cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
+            s["aprobadas"]   = cur.fetchone()[0]
+            cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Pendiente'", _p)
+            s["pendientes"]  = cur.fetchone()[0]
+            # Rechazadas: query directa — NO se infiere como total-aprobadas-pendientes
+            # porque pueden existir otros estados (ej: "En revisión").
+            cur.execute(f"SELECT COUNT(*) FROM cotizaciones {_w} AND estado='Rechazada'", _p)
+            s["rechazadas"]  = cur.fetchone()[0]
+            cur.execute(f"SELECT SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
+            s["facturacion"] = cur.fetchone()[0] or 0
+            cur.execute(f"SELECT AVG(margen) FROM cotizaciones {_w} AND estado='Aprobada'", _p)
+            s["margen_prom"] = cur.fetchone()[0] or 0
+            cur.execute(f"SELECT material,COUNT(*),AVG(margen),SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada' GROUP BY material", _p)
+            s["por_material"] = cur.fetchall()
+            cur.execute(f"SELECT SUBSTR(fecha,1,7),COUNT(*),SUM(precio) FROM cotizaciones {_w} AND estado='Aprobada' GROUP BY SUBSTR(fecha,1,7) ORDER BY SUBSTR(fecha,1,7) DESC LIMIT 6", _p)
+            s["por_mes"]     = cur.fetchall()
     # ── Tasa de cierre real (B2B correcta) ────────────────────────────────────
     # Fórmula: Aprobadas / (Aprobadas + Rechazadas) × 100
     # Los Pendientes se EXCLUYEN — no son decisiones tomadas todavía.
     _cerradas = s["aprobadas"] + s["rechazadas"]
     s["tasa_cierre"] = round(s["aprobadas"] / _cerradas * 100, 1) if _cerradas > 0 else 0.0
-    cur.close()
-    conn.close()
     return s
 
 
 def _stats_retales(usuario_id=None, rol="Admin") -> dict:
     """Calcula el capital inmovilizado y métricas del banco de retales."""
-    _init_db()
-    conn = _get_db_connection()
-    cur = conn.cursor()
-    # Multi-tenant: Operario solo ve sus propios retales
-    _es_op = (rol == "Operario" and usuario_id is not None)
-    _extra = "AND usuario_id = %s" if _es_op else ""
-    _p     = (usuario_id,) if _es_op else ()
-    cur.execute(f"""
-        SELECT
-            material_categoria,
-            COUNT(*) AS piezas,
-            SUM(m2_disponibles) AS m2_total,
-            SUM(m2_disponibles * precio_mercado_m2) AS valor_potencial
-        FROM inventario_retales
-        WHERE estado = 'Disponible' AND m2_disponibles > 0.05 {_extra}
-        GROUP BY material_categoria
-        ORDER BY valor_potencial DESC
-    """, _p)
-    por_categoria = cur.fetchall()
-    cur.execute(f"""
-        SELECT
-            COUNT(*) AS total_piezas,
-            COALESCE(SUM(m2_disponibles), 0) AS m2_total,
-            COALESCE(SUM(m2_disponibles * precio_mercado_m2), 0) AS valor_total
-        FROM inventario_retales
-        WHERE estado = 'Disponible' AND m2_disponibles > 0.05 {_extra}
-    """, _p)
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    with _db_conn() as conn:
+        with conn.cursor() as cur:
+            # Multi-tenant: Operario solo ve sus propios retales
+            _es_op = (rol == "Operario" and usuario_id is not None)
+            _extra = "AND usuario_id = %s" if _es_op else ""
+            _p     = (usuario_id,) if _es_op else ()
+            cur.execute(f"""
+                SELECT
+                    material_categoria,
+                    COUNT(*) AS piezas,
+                    SUM(m2_disponibles) AS m2_total,
+                    SUM(m2_disponibles * precio_mercado_m2) AS valor_potencial
+                FROM inventario_retales
+                WHERE estado = 'Disponible' AND m2_disponibles > 0.05 {_extra}
+                GROUP BY material_categoria
+                ORDER BY valor_potencial DESC
+            """, _p)
+            por_categoria = cur.fetchall()
+            cur.execute(f"""
+                SELECT
+                    COUNT(*) AS total_piezas,
+                    COALESCE(SUM(m2_disponibles), 0) AS m2_total,
+                    COALESCE(SUM(m2_disponibles * precio_mercado_m2), 0) AS valor_total
+                FROM inventario_retales
+                WHERE estado = 'Disponible' AND m2_disponibles > 0.05 {_extra}
+            """, _p)
+            row = cur.fetchone()
     return {
         "total_piezas":  int(row[0] or 0),
         "m2_total":      float(row[1] or 0),
@@ -785,21 +845,19 @@ def _crear_sesion(usuario_id: int) -> str:
     token = str(uuid.uuid4())
     expires = datetime.now() + timedelta(days=30)
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        # Limpiar tokens expirados del usuario (housekeeping silencioso)
-        cur.execute(
-            "DELETE FROM sesiones WHERE usuario_id = %s AND expires_at < NOW()",
-            (usuario_id,)
-        )
-        cur.execute(
-            "INSERT INTO sesiones (token, usuario_id, expires_at, device_hint) "
-            "VALUES (%s, %s, %s, %s)",
-            (token, usuario_id, expires, _device_hint())
-        )
-        conn.commit()
-        cur.close(); conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                # Limpiar tokens expirados del usuario (housekeeping silencioso)
+                cur.execute(
+                    "DELETE FROM sesiones WHERE usuario_id = %s AND expires_at < NOW()",
+                    (usuario_id,)
+                )
+                cur.execute(
+                    "INSERT INTO sesiones (token, usuario_id, expires_at, device_hint) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (token, usuario_id, expires, _device_hint())
+                )
+            conn.commit()
     except Exception:
         pass   # BD no disponible: el token queda solo en session_state esta sesión
     try:
@@ -820,33 +878,31 @@ def _validar_token(token: str) -> int | None:
     if not token:
         return None
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute(
-            "SELECT usuario_id, expires_at FROM sesiones "
-            "WHERE token = %s AND expires_at > NOW()",
-            (token,)
-        )
-        row = cur.fetchone()
-        if not row:
-            cur.close(); conn.close()
-            return None
-        usuario_id, expires_at = row[0], row[1]
-        # Renovación automática: si quedan <7 días extender a 30
-        if expires_at and (expires_at - datetime.now()).days < 7:
-            nueva_exp = datetime.now() + timedelta(days=30)
-            cur.execute(
-                "UPDATE sesiones SET expires_at = %s WHERE token = %s",
-                (nueva_exp, token)
-            )
-            conn.commit()
-            try:
-                cookies[_COOKIE_TOKEN] = token
-                cookies.save()
-            except Exception:
-                pass
-        cur.close(); conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT usuario_id, expires_at FROM sesiones "
+                    "WHERE token = %s AND expires_at > NOW()",
+                    (token,)
+                )
+                row = cur.fetchone()
+            if not row:
+                return None
+            usuario_id, expires_at = row[0], row[1]
+            # Renovación automática: si quedan <7 días extender a 30
+            if expires_at and (expires_at - datetime.now()).days < 7:
+                nueva_exp = datetime.now() + timedelta(days=30)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE sesiones SET expires_at = %s WHERE token = %s",
+                        (nueva_exp, token)
+                    )
+                conn.commit()
+                try:
+                    cookies[_COOKIE_TOKEN] = token
+                    cookies.save()
+                except Exception:
+                    pass
         return usuario_id
     except Exception:
         return None
@@ -877,11 +933,10 @@ def _limpiar_sesion() -> None:
     token = st.session_state.get("_session_token")
     if token:
         try:
-            conn = _get_db_connection()
-            cur  = conn.cursor()
-            cur.execute("DELETE FROM sesiones WHERE token = %s", (token,))
-            conn.commit()
-            cur.close(); conn.close()
+            with _db_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM sesiones WHERE token = %s", (token,))
+                conn.commit()
         except Exception:
             pass
     try:
@@ -905,16 +960,14 @@ def _limpiar_sesion() -> None:
 def _buscar_usuario_por_id(usuario_id: int) -> dict | None:
     """Busca usuario por ID numérico. Usado por auth wall tras validar token."""
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute(
-            "SELECT id, username, password_hash, pin_recuperacion, rol, nombre_completo "
-            "FROM usuarios WHERE id = %s",
-            (usuario_id,)
-        )
-        row = cur.fetchone()
-        cur.close(); conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, username, password_hash, pin_recuperacion, rol, nombre_completo "
+                    "FROM usuarios WHERE id = %s",
+                    (usuario_id,)
+                )
+                row = cur.fetchone()
         if row:
             return {"id": row[0], "username": row[1], "password_hash": row[2],
                     "pin_recuperacion": row[3], "rol": row[4], "nombre_completo": row[5]}
@@ -925,17 +978,14 @@ def _buscar_usuario_por_id(usuario_id: int) -> dict | None:
 
 def _buscar_usuario_por_username(username: str) -> dict | None:
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute(
-            "SELECT id, username, password_hash, pin_recuperacion, rol, nombre_completo "
-            "FROM usuarios WHERE username = %s",
-
-            (username.strip().lower(),)
-        )
-        row = cur.fetchone()
-        cur.close(); conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, username, password_hash, pin_recuperacion, rol, nombre_completo "
+                    "FROM usuarios WHERE username = %s",
+                    (username.strip().lower(),)
+                )
+                row = cur.fetchone()
         if row:
             return {"id": row[0], "username": row[1], "password_hash": row[2],
                     "pin_recuperacion": row[3], "rol": row[4], "nombre_completo": row[5]}
@@ -946,55 +996,46 @@ def _buscar_usuario_por_username(username: str) -> dict | None:
 def _crear_usuario(username: str, password: str, pin: str,
                    rol: str = "Operario", nombre_completo: str = "") -> bool:
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute(
-            "INSERT INTO usuarios (username, password_hash, pin_recuperacion, rol, nombre_completo) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (username.strip().lower(), _hash_password(password), pin.strip(), rol, nombre_completo)
-        )
-        conn.commit()
-        cur.close(); conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO usuarios (username, password_hash, pin_recuperacion, rol, nombre_completo) "
+                    "VALUES (%s, %s, %s, %s, %s)",
+                    (username.strip().lower(), _hash_password(password), pin.strip(), rol, nombre_completo)
+                )
+            conn.commit()
         return True
     except Exception:
         return False
 
 def _actualizar_password(username: str, nueva_password: str) -> bool:
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute(
-            "UPDATE usuarios SET password_hash = %s WHERE username = %s",
-            (_hash_password(nueva_password), username.strip().lower())
-        )
-        conn.commit()
-        cur.close(); conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE usuarios SET password_hash = %s WHERE username = %s",
+                    (_hash_password(nueva_password), username.strip().lower())
+                )
+            conn.commit()
         return True
     except Exception:
         return False
 
 def _listar_usuarios() -> list:
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute("SELECT id, username, rol, nombre_completo FROM usuarios ORDER BY id")
-        rows = cur.fetchall()
-        cur.close(); conn.close()
-        return rows
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id, username, rol, nombre_completo FROM usuarios ORDER BY id")
+                return cur.fetchall()
     except Exception:
         return []
 
 def _eliminar_usuario(uid: int) -> bool:
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute("DELETE FROM usuarios WHERE id = %s", (uid,))
-        conn.commit()
-        cur.close(); conn.close()
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM usuarios WHERE id = %s", (uid,))
+            conn.commit()
         return True
     except Exception:
         return False
@@ -1003,13 +1044,11 @@ def _asegurar_admin_existe():
     """Crea el usuario admin por defecto si la tabla está vacía.
     Credenciales: admin / admin123 / PIN: 0000  — cambiar tras el primer login."""
     try:
-        _init_db()
-        conn = _get_db_connection()
-        cur  = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM usuarios")
-        if cur.fetchone()[0] == 0:
-            cur.close(); conn.close()
-            _crear_usuario("admin", "admin123", "0000", "Admin", "Administrador")
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM usuarios")
+                if cur.fetchone()[0] == 0:
+                    _crear_usuario("admin", "admin123", "0000", "Admin", "Administrador")
     except Exception:
         pass
 
@@ -1275,7 +1314,12 @@ for k, v in _defaults.items():
 # Sobreescribe tarifas_custom, logistica_custom, viaticos_custom,
 # adicionales_custom y empresa_info con los valores guardados en la BD,
 # de modo que sobreviven a F5 y reinicios del servidor.
+#
+# M-01: _init_db() está marcado con @st.cache_resource — solo ejecuta el DDL
+# la primera vez que el proceso Streamlit arranca (o tras hot-reload).
+# Las funciones CRUD ya NO llaman _init_db() internamente.
 try:
+    _init_db()          # DDL único de arranque — @cache_resource garantiza 1 sola ejecución
     _cargar_config_desde_db()
 except Exception:
     pass   # Si la BD no está disponible, se usan los defaults del código
@@ -3058,12 +3102,11 @@ elif pagina == "Cotizacion Directa":
                         _rm2_activo = st.session_state.get(f"retal_m2_{midx}", _m2_total_retal)
                         _precio_rec = 0.0
                         try:
-                            _conn_rec = _get_db_connection()
-                            _cur_rec  = _conn_rec.cursor()
-                            _cur_rec.execute("SELECT precio_recuperacion FROM inventario_retales WHERE id=%s", (_rid_activo,))
-                            _row_rec  = _cur_rec.fetchone()
+                            with _db_conn() as _conn_rec:
+                                with _conn_rec.cursor() as _cur_rec:
+                                    _cur_rec.execute("SELECT precio_recuperacion FROM inventario_retales WHERE id=%s", (_rid_activo,))
+                                    _row_rec  = _cur_rec.fetchone()
                             _precio_rec = float(_row_rec[0] or 0) if _row_rec else 0.0
-                            _cur_rec.close(); _conn_rec.close()
                         except Exception:
                             pass
                         _mat_dict["precio_m2"]  = _precio_rec
@@ -6386,19 +6429,16 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                 if st.button("Guardar", key="rfm_save", type="primary", use_container_width=True):
                     try:
                         _uid_manual = st.session_state.get("usuario_actual", {}).get("id")
-                        _init_db()
-                        _conn = _get_db_connection()
-                        _cur = _conn.cursor()
-                        _cur.execute(
-                            """INSERT INTO inventario_retales
-                               (material_categoria, referencia, m2_disponibles, m2_original,
-                                fecha_ingreso, estado, notas, usuario_id)
-                               VALUES (%s, %s, %s, %s, %s, 'Disponible', %s, %s)""",
-                            (_ncat, _nref, _nm2, _nm2, _hoy().isoformat(), _nnota, _uid_manual)
-                        )
-                        _conn.commit()
-                        _cur.close()
-                        _conn.close()
+                        with _db_conn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    """INSERT INTO inventario_retales
+                                       (material_categoria, referencia, m2_disponibles, m2_original,
+                                        fecha_ingreso, estado, notas, usuario_id)
+                                       VALUES (%s, %s, %s, %s, %s, 'Disponible', %s, %s)""",
+                                    (_ncat, _nref, _nm2, _nm2, _hoy().isoformat(), _nnota, _uid_manual)
+                                )
+                            conn.commit()
                         st.session_state["retal_form_abierto"] = False
                         st.success("Retal registrado.")
                         st.rerun()
@@ -6550,15 +6590,13 @@ Haz clic en "Usar sobrante" y el costo del material queda en $0.
                         )
                         if _nuevo_precio_rec != int(_rr_precio_rec):
                             try:
-                                _conn_pr = _get_db_connection()
-                                _cur_pr  = _conn_pr.cursor()
-                                _cur_pr.execute(
-                                    "UPDATE inventario_retales SET precio_recuperacion=%s WHERE id=%s",
-                                    (_nuevo_precio_rec, _rr_id)
-                                )
-                                _conn_pr.commit()
-                                _cur_pr.close()
-                                _conn_pr.close()
+                                with _db_conn() as _conn_pr:
+                                    with _conn_pr.cursor() as _cur_pr:
+                                        _cur_pr.execute(
+                                            "UPDATE inventario_retales SET precio_recuperacion=%s WHERE id=%s",
+                                            (_nuevo_precio_rec, _rr_id)
+                                        )
+                                    _conn_pr.commit()
                                 st.toast("✅ Precio guardado", icon="💾")
                             except Exception as _e_pr:
                                 st.error(f"Error al guardar: {_e_pr}")
