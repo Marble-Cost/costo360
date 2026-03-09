@@ -7357,9 +7357,8 @@ elif pagina == "Parametros":
             "c4_insumos":   "④ Insumos",
         }
         _CAT_LABEL = {
-            # Etiquetas financieras ABC (Activity-Based Costing) — solo para UI.
-            # Los valores técnicos en BD siguen siendo c2_mano_obra / c3_zocalos
-            # / c4_insumos, que son los códigos que espera el motor y el PDF.
+            # Etiquetas ABC para la UI — NO afectan el backend ni el PDF.
+            # Los códigos que viajan al motor siguen siendo los de _ETIQUETAS_PDF.
             "c2_mano_obra": "👷 Mano de Obra y Elaboración",
             "c3_zocalos":   "📏 Zócalos y Remates",
             "c4_insumos":   "💎 Insumos, Servicios y Riesgos",
@@ -7541,22 +7540,22 @@ elif pagina == "Parametros":
                             st.rerun()
 
                 # ════════════════════════════════════════════════════════
-                # PASO 3 — Calculadora de Servicios (CIF)
-                # ABC: distribuye el costo fijo de luz/agua entre los m²
-                # procesados mensualmente para obtener el CIF real por m².
-                # El valor calculado se inyecta en la regla "Servicios de
-                # Taller" al completar el wizard (paso 4).
+                # PASO 3 — Calculadora de Servicios CIF (ABC)
+                # Distribuye el costo fijo mensual de servicios públicos
+                # entre los m² procesados → CIF real por m² elaborado.
+                # El valor calculado se inyecta en "Servicios de Taller"
+                # al completar el wizard (paso_wizard == 4).
                 # ════════════════════════════════════════════════════════
                 elif st.session_state.paso_wizard == 3:
-                    st.markdown("### 💡 ¿Cuánto te cuestan la luz y el agua por proyecto?")
+                    st.markdown("### 💡 Para calcular exactamente cuánto te cuesta la luz y el agua por proyecto, dinos:")
                     st.caption(
-                        "Muchos talleres pierden dinero porque no incluyen los servicios públicos "  
-                        "en el presupuesto. Calculémoslo exactamente."
+                        "Muchos talleres pierden dinero porque nunca incluyen los servicios públicos "
+                        "en el presupuesto. Esta calculadora lo hace por ti, con tu cifra real."
                     )
 
                     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-                    # ── Inputs de la calculadora CIF ──────────────────────
+                    # ── Input 1: recibo mensual de servicios ──────────────
                     _wiz_recibo = st.number_input(
                         "1. ¿Cuánto pagas de Luz y Agua al mes? ($ COP)",
                         min_value=0.0,
@@ -7566,12 +7565,13 @@ elif pagina == "Parametros":
                         format="%.0f",
                         key="wiz_input_recibo",
                         help=(
-                            "Suma el recibo de energía + acueducto del taller. "
-                            "Si el taller comparte el medidor con la vivienda, "
-                            "ingresa solo la parte proporcional que usa la producción."
+                            "Suma el recibo de energía más acueducto del taller. "
+                            "Si el taller comparte medidor con la vivienda, ingresa "
+                            "solo la parte proporcional que usa la producción."
                         ),
                     )
 
+                    # ── Input 2: producción mensual ───────────────────────
                     _wiz_m2_mes = st.number_input(
                         "2. ¿Cuántos metros cuadrados procesa tu taller al mes aprox.?",
                         min_value=1.0,
@@ -7581,39 +7581,38 @@ elif pagina == "Parametros":
                         format="%.0f",
                         key="wiz_input_m2_mes",
                         help=(
-                            "Promedio mensual de m² de piedra elaborada. "
-                            "Si no lo sabes con exactitud, una estimación conservadora "
-                            "es mejor que dejarlo en cero."
+                            "Promedio mensual de m² de piedra elaborada y entregada. "
+                            "Una estimación conservadora es mejor que dejarla en cero."
                         ),
                     )
 
-                    # ── Cálculo en tiempo real (CIF por m²) ──────────────────
-                    # División defensiva: evita ZeroDivisionError si el usuario
-                    # borra el valor del campo de m² durante la edición.
+                    # ── Cálculo CIF en tiempo real ────────────────────────
+                    # max(..., 1.0) evita ZeroDivisionError si el usuario borra
+                    # el campo de m² durante la edición del widget.
                     _m2_mes_seguro = max(_wiz_m2_mes, 1.0)
                     _cif_por_m2    = _wiz_recibo / _m2_mes_seguro
 
                     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
                     st.info(
-                        f"💡 **Costo real de servicios: "  
-                        f"${_cif_por_m2:,.0f} COP por metro cuadrado** — "
-                        f"Este valor se agregará automáticamente a la receta de costos "
-                        f"como \"Servicios de Taller (Luz y Agua)\" con inductor por m².",
+                        f"💡 **Costo real de servicios: "
+                        f"${_cif_por_m2:,.0f} COP por metro cuadrado.** "
+                        f"Este valor se inyectará en la regla \"Servicios de Taller (Luz y Agua)\" "
+                        f"con inductor por m² en tu receta de costos.",
                         icon="💡",
                     )
 
-                    # Advertencia de CIF inusualmente alto (puede ser dato incorrecto)
+                    # Alertas contextuales para datos fuera de rango típico
                     if _cif_por_m2 > 30_000:
                         st.warning(
-                            "⚠️ El CIF supera $30.000/m², lo cual es inusualmente alto. "
-                            "Verifica que el recibo corresponda solo al taller y que la "
+                            "⚠️ CIF mayor a $30.000/m² — inusualmente alto. "
+                            "Verifica que el recibo sea solo del taller y que la "
                             "producción mensual no esté subestimada.",
                             icon="⚠️",
                         )
-                    elif _cif_por_m2 < 500 and _wiz_recibo > 0:
+                    elif _wiz_recibo > 0 and _cif_por_m2 < 500:
                         st.info(
-                            "ℹ️ CIF muy bajo ($500/m²). Revisa si la producción mensual "
-                            "es correcta — podrías estar subestimando el costo.",
+                            "ℹ️ CIF menor a $500/m² — puede que la producción mensual "
+                            "esté sobreestimada o el recibo subestimado.",
                             icon="ℹ️",
                         )
 
@@ -7630,14 +7629,12 @@ elif pagina == "Parametros":
                             use_container_width=True,
                             type="primary",
                         ):
-                            # Persistir los valores del formulario en session_state
-                            # antes de avanzar, para que sobrevivan al st.rerun().
+                            # Persistir valores antes del rerun() para que sobrevivan
                             st.session_state.wiz_recibo_servicios = float(_wiz_recibo)
                             st.session_state.wiz_m2_mes_taller    = float(_wiz_m2_mes)
-                            # El CIF calculado se guarda directamente — el cierre
-                            # (paso 4) lo inyectará en la regla correspondiente.
+                            # CIF calculado: lo guarda el Paso 4 para inyectarlo en la receta
                             st.session_state.wiz_cif_por_m2       = round(_cif_por_m2, 2)
-                            st.session_state.wiz_insumos          = True   # siempre True con CIF
+                            st.session_state.wiz_insumos          = True  # siempre True con CIF
                             st.session_state.paso_wizard          = 4
                             st.rerun()
 
@@ -7679,23 +7676,21 @@ elif pagina == "Parametros":
                             "valor":          12_000.0,
                             "etiqueta_pdf":   "c3_zocalos",
                         },
-                        # Provisión de rotura — 2% del material (fracción 0.02), siempre incluida.
-                        # El Builder la mostrará como 2.0% en la columna de valor.
+                        # Provisión de rotura — 2% del material (0.02 fracción).
+                        # El Builder la muestra como 2.0% gracias al display ×100.
                         {
                             "nombre_interno": "Provisión por Riesgo de Rotura",
                             "inductor":       "porcentaje_material",
-                            "valor":          0.02,   # fracción → el Builder mostrará 2.0%
+                            "valor":          0.02,   # fracción → Builder muestra 2.0%
                             "etiqueta_pdf":   "c4_insumos",
                         },
                     ]
 
-                    # ── Paquete CIF + insumos de taller ──────────────────────
-                    # wiz_insumos siempre es True desde la Calculadora CIF (Paso 3),
-                    # pero se mantiene la guarda por si el wizard se completa desde
-                    # un path alternativo o estado de sesión restaurado.
-                    # El valor de Servicios de Taller se toma de wiz_cif_por_m2
-                    # (calculado en tiempo real en el Paso 3). Si no existe en sesión
-                    # (p.ej. migración desde versión anterior), se usa $3.000 por defecto.
+                    # ── Paquete CIF + insumos de taller ──────────────────
+                    # wiz_insumos siempre llega True desde la Calculadora CIF,
+                    # pero el guard mantiene compatibilidad con sesiones restauradas.
+                    # wiz_cif_por_m2: calculado en Paso 3 = recibo / m²_mes.
+                    # Fallback $3.000 cubre migraciones desde wizard anterior.
                     _cif_inyectado = float(
                         st.session_state.get("wiz_cif_por_m2", 3_000.0)
                     )
@@ -7720,9 +7715,8 @@ elif pagina == "Parametros":
                                 "etiqueta_pdf":   "c4_insumos",
                             },
                             # CIF — Servicios de Taller (Luz y Agua).
-                            # Valor calculado en la Calculadora CIF del Paso 3:
-                            #   CIF/m² = recibo_mensual / m²_procesados_mes
-                            # Si el usuario vino de un path sin Paso 3, usa $3.000/m².
+                            # Valor exacto de la Calculadora CIF del Paso 3:
+                            #   _cif_inyectado = recibo_mensual ÷ m²_elaborados_mes
                             {
                                 "nombre_interno": "Servicios de Taller (Luz y Agua)",
                                 "inductor":       "por_m2",
@@ -7807,7 +7801,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                         (_hc1, "Concepto",           "Nombre descriptivo del costo. Solo para identificarlo — no afecta el cálculo."),
                         (_hc2, "¿Cómo se cobra?",    "Base matemática del cálculo: por ML de borde, por m² de área, por día de obra, etc."),
                         (_hc3, "Valor",               "Monto en COP (ej: 60000) o porcentaje expresado como número entero (ej: 2 = 2%)."),
-                        (_hc4, "Categoría Contable",  "Bucket ABC del desglose en el PDF: Mano de Obra y Elaboración, Zócalos y Remates, o Insumos, Servicios y Riesgos."),
+                        (_hc4, "Categoría Contable",  "Bucket ABC del desglose: Mano de Obra y Elaboración, Zócalos y Remates, o Insumos, Servicios y Riesgos."),
                         (_hc5, "",                    ""),
                     ]
                     for _hcol, _hlbl, _hhelp in _header_cfg:
