@@ -7328,7 +7328,7 @@ elif pagina == "Parametros":
                 {"nombre_interno": "Desgaste disco",         "inductor": "por_m2",              "valor": float(tar_dict.get("disco",          2_200)), "etiqueta_pdf": "c4_insumos"},
                 {"nombre_interno": "Uso máquina cortadora",  "inductor": "por_dia",             "valor": float(tar_dict.get("maquina",       20_000)), "etiqueta_pdf": "c4_insumos"},
                 {"nombre_interno": "Consumibles",            "inductor": "por_m2",              "valor": float(tar_dict.get("consumibles",    8_500)), "etiqueta_pdf": "c4_insumos"},
-                {"nombre_interno": "Riesgo rotura",          "inductor": "porcentaje_material", "valor": float(tar_dict.get("riesgo_rotura",  0.02)), "etiqueta_pdf": "c4_insumos"},
+                {"nombre_interno": "Provisión por Riesgo de Rotura", "inductor": "porcentaje_material", "valor": float(tar_dict.get("riesgo_rotura", 0.02)), "etiqueta_pdf": "c4_insumos"},
             ]
 
         def _resolver_receta_ui(entry) -> list:
@@ -7357,9 +7357,12 @@ elif pagina == "Parametros":
             "c4_insumos":   "④ Insumos",
         }
         _CAT_LABEL = {
-            "c2_mano_obra": "👷 Mano de Obra",
-            "c3_zocalos":   "📏 Zócalos / Remates",
-            "c4_insumos":   "💧 Insumos y Servicios",
+            # Etiquetas financieras ABC (Activity-Based Costing) — solo para UI.
+            # Los valores técnicos en BD siguen siendo c2_mano_obra / c3_zocalos
+            # / c4_insumos, que son los códigos que espera el motor y el PDF.
+            "c2_mano_obra": "👷 Mano de Obra y Elaboración",
+            "c3_zocalos":   "📏 Zócalos y Remates",
+            "c4_insumos":   "💎 Insumos, Servicios y Riesgos",
         }
         _MAT_ICONS = {"Mármol": "🪨", "Granito": "🟫", "Sinterizado": "⬜", "Quarztone": "🔵", "Quarzita": "🟡"}
         _SS_KEY    = "tar_recetas_edit"
@@ -7538,49 +7541,104 @@ elif pagina == "Parametros":
                             st.rerun()
 
                 # ════════════════════════════════════════════════════════
-                # PASO 3 — ¿El taller asume los insumos?
+                # PASO 3 — Calculadora de Servicios (CIF)
+                # ABC: distribuye el costo fijo de luz/agua entre los m²
+                # procesados mensualmente para obtener el CIF real por m².
+                # El valor calculado se inyecta en la regla "Servicios de
+                # Taller" al completar el wizard (paso 4).
                 # ════════════════════════════════════════════════════════
                 elif st.session_state.paso_wizard == 3:
-                    st.markdown("### ¿Tu taller asume los gastos de discos, luz y agua?")
-                    st.caption("Si los operarios usan tus equipos y tu pagas los consumibles, debes incluirlos en el costo.")
+                    st.markdown("### 💡 ¿Cuánto te cuestan la luz y el agua por proyecto?")
+                    st.caption(
+                        "Muchos talleres pierden dinero porque no incluyen los servicios públicos "  
+                        "en el presupuesto. Calculémoslo exactamente."
+                    )
 
-                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-                    _b3, _b4 = st.columns(2)
-                    with _b3:
-                        st.markdown("""
-                        <div style="background:var(--secondary-background-color);border:2px solid var(--border-color);
-                                    border-radius:12px;padding:20px 16px;text-align:center">
-                            <div style="font-size:1.8rem;margin-bottom:6px">✅</div>
-                            <div style="font-weight:700;font-size:0.9rem">Sí, agregar paquete</div>
-                            <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Disco + consumibles + máquina</div>
-                        </div>""", unsafe_allow_html=True)
-                        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-                        if st.button("✅ Sí, agregar insumos", key="wiz_btn_insumos_si",
-                                     use_container_width=True, type="primary"):
-                            st.session_state.wiz_insumos = True
-                            st.session_state.paso_wizard = 4   # señal de completado
-                            st.rerun()
+                    # ── Inputs de la calculadora CIF ──────────────────────
+                    _wiz_recibo = st.number_input(
+                        "1. ¿Cuánto pagas de Luz y Agua al mes? ($ COP)",
+                        min_value=0.0,
+                        max_value=50_000_000.0,
+                        value=float(st.session_state.get("wiz_recibo_servicios", 1_000_000.0)),
+                        step=50_000.0,
+                        format="%.0f",
+                        key="wiz_input_recibo",
+                        help=(
+                            "Suma el recibo de energía + acueducto del taller. "
+                            "Si el taller comparte el medidor con la vivienda, "
+                            "ingresa solo la parte proporcional que usa la producción."
+                        ),
+                    )
 
-                    with _b4:
-                        st.markdown("""
-                        <div style="background:var(--secondary-background-color);border:2px solid var(--border-color);
-                                    border-radius:12px;padding:20px 16px;text-align:center">
-                            <div style="font-size:1.8rem;margin-bottom:6px">🙅</div>
-                            <div style="font-weight:700;font-size:0.9rem">No, ellos asumen todo</div>
-                            <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Solo mano de obra pura</div>
-                        </div>""", unsafe_allow_html=True)
-                        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-                        if st.button("🙅 No incluir insumos", key="wiz_btn_insumos_no",
-                                     use_container_width=True):
-                            st.session_state.wiz_insumos = False
-                            st.session_state.paso_wizard = 4
-                            st.rerun()
+                    _wiz_m2_mes = st.number_input(
+                        "2. ¿Cuántos metros cuadrados procesa tu taller al mes aprox.?",
+                        min_value=1.0,
+                        max_value=10_000.0,
+                        value=float(st.session_state.get("wiz_m2_mes_taller", 100.0)),
+                        step=5.0,
+                        format="%.0f",
+                        key="wiz_input_m2_mes",
+                        help=(
+                            "Promedio mensual de m² de piedra elaborada. "
+                            "Si no lo sabes con exactitud, una estimación conservadora "
+                            "es mejor que dejarlo en cero."
+                        ),
+                    )
 
-                    _nav3, _ = st.columns([1, 2])
-                    with _nav3:
+                    # ── Cálculo en tiempo real (CIF por m²) ──────────────────
+                    # División defensiva: evita ZeroDivisionError si el usuario
+                    # borra el valor del campo de m² durante la edición.
+                    _m2_mes_seguro = max(_wiz_m2_mes, 1.0)
+                    _cif_por_m2    = _wiz_recibo / _m2_mes_seguro
+
+                    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                    st.info(
+                        f"💡 **Costo real de servicios: "  
+                        f"${_cif_por_m2:,.0f} COP por metro cuadrado** — "
+                        f"Este valor se agregará automáticamente a la receta de costos "
+                        f"como \"Servicios de Taller (Luz y Agua)\" con inductor por m².",
+                        icon="💡",
+                    )
+
+                    # Advertencia de CIF inusualmente alto (puede ser dato incorrecto)
+                    if _cif_por_m2 > 30_000:
+                        st.warning(
+                            "⚠️ El CIF supera $30.000/m², lo cual es inusualmente alto. "
+                            "Verifica que el recibo corresponda solo al taller y que la "
+                            "producción mensual no esté subestimada.",
+                            icon="⚠️",
+                        )
+                    elif _cif_por_m2 < 500 and _wiz_recibo > 0:
+                        st.info(
+                            "ℹ️ CIF muy bajo ($500/m²). Revisa si la producción mensual "
+                            "es correcta — podrías estar subestimando el costo.",
+                            icon="ℹ️",
+                        )
+
+                    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+                    _nav3a, _nav3b = st.columns([1, 2])
+                    with _nav3a:
                         if st.button("← Atrás", key="wiz_back_3", use_container_width=True):
                             st.session_state.paso_wizard = 2
+                            st.rerun()
+                    with _nav3b:
+                        if st.button(
+                            "Siguiente →",
+                            key="wiz_next_3",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            # Persistir los valores del formulario en session_state
+                            # antes de avanzar, para que sobrevivan al st.rerun().
+                            st.session_state.wiz_recibo_servicios = float(_wiz_recibo)
+                            st.session_state.wiz_m2_mes_taller    = float(_wiz_m2_mes)
+                            # El CIF calculado se guarda directamente — el cierre
+                            # (paso 4) lo inyectará en la regla correspondiente.
+                            st.session_state.wiz_cif_por_m2       = round(_cif_por_m2, 2)
+                            st.session_state.wiz_insumos          = True   # siempre True con CIF
+                            st.session_state.paso_wizard          = 4
                             st.rerun()
 
                 # ════════════════════════════════════════════════════════
@@ -7621,18 +7679,26 @@ elif pagina == "Parametros":
                             "valor":          12_000.0,
                             "etiqueta_pdf":   "c3_zocalos",
                         },
-                        # Provisión de rotura — 2 % del material, siempre incluida
+                        # Provisión de rotura — 2% del material (fracción 0.02), siempre incluida.
+                        # El Builder la mostrará como 2.0% en la columna de valor.
                         {
-                            "nombre_interno": "Riesgo rotura",
+                            "nombre_interno": "Provisión por Riesgo de Rotura",
                             "inductor":       "porcentaje_material",
                             "valor":          0.02,   # fracción → el Builder mostrará 2.0%
                             "etiqueta_pdf":   "c4_insumos",
                         },
                     ]
 
-                    # Paquete de insumos opcional (disco + máquina + consumibles + servicios)
-                    # "Servicios de Taller" es OBLIGATORIO dentro del paquete para capturar
-                    # los costos fijos de luz y agua que suelen quedar fuera del presupuesto.
+                    # ── Paquete CIF + insumos de taller ──────────────────────
+                    # wiz_insumos siempre es True desde la Calculadora CIF (Paso 3),
+                    # pero se mantiene la guarda por si el wizard se completa desde
+                    # un path alternativo o estado de sesión restaurado.
+                    # El valor de Servicios de Taller se toma de wiz_cif_por_m2
+                    # (calculado en tiempo real en el Paso 3). Si no existe en sesión
+                    # (p.ej. migración desde versión anterior), se usa $3.000 por defecto.
+                    _cif_inyectado = float(
+                        st.session_state.get("wiz_cif_por_m2", 3_000.0)
+                    )
                     if _insumos:
                         _receta_wizard += [
                             {
@@ -7653,12 +7719,14 @@ elif pagina == "Parametros":
                                 "valor":          8_500.0,
                                 "etiqueta_pdf":   "c4_insumos",
                             },
-                            # Servicios de Taller — OBLIGATORIO en el paquete de insumos.
-                            # Cubre luz, agua y servicios públicos del taller por m² elaborado.
+                            # CIF — Servicios de Taller (Luz y Agua).
+                            # Valor calculado en la Calculadora CIF del Paso 3:
+                            #   CIF/m² = recibo_mensual / m²_procesados_mes
+                            # Si el usuario vino de un path sin Paso 3, usa $3.000/m².
                             {
                                 "nombre_interno": "Servicios de Taller (Luz y Agua)",
                                 "inductor":       "por_m2",
-                                "valor":          3_000.0,
+                                "valor":          _cif_inyectado,
                                 "etiqueta_pdf":   "c4_insumos",
                             },
                         ]
@@ -7739,7 +7807,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                         (_hc1, "Concepto",           "Nombre descriptivo del costo. Solo para identificarlo — no afecta el cálculo."),
                         (_hc2, "¿Cómo se cobra?",    "Base matemática del cálculo: por ML de borde, por m² de área, por día de obra, etc."),
                         (_hc3, "Valor",               "Monto en COP (ej: 60000) o porcentaje expresado como número entero (ej: 2 = 2%)."),
-                        (_hc4, "Categoría Contable",  "Bucket del desglose en el PDF: Mano de Obra, Zócalos o Insumos y Servicios."),
+                        (_hc4, "Categoría Contable",  "Bucket ABC del desglose en el PDF: Mano de Obra y Elaboración, Zócalos y Remates, o Insumos, Servicios y Riesgos."),
                         (_hc5, "",                    ""),
                     ]
                     for _hcol, _hlbl, _hhelp in _header_cfg:
