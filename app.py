@@ -7306,7 +7306,7 @@ elif pagina == "Parametros":
                         if _r is not None:
                             _cif_display = float(_r)
                             break
-# Fallback: valor calculado en el wizard si aún no se guardaron tarifas
+                # Fallback: valor del wizard si aun no se guardaron tarifas
                 if _cif_display is None:
                     _cif_display = st.session_state.get("wiz_cif_por_m2")
                 if _cif_display is not None:
