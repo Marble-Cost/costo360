@@ -7543,8 +7543,13 @@ elif pagina == "Parametros":
                 # PASO 3 — Calculadora de Servicios CIF (ABC)
                 # Distribuye el costo fijo mensual de servicios públicos
                 # entre los m² procesados → CIF real por m² elaborado.
-                # El valor calculado se inyecta en "Servicios de Taller"
-                # al completar el wizard (paso_wizard == 4).
+                #
+                # CONVERSOR DIMENSIONAL: el usuario puede ingresar su
+                # producción en m² O en ml. Si elige ml, se convierte
+                # a m² con el ancho estándar de mesón de 60 cm:
+                #   m²_mes = ml_mes × 0.60
+                # El _wiz_m2_mes resultante alimenta la división CIF
+                # y se persiste en wiz_m2_mes_taller para el Paso 4.
                 # ════════════════════════════════════════════════════════
                 elif st.session_state.paso_wizard == 3:
                     st.markdown("### 💡 Para calcular exactamente cuánto te cuesta la luz y el agua por proyecto, dinos:")
@@ -7571,24 +7576,79 @@ elif pagina == "Parametros":
                         ),
                     )
 
-                    # ── Input 2: producción mensual ───────────────────────
-                    _wiz_m2_mes = st.number_input(
-                        "2. ¿Cuántos metros cuadrados procesa tu taller al mes aprox.?",
-                        min_value=1.0,
-                        max_value=10_000.0,
-                        value=float(st.session_state.get("wiz_m2_mes_taller", 100.0)),
-                        step=5.0,
-                        format="%.0f",
-                        key="wiz_input_m2_mes",
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                    # ── Selector de unidad de producción ─────────────────
+                    # Radio horizontal: el taller elige la unidad con la que
+                    # naturalmente mide su producción mensual.
+                    _OPT_M2 = "Metros Cuadrados (m²)"
+                    _OPT_ML = "Metros Lineales (ml — Mesones estándar)"
+                    _unidad_prev = st.session_state.get("wiz_unidad_produccion", _OPT_M2)
+                    _unidad_sel  = st.radio(
+                        "¿Cómo mides tu producción?",
+                        [_OPT_M2, _OPT_ML],
+                        index=0 if _unidad_prev == _OPT_M2 else 1,
+                        horizontal=True,
+                        key="wiz_radio_unidad",
                         help=(
-                            "Promedio mensual de m² de piedra elaborada y entregada. "
-                            "Una estimación conservadora es mejor que dejarla en cero."
+                            "Elige la unidad que usas habitualmente. "
+                            "Si mides en ML de borde cortado (mesones), "
+                            "el sistema convierte a m² automáticamente."
                         ),
                     )
 
+                    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+                    # ── Input 2: producción mensual (unidad según selección) ──
+                    if _unidad_sel == _OPT_M2:
+                        # Ruta m² — valor directo, sin conversión
+                        _input_produccion = st.number_input(
+                            "2. ¿Cuántos m² procesa tu taller al mes aprox.?",
+                            min_value=1.0,
+                            max_value=10_000.0,
+                            value=float(st.session_state.get("wiz_m2_mes_taller", 100.0)),
+                            step=5.0,
+                            format="%.0f",
+                            key="wiz_input_produccion_m2",
+                            help=(
+                                "Promedio mensual de m² de piedra elaborada y entregada. "
+                                "Una estimación conservadora es mejor que dejarla en cero."
+                            ),
+                        )
+                        # Sin conversión: el input ya está en m²
+                        _wiz_m2_mes = _input_produccion
+
+                    else:
+                        # Ruta ml — el taller trabaja en metros lineales de mesón.
+                        # Convertimos a m² con el ancho estándar de 60 cm:
+                        #   m²_mes = ml_mes × 0.60
+                        # El ancho de 60 cm es la medida estándar de encimera/mesón
+                        # en Colombia para cocinas y baños.
+                        _ANCHO_MESON_M = 0.60   # metros — constante de conversión
+                        _input_produccion = st.number_input(
+                            "2. ¿Cuántos ml procesa tu taller al mes aprox.?",
+                            min_value=1.0,
+                            max_value=50_000.0,
+                            value=float(st.session_state.get("wiz_ml_mes_taller", 167.0)),
+                            step=10.0,
+                            format="%.0f",
+                            key="wiz_input_produccion_ml",
+                            help=(
+                                "Metros lineales totales de borde cortado e instalado al mes. "
+                                "Ej: 10 mesones de 2 m = 20 ML. "
+                                "El sistema convierte a m² asumiendo 60 cm de ancho estándar."
+                            ),
+                        )
+                        # Conversión dimensional: ML × 0.60 m = m²
+                        _wiz_m2_mes = _input_produccion * _ANCHO_MESON_M
+                        st.caption(
+                            f"ℹ️ Equivale a **{_wiz_m2_mes:,.1f} m²** "
+                            f"asumiendo un ancho estándar de 60 cm por mesón."
+                        )
+
                     # ── Cálculo CIF en tiempo real ────────────────────────
                     # max(..., 1.0) evita ZeroDivisionError si el usuario borra
-                    # el campo de m² durante la edición del widget.
+                    # el campo de producción durante la edición del widget.
                     _m2_mes_seguro = max(_wiz_m2_mes, 1.0)
                     _cif_por_m2    = _wiz_recibo / _m2_mes_seguro
 
@@ -7629,13 +7689,18 @@ elif pagina == "Parametros":
                             use_container_width=True,
                             type="primary",
                         ):
-                            # Persistir valores antes del rerun() para que sobrevivan
-                            st.session_state.wiz_recibo_servicios = float(_wiz_recibo)
-                            st.session_state.wiz_m2_mes_taller    = float(_wiz_m2_mes)
-                            # CIF calculado: lo guarda el Paso 4 para inyectarlo en la receta
-                            st.session_state.wiz_cif_por_m2       = round(_cif_por_m2, 2)
-                            st.session_state.wiz_insumos          = True  # siempre True con CIF
-                            st.session_state.paso_wizard          = 4
+                            # Persistir todos los valores antes del rerun()
+                            st.session_state.wiz_recibo_servicios  = float(_wiz_recibo)
+                            st.session_state.wiz_m2_mes_taller     = float(_wiz_m2_mes)
+                            st.session_state.wiz_unidad_produccion = _unidad_sel
+                            # Si el taller trabaja en ML, guardar también ese valor
+                            # para que al volver al Paso 3 no pierda lo que ingresó.
+                            if _unidad_sel == _OPT_ML:
+                                st.session_state.wiz_ml_mes_taller = float(_input_produccion)
+                            # CIF calculado: el Paso 4 lo inyecta en "Servicios de Taller"
+                            st.session_state.wiz_cif_por_m2        = round(_cif_por_m2, 2)
+                            st.session_state.wiz_insumos           = True  # siempre True con CIF
+                            st.session_state.paso_wizard           = 4
                             st.rerun()
 
                 # ════════════════════════════════════════════════════════
