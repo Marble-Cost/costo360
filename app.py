@@ -239,11 +239,11 @@ def _guardar_config(clave: str, valor) -> None:
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO app_config (clave, valor, actualizado)
-                   VALUES (%s, %s, %s)
+                """INSERT INTO app_config (clave, valor)
+                   VALUES (%s, %s)
                    ON CONFLICT (clave) DO UPDATE
-                   SET valor = EXCLUDED.valor, actualizado = EXCLUDED.actualizado""",
-                (_clave_bd, json.dumps(valor, ensure_ascii=False, default=str), _hoy().isoformat())
+                   SET valor = EXCLUDED.valor""",
+                (_clave_bd, json.dumps(valor, ensure_ascii=False, default=str))
             )
         conn.commit()
 
@@ -882,10 +882,6 @@ def _chat_parametros(historial: list, mensaje: str) -> str:
       datos      : dict con los valores nuevos en la estructura de TARIFAS / LOGISTICA / VIATICOS
     """
     try:
-        import anthropic
-        api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
-        if not api_key: return "Configura tu API key en .streamlit/secrets.toml"
-        client = anthropic.Anthropic(api_key=api_key)
         SYSTEM_PARAMS = """Eres el asesor de costos operativos de MARMOLES COLLANTE & CASTRO LTDA., Barranquilla, Colombia.
 Tu función es ayudar a actualizar los parámetros internos de la empresa: tarifas de producción, viáticos, logística.
 
@@ -913,10 +909,11 @@ REGLAS DE RESPUESTA:
 - NUNCA incluyas el JSON si el usuario no ha confirmado el cambio.
 - NUNCA incluyas texto después del bloque ```json.
 - No uses emojis. Sé directo: usa números concretos del mercado de Barranquilla."""
-        messages = [{"role": m["role"], "content": m["content"]} for m in historial]
-        messages.append({"role": "user", "content": mensaje})
-        response = client.messages.create(model="claude-sonnet-4-6", max_tokens=700, system=SYSTEM_PARAMS, messages=messages)
-        return response.content[0].text
+        _prompt_cp = f"{SYSTEM_PARAMS}\n\nHistorial:\n"
+        for m in historial:
+            _prompt_cp += f"{m['role'].upper()}: {m['content']}\n"
+        _prompt_cp += f"USER: {mensaje}"
+        return chat_con_ia(_prompt_cp)
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -8698,11 +8695,7 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                     # no a datos técnicos de vehículos; y necesitamos JSON puro.
                     _raw_fl = ""   # inicializar antes del try para que el except pueda mostrarlo
                     try:
-                        import anthropic as _anth
-                        _api_fl = st.secrets.get("ANTHROPIC_API_KEY", "")
-                        if not _api_fl:
-                            raise ValueError("ANTHROPIC_API_KEY no configurada en secrets.toml")
-                        _cli_fl = _anth.Anthropic(api_key=_api_fl)
+                        import re as _re_fl, json as _json_fl
                         _prompt_fl = (
                             f"Eres un experto automotriz. Dame la ficha técnica estimada "
                             f"de un(a) {_veh_q} para transporte de carga en Colombia. "
@@ -8712,23 +8705,12 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                             f"Sin texto adicional, sin bloques de código, sin comillas extra. "
                             f"Ejemplo: {{\"rendimiento_km_gal\": 28.0, \"capacidad_max_kg\": 900.0}}"
                         )
-                        _resp_fl = _cli_fl.messages.create(
-                            model="claude-sonnet-4-6",
-                            max_tokens=80,
-                            messages=[{"role": "user", "content": _prompt_fl}],
-                        )
-                        _raw_fl = _resp_fl.content[0].text.strip()
-                        # ── PATCH 2: Extractor regex robusto ──────────────────────
-                        # PROBLEMA: la IA a veces añade texto antes/después del JSON
-                        # ("Aquí tienes la ficha…"), rompiendo json.loads() directamente.
-                        # SOLUCIÓN: re.search con re.DOTALL extrae el primer objeto
-                        # {...} válido ignorando cualquier texto envolvente — cubre
-                        # texto libre, bloques ```json``` y campos extra inesperados.
-                        import re as _re_fl, json as _json_fl
-                        _match_fl = _re_fl.search(r"\{.*\}", _raw_fl, _re_fl.DOTALL)
+                        _raw_fl = chat_con_ia(_prompt_fl)
+                        _raw_fl_clean = _raw_fl.replace("```json", "").replace("```", "").strip()
+                        _match_fl = _re_fl.search(r"\{.*\}", _raw_fl_clean, _re_fl.DOTALL)
                         if not _match_fl:
                             raise ValueError("No se encontró un objeto JSON en la respuesta")
-                        _ficha_ia = _json_fl.loads(_match_fl.group())
+                        _ficha_ia = _json_fl.loads(_match_fl.group(0))
                         st.session_state.flota_ficha = {
                             "rendimiento_km_gal": float(_ficha_ia.get("rendimiento_km_gal", 25.0)),
                             "capacidad_max_kg":   float(_ficha_ia.get("capacidad_max_kg",  1_000.0)),
