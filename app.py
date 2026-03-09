@@ -6946,18 +6946,30 @@ elif pagina == "Parametros":
                                             unsafe_allow_html=True
                                         )
                     elif _tipo_c == "tarifas":
+                        # Adaptador: soporta formato plano legacy Y formato de receta
+                        # nueva. Normaliza ambos a {material: {nombre: valor}} para comparar.
+                        def _norm_tar_for_diff(tar_src: dict) -> dict:
+                            _out = {}
+                            for _m, _v in tar_src.items():
+                                if isinstance(_v, list):   # receta nueva
+                                    _out[_m] = {r["nombre_interno"]: r["valor"] for r in _v}
+                                elif isinstance(_v, dict): # formato plano legacy
+                                    _out[_m] = _v
+                            return _out
+                        _antes_n  = _norm_tar_for_diff(_antes_c)
+                        _despues_n = _norm_tar_for_diff(_despues_c)
                         for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-                            if _mat in _antes_c and _mat in _despues_c:
-                                for _sk in ["prod_ml", "zocalo", "disco", "maquina", "consumibles"]:
-                                    _va = _antes_c[_mat].get(_sk, 0)
-                                    _vd = _despues_c[_mat].get(_sk, 0)
+                            if _mat in _antes_n and _mat in _despues_n:
+                                _claves_union = set(_antes_n[_mat]) | set(_despues_n[_mat])
+                                for _sk in sorted(_claves_union):
+                                    _va = _antes_n[_mat].get(_sk, 0)
+                                    _vd = _despues_n[_mat].get(_sk, 0)
                                     if _va != _vd:
-                                        _lbl_sk = {"prod_ml": "Prod/ml", "zocalo": "Zócalo", "disco": "Disco", "maquina": "Máquina", "consumibles": "Consumibles"}
                                         st.markdown(
                                             f'<div class="cambio-row">'
-                                            f'<span class="cambio-campo">{_mat} — {_lbl_sk.get(_sk, _sk)}</span>'
-                                            f'<span class="cambio-antes">${int(_va):,}'.replace(",", ".") + '</span>'
-                                            f'<span class="cambio-despues">${int(_vd):,}'.replace(",", ".") + '</span>'
+                                            f'<span class="cambio-campo">{_mat} — {_sk}</span>'
+                                            f'<span class="cambio-antes">{_va}</span>'
+                                            f'<span class="cambio-despues">{_vd}</span>'
                                             f'</div>',
                                             unsafe_allow_html=True
                                         )
@@ -6979,9 +6991,13 @@ elif pagina == "Parametros":
                     unsafe_allow_html=True
                 )
 
-                # Producción por material (prod_ml)
+                # Producción por material (mano obra borde — primer inductor por_ml)
                 for _m in ["Mármol", "Granito", "Sinterizado"]:
-                    _pml = _tar_now.get(_m, {}).get("prod_ml", 0)
+                    _mat_tar = _tar_now.get(_m, {})
+                    if isinstance(_mat_tar, list):
+                        _pml = next((r["valor"] for r in _mat_tar if r.get("inductor") == "por_ml"), 0)
+                    else:
+                        _pml = _mat_tar.get("prod_ml", 0)
                     st.markdown(
                         f'<div class="val-actual-row"><span class="val-label">MO {_m}</span>'
                         f'<span class="val-num">${int(_pml):,}'.replace(",", ".") + '/ml</span></div>',
@@ -7027,92 +7043,192 @@ elif pagina == "Parametros":
                     )
 
     with t_tar:
-        st.caption("Costos de mano de obra e insumos por material. Modifica cada campo y presiona **Guardar Tarifas**.")
+        st.caption("Constructor visual de costos por material. Cada fila es una regla de costo que el motor aplica automáticamente al calcular. Agrega, edita o elimina reglas y presiona **Guardar Tarifas**.")
 
-        with st.expander("📖 ¿Qué significa cada campo? — Toca aquí para entenderlo", expanded=False):
+        with st.expander("📖 ¿Cómo funciona este constructor?", expanded=False):
             st.markdown("""
-Estos son los **costos que tú pagas** por producir el trabajo. No son el precio que le cobras al cliente — son los costos que la app usa para calcular ese precio automáticamente.
+Cada material tiene una **lista de reglas de costo**. El motor las itera una a una y las suma al presupuesto automáticamente.
 
-| Campo | ¿Qué es en palabras simples? | Ejemplo |
+| Columna | ¿Qué defines aquí? | Ejemplo |
 |---|---|---|
-| **Producción / ml** | Lo que le pagas al operario por cada metro lineal que corta e instala | El operario cobra $60.000 por cada ml → pon $60.000 |
-| **Zócalo / ml** | Lo que cuesta instalar el zócalo (la tira de piedra en el borde inferior de la pared) | $12.000 por cada ml de zócalo |
-| **Disco diamantado / m²** | Cuánto se gasta el disco de corte por cada m² que cortas. Los discos se desgastan. | Un disco cuesta $200.000 y dura ~90 m² → $2.200/m² |
-| **Máquina cortadora / día** | El costo diario de usar tu cortadora (depreciación + mantenimiento) | Si la cortadora vale $6M y dura 5 años → ~$20.000/día |
-| **Consumibles / m²** | Materiales que se gastan en cada obra: lijas, masilla, cera, sellador | Suma todo lo que gastas en insumos por m² instalado |
-| **Riesgo de rotura (%)** | Un porcentaje del costo del material que guardas por si se rompe algo | 2% = si el material cuesta $500.000, guardas $10.000 de provisión |
+| **Concepto** | El nombre del costo — solo para que lo identifiques | "Mano de obra borde", "Disco diamantado" |
+| **¿Cómo se cobra?** | La base matemática del cálculo | `por_ml` → multiplica por metros lineales cortados |
+| **Valor** | El monto en COP (o fracción para %) | `60000` = $60.000/ml · `0.02` = 2% del material |
+| **Sección del PDF** | El bucket donde se acumula en el desglose | `c2_mano_obra`, `c3_zocalos`, `c4_insumos` |
 
-**💡 Tip:** Si no sabes un valor exacto, deja el que ya está — son los valores del mercado de Barranquilla. Solo cambia cuando tengas un dato real de tu operación.
+**Inductores disponibles:**
+- `por_ml` — cobra por cada metro lineal de pieza (mesones, bordes, escaleras)
+- `por_m2` — cobra por cada m² de pieza (pisos, fachadas, consumibles, disco)
+- `por_dia` — costo fijo por día de obra (máquina cortadora, arriendo de equipos)
+- `porcentaje_material` — porcentaje del costo del material (provisión de rotura)
+- `por_ml_zocalo` — cobra por ml de zócalo instalado
+
+**💡 Tip:** Puedes agregar reglas personalizadas como "Transporte de equipos especiales por día" sin tocar ningún otro archivo.
             """)
 
-        tar_act = get_tarifas()
-        # NOTA: No sincronizamos session_state directamente aquí porque eso
-        # sobreescribiría los valores que el usuario acaba de editar antes de guardar.
-        # Streamlit inicializa el widget con value= solo la primera vez que aparece el key.
-        tar_edit = {}
+        # ── Adaptador de retrocompatibilidad ─────────────────────────────────
+        # Si las tarifas en BD todavía tienen el formato plano legacy (prod_ml, disco…)
+        # las convertimos al formato de receta antes de mostrar la UI.
+        # calculos.py exporta _tar_a_receta() para este uso exacto.
+        from calculos import calcular_cotizacion_directa as _ccd_dummy  # noqa — solo para importar módulo
+        import calculos as _calculos_mod
 
+        def _tar_a_receta_ui(tar_dict: dict) -> list:
+            """Convierte formato plano legacy a lista de reglas para la UI."""
+            return [
+                {"nombre_interno": "Mano obra borde",       "inductor": "por_ml",              "valor": float(tar_dict.get("prod_ml",       60_000)), "etiqueta_pdf": "c2_mano_obra"},
+                {"nombre_interno": "Mano obra área",         "inductor": "por_m2",              "valor": float(tar_dict.get("prod_m2",       35_000)), "etiqueta_pdf": "c2_mano_obra"},
+                {"nombre_interno": "Instalación zócalo",     "inductor": "por_ml_zocalo",       "valor": float(tar_dict.get("zocalo",        12_000)), "etiqueta_pdf": "c3_zocalos"},
+                {"nombre_interno": "Desgaste disco",         "inductor": "por_m2",              "valor": float(tar_dict.get("disco",          2_200)), "etiqueta_pdf": "c4_insumos"},
+                {"nombre_interno": "Uso máquina cortadora",  "inductor": "por_dia",             "valor": float(tar_dict.get("maquina",       20_000)), "etiqueta_pdf": "c4_insumos"},
+                {"nombre_interno": "Consumibles",            "inductor": "por_m2",              "valor": float(tar_dict.get("consumibles",    8_500)), "etiqueta_pdf": "c4_insumos"},
+                {"nombre_interno": "Riesgo rotura",          "inductor": "porcentaje_material", "valor": float(tar_dict.get("riesgo_rotura",  0.02)), "etiqueta_pdf": "c4_insumos"},
+            ]
+
+        def _resolver_receta_ui(entry) -> list:
+            if isinstance(entry, list):
+                return [dict(r) for r in entry]   # copia para no mutar el original
+            if isinstance(entry, dict):
+                return _tar_a_receta_ui(entry)
+            return _tar_a_receta_ui({})
+
+        _INDUCTORES      = ["por_ml", "por_m2", "por_dia", "porcentaje_material", "por_ml_zocalo"]
+        _ETIQUETAS_PDF   = ["c2_mano_obra", "c3_zocalos", "c4_insumos"]
+        _INDUCTOR_LABEL  = {
+            "por_ml":              "por ML (borde)",
+            "por_m2":              "por m² (área)",
+            "por_dia":             "por día de obra",
+            "porcentaje_material": "% del material",
+            "por_ml_zocalo":       "por ML de zócalo",
+        }
+        _PDF_LABEL = {
+            "c2_mano_obra": "② Mano de obra",
+            "c3_zocalos":   "③ Zócalos",
+            "c4_insumos":   "④ Insumos",
+        }
         _MAT_ICONS = {"Mármol": "🪨", "Granito": "🟫", "Sinterizado": "⬜", "Quarztone": "🔵", "Quarzita": "🟡"}
+
+        tar_act = get_tarifas()
+
+        # Inicializar session_state de recetas si no existe o viene del formato legacy
+        _SS_KEY = "tar_recetas_edit"
+        if _SS_KEY not in st.session_state:
+            st.session_state[_SS_KEY] = {}
         for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-            _t = tar_act.get(_mat, {})
-            tar_edit[_mat] = {}
+            _entry = tar_act.get(_mat, {})
+            if _mat not in st.session_state[_SS_KEY]:
+                # Primera carga: normalizar al formato de receta
+                st.session_state[_SS_KEY][_mat] = _resolver_receta_ui(_entry)
+
+        # ── Editor visual por material ────────────────────────────────────────
+        for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+            _receta = st.session_state[_SS_KEY][_mat]
+
             with st.container(border=True):
-                st.markdown(f"**{_MAT_ICONS.get(_mat, '')} {_mat}**")
-                _ca, _cb, _cc = st.columns(3)
-                _cd, _ce, _cf = st.columns(3)
-                tar_edit[_mat]["prod_ml"] = _ca.number_input(
-                    "Producción / ml (COP)", min_value=0,
-                    value=int(_t.get("prod_ml", 60_000)), step=1_000, format="%d",
-                    key=f"tar_pml_{_mat}",
-                    help="Lo que cobra el operario por cada metro lineal cortado e instalado (mesones, baños, escaleras).")
-                tar_edit[_mat]["prod_m2"] = _cb.number_input(
-                    "Producción / m² — Pisos (COP)", min_value=0,
-                    value=int(_t.get("prod_m2", round(_t.get("prod_ml", 60_000) * 0.58))),
-                    step=1_000, format="%d",
-                    key=f"tar_pm2_{_mat}",
-                    help="Lo que cobra el operario por cada m² instalado en pisos, fachadas y revestimientos. "
-                         "Menor que prod_ml porque hay menos cortes de borde. "
-                         "La app usa este valor automáticamente cuando el tipo de proyecto es Piso, Fachada o Revestimiento.")
-                tar_edit[_mat]["zocalo"] = _ca.number_input(
-                    "Zócalo / ml (COP)", min_value=0,
-                    value=int(_t.get("zocalo", 12_000)), step=500, format="%d",
-                    key=f"tar_zoc_{_mat}",
-                    help="Tarifa por metro lineal de zócalo instalado.")
-                tar_edit[_mat]["disco"] = _cb.number_input(
-                    "Disco diamantado / m² (COP)", min_value=0,
-                    value=int(_t.get("disco", 2_200)), step=100, format="%d",
-                    key=f"tar_dis_{_mat}",
-                    help="Desgaste del disco diamantado por m² cortado.")
-                tar_edit[_mat]["maquina"] = _cc.number_input(
-                    "Máquina cortadora / día (COP)", min_value=0,
-                    value=int(_t.get("maquina", 20_000)), step=1_000, format="%d",
-                    key=f"tar_maq_{_mat}",
-                    help="Depreciación y mantenimiento de la cortadora por día de uso.")
-                tar_edit[_mat]["consumibles"] = _cd.number_input(
-                    "Consumibles / m² (COP)", min_value=0,
-                    value=int(_t.get("consumibles", 10_000)), step=500, format="%d",
-                    key=f"tar_con_{_mat}",
-                    help="Masilla de poliéster, lijas diamantadas (50–3000), ceras, sellador y estopa.")
-                tar_edit[_mat]["riesgo_rotura"] = _ce.number_input(
-                    "Riesgo de rotura (%)", min_value=0.0, max_value=0.50,
-                    value=float(_t.get("riesgo_rotura", 0.02)), step=0.01, format="%.2f",
-                    key=f"tar_rie_{_mat}",
-                    help="Porcentaje del costo del material reservado como provisión por rotura accidental.")
+                _ch1, _ch2 = st.columns([5, 1])
+                _ch1.markdown(f"**{_MAT_ICONS.get(_mat, '')} {_mat}** — {len(_receta)} regla{'s' if len(_receta) != 1 else ''}")
+
+                # ── Fila de encabezados de columna ────────────────────────────
+                _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([3, 2, 1.4, 2, 0.6])
+                for _hcol, _hlbl in zip(
+                    [_hc1, _hc2, _hc3, _hc4, _hc5],
+                    ["Concepto", "¿Cómo se cobra?", "Valor (COP o %)", "Sección PDF", ""],
+                ):
+                    _hcol.markdown(
+                        f"<div style='font-size:0.68rem;font-weight:700;text-transform:uppercase;"
+                        f"letter-spacing:0.07em;opacity:0.5;padding-bottom:2px'>{_hlbl}</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                # ── Filas de reglas ───────────────────────────────────────────
+                _indices_a_borrar = []
+                for _ri, _regla in enumerate(_receta):
+                    _rc1, _rc2, _rc3, _rc4, _rc5 = st.columns([3, 2, 1.4, 2, 0.6])
+
+                    # Concepto (nombre_interno)
+                    _nom_key = f"trec_nom_{_mat}_{_ri}"
+                    _regla["nombre_interno"] = _rc1.text_input(
+                        "Concepto", value=_regla.get("nombre_interno", ""),
+                        key=_nom_key, label_visibility="collapsed",
+                        placeholder="Ej: Mano de obra borde",
+                    )
+
+                    # Inductor
+                    _ind_key  = f"trec_ind_{_mat}_{_ri}"
+                    _ind_cur  = _regla.get("inductor", "por_ml")
+                    _ind_idx  = _INDUCTORES.index(_ind_cur) if _ind_cur in _INDUCTORES else 0
+                    _ind_sel  = _rc2.selectbox(
+                        "Inductor", _INDUCTORES, index=_ind_idx,
+                        key=_ind_key, label_visibility="collapsed",
+                        format_func=lambda x: _INDUCTOR_LABEL.get(x, x),
+                    )
+                    _regla["inductor"] = _ind_sel
+
+                    # Valor — formato inteligente: porcentaje_material muestra 4 decimales
+                    _val_key = f"trec_val_{_mat}_{_ri}"
+                    _es_pct  = (_ind_sel == "porcentaje_material")
+                    _val_cur = float(_regla.get("valor", 0.0))
+                    if _es_pct:
+                        _val_new = _rc3.number_input(
+                            "Valor", value=_val_cur,
+                            min_value=0.0, max_value=1.0, step=0.005, format="%.3f",
+                            key=_val_key, label_visibility="collapsed",
+                            help="Fracción del costo del material (ej: 0.02 = 2%)",
+                        )
+                    else:
+                        _val_new = _rc3.number_input(
+                            "Valor", value=_val_cur,
+                            min_value=0.0, step=500.0, format="%.0f",
+                            key=_val_key, label_visibility="collapsed",
+                            help="Monto en COP",
+                        )
+                    _regla["valor"] = _val_new
+
+                    # Etiqueta PDF
+                    _pdf_key = f"trec_pdf_{_mat}_{_ri}"
+                    _pdf_cur = _regla.get("etiqueta_pdf", "c4_insumos")
+                    _pdf_idx = _ETIQUETAS_PDF.index(_pdf_cur) if _pdf_cur in _ETIQUETAS_PDF else 2
+                    _regla["etiqueta_pdf"] = _rc4.selectbox(
+                        "PDF", _ETIQUETAS_PDF, index=_pdf_idx,
+                        key=_pdf_key, label_visibility="collapsed",
+                        format_func=lambda x: _PDF_LABEL.get(x, x),
+                    )
+
+                    # Botón eliminar fila
+                    _rc5.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                    if _rc5.button("🗑", key=f"trec_del_{_mat}_{_ri}", help="Eliminar esta regla"):
+                        _indices_a_borrar.append(_ri)
+
+                # Aplicar eliminaciones (en orden inverso para no romper índices)
+                for _bi in sorted(_indices_a_borrar, reverse=True):
+                    st.session_state[_SS_KEY][_mat].pop(_bi)
+                if _indices_a_borrar:
+                    st.rerun()
+
+                # Botón agregar regla
+                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                if st.button(
+                    f"＋ Agregar costo a {_mat}",
+                    key=f"trec_add_{_mat}",
+                    use_container_width=True,
+                    help="Inserta una nueva regla de costo vacía para este material",
+                ):
+                    st.session_state[_SS_KEY][_mat].append({
+                        "nombre_interno": "",
+                        "inductor":       "por_m2",
+                        "valor":          0.0,
+                        "etiqueta_pdf":   "c4_insumos",
+                    })
+                    st.rerun()
 
         st.markdown("")
         _col_save_tar, _col_reset_tar = st.columns([3, 1])
         if _col_save_tar.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar", use_container_width=True):
-            # Leer valores DIRECTAMENTE de los widgets activos (store + widget state)
-            _saved_tar = {}
-            for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-                _saved_tar[_sm] = {
-                    "prod_ml":       int(st.session_state.get(f"tar_pml_{_sm}", 60_000)),
-                    "prod_m2":       int(st.session_state.get(f"tar_pm2_{_sm}", 35_000)),
-                    "zocalo":        int(st.session_state.get(f"tar_zoc_{_sm}", 12_000)),
-                    "disco":         int(st.session_state.get(f"tar_dis_{_sm}", 2_200)),
-                    "maquina":       int(st.session_state.get(f"tar_maq_{_sm}", 20_000)),
-                    "consumibles":   int(st.session_state.get(f"tar_con_{_sm}", 10_000)),
-                    "riesgo_rotura": float(st.session_state.get(f"tar_rie_{_sm}", 0.02)),
-                }
+            # Guardar directamente la estructura de recetas desde session_state
+            _saved_tar = {
+                _sm: list(st.session_state[_SS_KEY].get(_sm, []))
+                for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
+            }
             # ── store_permanente: escritura dual — widget state + store ─────────
             _sp()["params_tarifas"] = _saved_tar
             st.session_state.tarifas_custom = _saved_tar
@@ -7121,10 +7237,8 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
                 _guardar_config("tarifas_custom", _saved_tar)
             except Exception:
                 pass
-            # Limpiar keys de widgets para que se reinicialicen con los valores recién guardados
-            for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-                for _sfx in ["pml", "pm2", "zoc", "dis", "maq", "con", "rie"]:
-                    st.session_state.pop(f"tar_{_sfx}_{_sm}", None)
+            # Invalidar caché del editor para forzar recarga limpia en el próximo render
+            st.session_state.pop(_SS_KEY, None)
             st.toast("✅ Tarifas guardadas y persistidas correctamente", icon="💾")
             st.rerun()
         if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
@@ -7135,10 +7249,8 @@ Estos son los **costos que tú pagas** por producir el trabajo. No son el precio
                 _guardar_config("tarifas_custom", None)
             except Exception:
                 pass
-            # Limpiar keys de widgets para forzar recarga con valores por defecto
-            for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-                for _sfx in ["pml", "pm2", "zoc", "dis", "maq", "con", "rie"]:
-                    st.session_state.pop(f"tar_{_sfx}_{_sm}", None)
+            # Limpiar el estado del editor para forzar recarga desde TARIFAS base
+            st.session_state.pop(_SS_KEY, None)
             st.toast("↺ Tarifas restauradas a valores por defecto", icon="🔄")
             st.rerun()
 
