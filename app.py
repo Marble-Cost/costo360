@@ -7107,10 +7107,19 @@ elif pagina == "Parametros":
             "porcentaje_material": "% del material",
             "por_ml_zocalo":       "por ML de zócalo",
         }
+        # _PDF_LABEL: valores técnicos internos que se guardan en BD — no cambian.
+        # _CAT_LABEL: etiquetas amigables para la UI — lo que ve el usuario en el selectbox.
+        # La separación garantiza que el motor financiero y el PDF nunca reciben
+        # texto decorativo, solo los códigos de bucket que esperan.
         _PDF_LABEL = {
             "c2_mano_obra": "② Mano de obra",
             "c3_zocalos":   "③ Zócalos",
             "c4_insumos":   "④ Insumos",
+        }
+        _CAT_LABEL = {
+            "c2_mano_obra": "👷 Mano de Obra",
+            "c3_zocalos":   "📏 Zócalos / Remates",
+            "c4_insumos":   "💧 Insumos y Servicios",
         }
         _MAT_ICONS = {"Mármol": "🪨", "Granito": "🟫", "Sinterizado": "⬜", "Quarztone": "🔵", "Quarzita": "🟡"}
         _SS_KEY    = "tar_recetas_edit"
@@ -7214,8 +7223,14 @@ elif pagina == "Parametros":
                             <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Recomendado para mesones</div>
                         </div>""", unsafe_allow_html=True)
                         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-                        if st.button("Elegir → Metro Lineal", key="wiz_btn_ml",
-                                     use_container_width=True, type="primary"):
+                        if st.button(
+                            "Elegir → Metro Lineal",
+                            key="wiz_btn_ml",
+                            use_container_width=True,
+                            type="primary",
+                            help="Se cobra por cada metro lineal físico de borde cortado e instalado. "
+                                 "Los zócalos también se cobran por ML de tira añadida a las piezas.",
+                        ):
                             st.session_state.wiz_inductor_mo = "por_ml"
                             st.session_state.paso_wizard     = 2
                             st.rerun()
@@ -7229,8 +7244,13 @@ elif pagina == "Parametros":
                             <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Recomendado para pisos</div>
                         </div>""", unsafe_allow_html=True)
                         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-                        if st.button("Elegir → Metro Cuadrado", key="wiz_btn_m2",
-                                     use_container_width=True):
+                        if st.button(
+                            "Elegir → Metro Cuadrado",
+                            key="wiz_btn_m2",
+                            use_container_width=True,
+                            help="Se cobra por cada m² de superficie elaborada. "
+                                 "Ideal para pisos, fachadas y proyectos con área predominante.",
+                        ):
                             st.session_state.wiz_inductor_mo = "por_m2"
                             st.session_state.paso_wizard     = 2
                             st.rerun()
@@ -7342,8 +7362,8 @@ elif pagina == "Parametros":
                     _val_mo   = float(st.session_state.get("wiz_valor_mo", 60_000.0))
                     _insumos  = st.session_state.get("wiz_insumos", True)
 
-                    # Nombre del concepto según inductor
-                    _nom_mo = "Mano obra borde" if _ind_mo == "por_ml" else "Mano obra área"
+                    # Nombre genérico según inductor — más claro para usuarios no técnicos
+                    _nom_mo = "Elaboración e Instalación"
 
                     # Regla base de mano de obra (única obligatoria)
                     _receta_wizard: list = [
@@ -7353,23 +7373,26 @@ elif pagina == "Parametros":
                             "valor":          _val_mo,
                             "etiqueta_pdf":   "c2_mano_obra",
                         },
-                        # Instalación de zócalo — siempre incluida (tarifas por defecto)
+                        # Zócalo — siempre incluido. Tooltip en el Builder recordará
+                        # que se cobra por ML físico de tira, no por m² de proyecto.
                         {
                             "nombre_interno": "Instalación zócalo",
                             "inductor":       "por_ml_zocalo",
                             "valor":          12_000.0,
                             "etiqueta_pdf":   "c3_zocalos",
                         },
-                        # Provisión de rotura — siempre incluida (2 % del material)
+                        # Provisión de rotura — 2 % del material, siempre incluida
                         {
                             "nombre_interno": "Riesgo rotura",
                             "inductor":       "porcentaje_material",
-                            "valor":          0.02,
+                            "valor":          0.02,   # fracción → el Builder mostrará 2.0%
                             "etiqueta_pdf":   "c4_insumos",
                         },
                     ]
 
-                    # Paquete de insumos opcional (disco + máquina + consumibles)
+                    # Paquete de insumos opcional (disco + máquina + consumibles + servicios)
+                    # "Servicios de Taller" es OBLIGATORIO dentro del paquete para capturar
+                    # los costos fijos de luz y agua que suelen quedar fuera del presupuesto.
                     if _insumos:
                         _receta_wizard += [
                             {
@@ -7385,9 +7408,17 @@ elif pagina == "Parametros":
                                 "etiqueta_pdf":   "c4_insumos",
                             },
                             {
-                                "nombre_interno": "Consumibles (luz, agua, lijas)",
+                                "nombre_interno": "Consumibles (lijas, masilla, sellador)",
                                 "inductor":       "por_m2",
                                 "valor":          8_500.0,
+                                "etiqueta_pdf":   "c4_insumos",
+                            },
+                            # Servicios de Taller — OBLIGATORIO en el paquete de insumos.
+                            # Cubre luz, agua y servicios públicos del taller por m² elaborado.
+                            {
+                                "nombre_interno": "Servicios de Taller (Luz y Agua)",
+                                "inductor":       "por_m2",
+                                "valor":          3_000.0,
                                 "etiqueta_pdf":   "c4_insumos",
                             },
                         ]
@@ -7462,13 +7493,20 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
 
                     # ── Fila de encabezados de columna ────────────────────────
                     _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([3, 2, 1.4, 2, 0.6])
-                    for _hcol, _hlbl in zip(
-                        [_hc1, _hc2, _hc3, _hc4, _hc5],
-                        ["Concepto", "¿Cómo se cobra?", "Valor (COP o %)", "Sección PDF", ""],
-                    ):
+                    # Headers con tooltips — los textos en help= explican cada columna
+                    # sin agregar ruido visual a la tabla.
+                    _header_cfg = [
+                        (_hc1, "Concepto",           "Nombre descriptivo del costo. Solo para identificarlo — no afecta el cálculo."),
+                        (_hc2, "¿Cómo se cobra?",    "Base matemática del cálculo: por ML de borde, por m² de área, por día de obra, etc."),
+                        (_hc3, "Valor",               "Monto en COP (ej: 60000) o porcentaje expresado como número entero (ej: 2 = 2%)."),
+                        (_hc4, "Categoría Contable",  "Bucket del desglose en el PDF: Mano de Obra, Zócalos o Insumos y Servicios."),
+                        (_hc5, "",                    ""),
+                    ]
+                    for _hcol, _hlbl, _hhelp in _header_cfg:
                         _hcol.markdown(
                             f"<div style='font-size:0.68rem;font-weight:700;text-transform:uppercase;"
-                            f"letter-spacing:0.07em;opacity:0.5;padding-bottom:2px'>{_hlbl}</div>",
+                            f"letter-spacing:0.07em;opacity:0.5;padding-bottom:2px' "
+                            f"title='{_hhelp}'>{_hlbl}</div>",
                             unsafe_allow_html=True,
                         )
 
@@ -7478,11 +7516,23 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                         _rc1, _rc2, _rc3, _rc4, _rc5 = st.columns([3, 2, 1.4, 2, 0.6])
 
                         # Concepto (nombre_interno)
-                        _nom_key = f"trec_nom_{_mat}_{_ri}"
+                        # El tooltip en Instalación zócalo recuerda la lógica de cobro
+                        # por ML físico, que suele confundirse con m² de proyecto.
+                        _nom_key   = f"trec_nom_{_mat}_{_ri}"
+                        _nom_actual = _regla.get("nombre_interno", "")
+                        _nom_help   = (
+                            "Se cobra por cada metro lineal físico de tira de zócalo o "
+                            "salpicadero añadido a las piezas."
+                            if "zócalo" in _nom_actual.lower() or "zocalo" in _nom_actual.lower()
+                            else "Nombre descriptivo del costo — no afecta el cálculo."
+                        )
                         _regla["nombre_interno"] = _rc1.text_input(
-                            "Concepto", value=_regla.get("nombre_interno", ""),
-                            key=_nom_key, label_visibility="collapsed",
-                            placeholder="Ej: Mano de obra borde",
+                            "Concepto",
+                            value=_nom_actual,
+                            key=_nom_key,
+                            label_visibility="collapsed",
+                            placeholder="Ej: Elaboración e Instalación",
+                            help=_nom_help,
                         )
 
                         # Inductor
@@ -7496,34 +7546,55 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                         )
                         _regla["inductor"] = _ind_sel
 
-                        # Valor — formato inteligente
-                        _val_key = f"trec_val_{_mat}_{_ri}"
-                        _es_pct  = (_ind_sel == "porcentaje_material")
-                        _val_cur = float(_regla.get("valor", 0.0))
+                        # Valor — formato dinámico según inductor
+                        # porcentaje_material: se muestra como entero legible (ej: 2.0 = 2%)
+                        #   → el widget opera en escala 0-100; se divide /100 al guardar
+                        # Resto: entero COP estricto, step=1000, label "$ COP"
+                        _val_key  = f"trec_val_{_mat}_{_ri}"
+                        _es_pct   = (_ind_sel == "porcentaje_material")
+                        _val_stored = float(_regla.get("valor", 0.0))
                         if _es_pct:
-                            _val_new = _rc3.number_input(
-                                "Valor", value=_val_cur,
-                                min_value=0.0, max_value=1.0, step=0.005, format="%.3f",
-                                key=_val_key, label_visibility="collapsed",
-                                help="Fracción del costo del material (ej: 0.02 = 2%)",
+                            # Convertir fracción almacenada → porcentaje display (0.02 → 2.0)
+                            _val_display = round(_val_stored * 100, 4)
+                            _val_ui = _rc3.number_input(
+                                "% (Ej. 2.0)",
+                                value=max(0.0, _val_display),
+                                min_value=0.0,
+                                max_value=100.0,
+                                step=0.5,
+                                format="%.1f",
+                                key=_val_key,
+                                label_visibility="collapsed",
+                                help="Porcentaje del costo del material. Ej: 2.0 = 2%. Se aplica sobre el subtotal de material.",
                             )
+                            # Reconvertir a fracción para almacenamiento
+                            _regla["valor"] = round(_val_ui / 100.0, 6)
                         else:
-                            _val_new = _rc3.number_input(
-                                "Valor", value=_val_cur,
-                                min_value=0.0, step=500.0, format="%.0f",
-                                key=_val_key, label_visibility="collapsed",
-                                help="Monto en COP",
+                            _val_ui = _rc3.number_input(
+                                "$ COP",
+                                value=max(0.0, _val_stored),
+                                min_value=0.0,
+                                step=1_000.0,
+                                format="%d",
+                                key=_val_key,
+                                label_visibility="collapsed",
+                                help="Monto en pesos colombianos. Ej: 60000 = $60.000.",
                             )
-                        _regla["valor"] = _val_new
+                            _regla["valor"] = float(_val_ui)
 
-                        # Etiqueta PDF
+                        # Categoría Contable — guarda el código técnico (c2_mano_obra…)
+                        # pero muestra la etiqueta amigable de _CAT_LABEL al usuario.
                         _pdf_key = f"trec_pdf_{_mat}_{_ri}"
                         _pdf_cur = _regla.get("etiqueta_pdf", "c4_insumos")
                         _pdf_idx = _ETIQUETAS_PDF.index(_pdf_cur) if _pdf_cur in _ETIQUETAS_PDF else 2
                         _regla["etiqueta_pdf"] = _rc4.selectbox(
-                            "PDF", _ETIQUETAS_PDF, index=_pdf_idx,
-                            key=_pdf_key, label_visibility="collapsed",
-                            format_func=lambda x: _PDF_LABEL.get(x, x),
+                            "Categoría",
+                            _ETIQUETAS_PDF,
+                            index=_pdf_idx,
+                            key=_pdf_key,
+                            label_visibility="collapsed",
+                            format_func=lambda x: _CAT_LABEL.get(x, _PDF_LABEL.get(x, x)),
+                            help="¿En qué sección del desglose de costos aparece este ítem?",
                         )
 
                         # Botón eliminar fila
