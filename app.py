@@ -7328,7 +7328,7 @@ elif pagina == "Parametros":
                 {"nombre_interno": "Desgaste disco",         "inductor": "por_m2",              "valor": float(tar_dict.get("disco",          2_200)), "etiqueta_pdf": "c4_insumos"},
                 {"nombre_interno": "Uso máquina cortadora",  "inductor": "por_dia",             "valor": float(tar_dict.get("maquina",       20_000)), "etiqueta_pdf": "c4_insumos"},
                 {"nombre_interno": "Consumibles",            "inductor": "por_m2",              "valor": float(tar_dict.get("consumibles",    8_500)), "etiqueta_pdf": "c4_insumos"},
-                {"nombre_interno": "Provisión por Riesgo de Rotura", "inductor": "porcentaje_material", "valor": float(tar_dict.get("riesgo_rotura", 0.02)), "etiqueta_pdf": "c4_insumos"},
+                {"nombre_interno": "Seguro contra Roturas",          "inductor": "porcentaje_material", "valor": float(tar_dict.get("riesgo_rotura", 0.02)), "etiqueta_pdf": "c4_insumos"},
             ]
 
         def _resolver_receta_ui(entry) -> list:
@@ -7451,7 +7451,7 @@ elif pagina == "Parametros":
                 # ════════════════════════════════════════════════════════
                 if st.session_state.paso_wizard == 1:
                     st.markdown("### ¿Cómo le pagas a tus instaladores/operarios?")
-                    st.caption("Esto define la base de cálculo de la mano de obra en cada cotización.")
+                    st.caption("Esto determina cómo le cobramos la instalación al cliente en cada cotización.")
 
                     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
@@ -7522,9 +7522,9 @@ elif pagina == "Parametros":
 
                     # Referencia de mercado en línea
                     if _wiz_val < 30_000:
-                        st.warning("⚠️ Parece muy bajo. El mínimo típico en Barranquilla es $30.000/ML.", icon="⚠️")
+                        st.warning("Parece muy bajo. El mínimo típico en Barranquilla es $30.000/ML.", icon="⚠️")
                     elif _wiz_val > 150_000:
-                        st.info("ℹ️ Valor alto. Asegúrate de que incluya solo mano de obra, no materiales.", icon="ℹ️")
+                        st.info("Valor alto. Asegúrate de que incluya solo mano de obra, no materiales.", icon="ℹ️")
 
                     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
                     _nav1, _nav2 = st.columns([1, 2])
@@ -7654,25 +7654,24 @@ elif pagina == "Parametros":
 
                     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
                     st.info(
-                        f"💡 **Costo real de servicios: "
+                        f"**Gastos fijos del taller (Luz y Agua): "
                         f"${_cif_por_m2:,.0f} COP por metro cuadrado.** "
-                        f"Este valor se inyectará en la regla \"Servicios de Taller (Luz y Agua)\" "
-                        f"con inductor por m² en tu receta de costos.",
+                        f"Este monto se añadirá automáticamente a tu receta de costos.",
                         icon="💡",
                     )
 
                     # Alertas contextuales para datos fuera de rango típico
                     if _cif_por_m2 > 30_000:
                         st.warning(
-                            "⚠️ CIF mayor a $30.000/m² — inusualmente alto. "
-                            "Verifica que el recibo sea solo del taller y que la "
-                            "producción mensual no esté subestimada.",
+                            "El gasto por m² supera $30.000 — parece demasiado alto. "
+                            "Revisa que el recibo sea solo del taller y que "
+                            "la producción mensual no esté subestimada.",
                             icon="⚠️",
                         )
                     elif _wiz_recibo > 0 and _cif_por_m2 < 500:
                         st.info(
-                            "ℹ️ CIF menor a $500/m² — puede que la producción mensual "
-                            "esté sobreestimada o el recibo subestimado.",
+                            "El gasto por m² es menor a $500 — puede que la producción "
+                            "mensual esté sobreestimada o el recibo subestimado.",
                             icon="ℹ️",
                         )
 
@@ -7683,17 +7682,16 @@ elif pagina == "Parametros":
                     # variables (discos, lijas, pegante).
                     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
                     st.divider()
-                    st.markdown("#### 🛠️ Política de Insumos")
+                    st.markdown("#### 🛠️ ¿Quién compra los materiales de trabajo?")
                     st.caption(
-                        "Los **insumos físicos** (lijas, discos, pegantes, masillas) son distintos "
-                        "de los servicios públicos que acabas de calcular. "
-                        "Define quién los asume en tu modelo de negocio."
+                        "Lijas, discos, pegante y masilla no son lo mismo que la luz o el agua. "
+                        "Dinos quién los paga en tu taller."
                     )
 
                     # Opciones de política — se almacenan como constantes para que
                     # la comparación en el Paso 4 sea robusta ante espacios o typos.
-                    _POL_TALLER   = "El Taller los compra (Agregar costo de insumos)"
-                    _POL_OPERARIO = "Los Operarios los traen (Ya está incluido en lo que les pago)"
+                    _POL_TALLER   = "El Taller los compra"
+                    _POL_OPERARIO = "El Operario los trae"
 
                     # Recuperar selección previa para que el radio no se resetee
                     # si el usuario navega Atrás y vuelve al Paso 3.
@@ -7701,32 +7699,29 @@ elif pagina == "Parametros":
                     _pol_idx  = 0 if _pol_prev == _POL_TALLER else 1
 
                     _wiz_politica = st.radio(
-                        "¿Quién asume el costo de los insumos físicos "
-                        "(lijas, discos, pegantes, masillas)?",
+                        "¿Quién compra los materiales de trabajo (lijas, discos, pegante)?",
                         [_POL_TALLER, _POL_OPERARIO],
                         index=_pol_idx,
                         key="wiz_radio_politica_insumos",
                         help=(
-                            "**El Taller los compra:** se añade una regla de "
-                            "\"Consumibles Directos\" con valor sugerido a la receta. "
-                            "**Los Operarios los traen:** el costo ya está absorbido en "
-                            "el valor de mano de obra que ingresaste en el Paso 2."
+                            "**El Taller los compra:** se suma una regla de Consumibles "
+                            "a la receta para que quede reflejado en el presupuesto. "
+                            "**El Operario los trae:** ya está cubierto en el valor de "
+                            "mano de obra que pusiste en el Paso 2."
                         ),
                     )
 
                     # Feedback inmediato según elección
                     if _wiz_politica == _POL_TALLER:
                         st.success(
-                            "✅ Se agregará la regla **\"Consumibles Directos "
-                            "(Discos, Lijas, Pegante)\"** con $15.000/m² a tu receta. "
-                            "Podrás ajustar ese valor en el Visual Builder.",
+                            "Se añadirá **\"Consumibles Directos (Discos, Lijas, Pegante)\"** "
+                            "con $15.000/m² a tu receta. Podrás ajustar ese valor después.",
                             icon="🛠️",
                         )
                     else:
                         st.info(
-                            "ℹ️ Los consumibles no se agregarán como regla separada. "
-                            "Recuerda que el valor de mano de obra del Paso 2 debe "
-                            "cubrir ese costo implícitamente.",
+                            "No se agrega ningún costo extra. "
+                            "El valor que pusiste en el Paso 2 ya cubre esos materiales.",
                             icon="ℹ️",
                         )
 
@@ -7799,7 +7794,7 @@ elif pagina == "Parametros":
                         # Provisión de rotura — 2% del material (0.02 fracción).
                         # El Builder la muestra como 2.0% gracias al display ×100.
                         {
-                            "nombre_interno": "Provisión por Riesgo de Rotura",
+                            "nombre_interno": "Seguro contra Roturas",
                             "inductor":       "porcentaje_material",
                             "valor":          0.02,   # fracción → Builder muestra 2.0%
                             "etiqueta_pdf":   "c4_insumos",
@@ -7839,7 +7834,7 @@ elif pagina == "Parametros":
                     # Leer la política de insumos guardada en el Paso 3.
                     # Fallback _POL_TALLER para sesiones sin dato previo
                     # (comportamiento conservador: incluir el costo).
-                    _POL_TALLER_4 = "El Taller los compra (Agregar costo de insumos)"
+                    _POL_TALLER_4 = "El Taller los compra"
                     _politica_insumos = st.session_state.get(
                         "wiz_politica_insumos", _POL_TALLER_4
                     )
@@ -7892,23 +7887,23 @@ elif pagina == "Parametros":
 
             with st.expander("📖 ¿Cómo funciona este constructor?", expanded=False):
                 st.markdown("""
-Cada material tiene una **lista de reglas de costo**. El motor las itera una a una y las suma al presupuesto automáticamente.
+Cada material tiene una **lista de gastos**. El sistema los suma automáticamente al armar el presupuesto.
 
 | Columna | ¿Qué defines aquí? | Ejemplo |
 |---|---|---|
-| **Concepto** | El nombre del costo — solo para que lo identifiques | "Mano de obra borde", "Disco diamantado" |
-| **¿Cómo se cobra?** | La base matemática del cálculo | `por_ml` → multiplica por metros lineales cortados |
-| **Valor** | El monto en COP (o fracción para %) | `60000` = $60.000/ml · `0.02` = 2% del material |
-| **Sección del PDF** | El bucket donde se acumula en el desglose | `c2_mano_obra`, `c3_zocalos`, `c4_insumos` |
+| **Concepto** | El nombre del gasto — solo para identificarlo | "Mano de obra borde", "Disco diamantado" |
+| **¿Cómo se cobra?** | La forma en que se multiplica ese gasto | `por_ml` → multiplica por metros lineales cortados |
+| **Valor** | El monto en COP (o porcentaje para %) | `60000` = $60.000/ml · `0.02` = 2% del material |
+| **Tipo de Gasto** | Dónde aparece en el desglose del PDF | Mano de Obra, Zócalos, o Gastos Fijos y Consumibles |
 
-**Inductores disponibles:**
-- `por_ml` — cobra por cada metro lineal de pieza (mesones, bordes, escaleras)
-- `por_m2` — cobra por cada m² de pieza (pisos, fachadas, consumibles, disco)
-- `por_dia` — costo fijo por día de obra (máquina cortadora, arriendo de equipos)
-- `porcentaje_material` — porcentaje del costo del material (provisión de rotura)
-- `por_ml_zocalo` — cobra por ml de zócalo instalado
+**Formas de cobro disponibles:**
+- `por_ml` — por cada metro lineal de borde cortado (mesones, escaleras)
+- `por_m2` — por cada m² de superficie elaborada (pisos, fachadas, disco)
+- `por_dia` — monto fijo por día de obra (máquina cortadora, arriendo de equipos)
+- `porcentaje_material` — porcentaje del costo del material (seguro contra roturas)
+- `por_ml_zocalo` — por metro lineal de zócalo instalado
 
-**💡 Tip:** Puedes agregar reglas personalizadas como "Transporte de equipos especiales por día" sin tocar ningún otro archivo.
+**💡 Tip:** Puedes agregar gastos personalizados como "Transporte de equipos especiales por día" sin tocar ningún otro archivo.
                 """)
 
             tar_act = get_tarifas()
@@ -7937,7 +7932,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                         (_hc1, "Concepto",           "Nombre descriptivo del costo. Solo para identificarlo — no afecta el cálculo."),
                         (_hc2, "¿Cómo se cobra?",    "Base matemática del cálculo: por ML de borde, por m² de área, por día de obra, etc."),
                         (_hc3, "Valor",               "Monto en COP (ej: 60000) o porcentaje expresado como número entero (ej: 2 = 2%)."),
-                        (_hc4, "Categoría Contable",  "Bucket ABC del desglose: Mano de Obra y Elaboración, Zócalos y Remates, o Insumos, Servicios y Riesgos."),
+                        (_hc4, "Tipo de Gasto",       "¿A qué grupo pertenece este costo? Mano de Obra, Zócalos y Remates, o Gastos Fijos y Consumibles."),
                         (_hc5, "",                    ""),
                     ]
                     for _hcol, _hlbl, _hhelp in _header_cfg:
@@ -7978,7 +7973,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                         _ind_cur  = _regla.get("inductor", "por_ml")
                         _ind_idx  = _INDUCTORES.index(_ind_cur) if _ind_cur in _INDUCTORES else 0
                         _ind_sel  = _rc2.selectbox(
-                            "Inductor", _INDUCTORES, index=_ind_idx,
+                            "Forma de cobro", _INDUCTORES, index=_ind_idx,
                             key=_ind_key, label_visibility="collapsed",
                             format_func=lambda x: _INDUCTOR_LABEL.get(x, x),
                         )
@@ -8020,7 +8015,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                             )
                             _regla["valor"] = float(_val_ui)
 
-                        # Categoría Contable — guarda el código técnico (c2_mano_obra…)
+                        # Tipo de Gasto — guarda el código técnico (c2_mano_obra…)
                         # pero muestra la etiqueta amigable de _CAT_LABEL al usuario.
                         _pdf_key = f"trec_pdf_{_mat}_{_ri}"
                         _pdf_cur = _regla.get("etiqueta_pdf", "c4_insumos")
@@ -8032,7 +8027,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                             key=_pdf_key,
                             label_visibility="collapsed",
                             format_func=lambda x: _CAT_LABEL.get(x, _PDF_LABEL.get(x, x)),
-                            help="¿En qué sección del desglose de costos aparece este ítem?",
+                            help="¿A qué tipo de gasto pertenece? (Mano de Obra, Zócalos, Gastos Fijos)",
                         )
 
                         # Botón eliminar fila
@@ -8081,7 +8076,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                     _bd_ok = True
                 except Exception as _e_save:
                     st.warning(
-                        f"⚠️ Las tarifas se aplicaron en esta sesión, pero no pudieron "
+                        f"Las tarifas se aplicaron en esta sesión, pero no pudieron "
                         f"guardarse en la base de datos ({type(_e_save).__name__}). "
                         f"Verifica la conexión a Supabase.",
                         icon="⚠️",
