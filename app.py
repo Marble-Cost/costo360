@@ -40,6 +40,20 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+
+# ── TUTORIALES CONTEXTUALES (Just-in-Time Learning) ──────────────────────────
+# Dialog genérico reutilizable: cada sección dispara su propio tutorial
+# la primera vez que el usuario la visita, marcando la llave en session_state
+# para que no vuelva a aparecer en la misma sesión.
+@st.dialog("💡 Guía Rápida de CostoMármol")
+def mostrar_tutorial_contextual(llave_memoria: str, mensaje_md: str):
+    st.markdown(mensaje_md)
+    if st.button("¡Entendido!", type="primary", use_container_width=True,
+                 key=f"tut_btn_{llave_memoria}"):
+        st.session_state[llave_memoria] = True
+        st.rerun()
+
+
 # ── GESTOR DE COOKIES HTTP (st-cookies-manager) ──────────────────────────────
 # CookieManager bloquea el renderizado con st.stop() hasta que el componente
 # React haya inyectado las cookies del navegador, eliminando la necesidad del
@@ -2417,6 +2431,17 @@ elif pagina == "Cotizacion Directa":
     #   3 — Logística / Extras → vehículo, km, foráneo, adicionales, IVA
     #   4 — Resultado          → pantalla de éxito / success screen
     # ══════════════════════════════════════════════════════════════════
+
+    # ── Tutorial contextual: se muestra solo la primera vez que el usuario
+    # llega a Cotización Directa en la sesión actual.
+    if not st.session_state.get("tut_cotizador_visto"):
+        mostrar_tutorial_contextual(
+            "tut_cotizador_visto",
+            "**¡Bienvenido al Motor Financiero!** 🚀\n\n"
+            "Aquí ingresarás las dimensiones del proyecto. Agrega las piezas una a una, "
+            "activa los zócalos si los necesitas, y observa en tiempo real cómo se calcula "
+            "el retal de tu placa.",
+        )
 
     WIZARD_PASOS = [
         {"icono": "🪨", "label": "Material"},
@@ -7057,6 +7082,17 @@ elif pagina == "Parametros":
                     )
 
     with t_tar:
+        # ── Tutorial contextual: se muestra solo la primera vez que el usuario
+        # abre la pestaña de Tarifas dentro de Parámetros.
+        if not st.session_state.get("tut_parametros_visto"):
+            mostrar_tutorial_contextual(
+                "tut_parametros_visto",
+                "**Tu Fábrica Financiera** ⚙️\n\n"
+                "No te adaptes al software, haz que el software se adapte a ti. "
+                "Usa este tablero para crear tus propias reglas de cobro (por metro, por área o porcentaje). "
+                "El sistema ajustará la cotización automáticamente.",
+            )
+
         st.caption("Constructor visual de costos por material. Cada fila es una regla de costo que el motor aplica automáticamente al calcular. Agrega, edita o elimina reglas y presiona **Guardar Tarifas**.")
 
         with st.expander("📖 ¿Cómo funciona este constructor?", expanded=False):
@@ -8590,6 +8626,17 @@ elif pagina == "Planos de Taller (IA)":
         <span class="plano-badge">✦ Nesting 2D · Descarga PDF</span>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── Tutorial contextual: se muestra solo la primera vez que el usuario
+    # entra a la sección de Planos de Taller en la sesión actual.
+    if not st.session_state.get("tut_planos_visto"):
+        mostrar_tutorial_contextual(
+            "tut_planos_visto",
+            "**Optimización de Cortes (Nesting)** 📐\n\n"
+            "CostoMármol acomoda tus piezas en la placa de forma inteligente para que sepas "
+            "exactamente cómo cortar la piedra y minimizar el desperdicio. "
+            "¡Puedes descargarlo en PDF para enviarlo al taller!",
+        )
 
     # ── Protección anti-refresco accidental (navegador nativo) ───────────────
     # Intercepta F5 / cierre de pestaña y muestra el diálogo de confirmación
