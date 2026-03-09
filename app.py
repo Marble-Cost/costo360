@@ -8305,10 +8305,48 @@ Cada material tiene una **lista de gastos**. El sistema los suma automáticament
             st.markdown("")
             _col_save_tar, _col_reset_tar = st.columns([3, 1])
             if _col_save_tar.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar", use_container_width=True):
-                _saved_tar = {
-                    _sm: list(st.session_state[_SS_KEY].get(_sm, []))
-                    for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
-                }
+                # ── PATCH 1: Lectura directa desde keys de widgets ────────────────
+                # PROBLEMA: Streamlit ejecuta el callback del botón en el mismo run
+                # en que los widgets actualizan st.session_state[key_del_widget].
+                # El dict mutable en _SS_KEY recibe la mutación _regla["valor"] = ...
+                # durante el render, pero en el run del botón ese dict ya fue
+                # construido con los valores del run anterior — el nuevo valor del
+                # number_input aún no está reflejado en él.
+                # SOLUCIÓN: leer cada campo directamente del key del widget
+                # (trec_val_, trec_nom_, trec_ind_, trec_pdf_) que Streamlit sí
+                # actualiza antes de ejecutar el handler del botón. Usamos _SS_KEY
+                # solo para conocer la estructura (cantidad de reglas por material),
+                # nunca como fuente de valores.
+                _saved_tar = {}
+                for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                    _receta_guardada = []
+                    for _ri, _regla_base in enumerate(st.session_state[_SS_KEY].get(_sm, [])):
+                        _ind_w = st.session_state.get(
+                            f"trec_ind_{_sm}_{_ri}",
+                            _regla_base.get("inductor", "por_ml"),
+                        )
+                        _val_w = st.session_state.get(
+                            f"trec_val_{_sm}_{_ri}",
+                            _regla_base.get("valor", 0.0),
+                        )
+                        # Re-aplicar conversión % → fracción (mismo criterio que el render)
+                        if _ind_w == "porcentaje_material":
+                            _val_final = round(float(_val_w) / 100.0, 6)
+                        else:
+                            _val_final = float(_val_w)
+                        _receta_guardada.append({
+                            "nombre_interno": st.session_state.get(
+                                f"trec_nom_{_sm}_{_ri}",
+                                _regla_base.get("nombre_interno", ""),
+                            ),
+                            "inductor":     _ind_w,
+                            "valor":        _val_final,
+                            "etiqueta_pdf": st.session_state.get(
+                                f"trec_pdf_{_sm}_{_ri}",
+                                _regla_base.get("etiqueta_pdf", "c4_insumos"),
+                            ),
+                        })
+                    _saved_tar[_sm] = _receta_guardada
                 # ── Escritura en capas: sesión → store → BD ───────────────────
                 # Orden deliberado: la sesión se actualiza primero para que cualquier
                 # rerun inmediato vea los datos correctos aunque falle la BD.
@@ -8658,6 +8696,7 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                     # Llamada directa a anthropic (mismo patrón que _chat_parametros).
                     # No usamos chat_con_ia porque su prompt está orientado a cotización,
                     # no a datos técnicos de vehículos; y necesitamos JSON puro.
+                    _raw_fl = ""   # inicializar antes del try para que el except pueda mostrarlo
                     try:
                         import anthropic as _anth
                         _api_fl = st.secrets.get("ANTHROPIC_API_KEY", "")
@@ -8679,20 +8718,28 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                             messages=[{"role": "user", "content": _prompt_fl}],
                         )
                         _raw_fl = _resp_fl.content[0].text.strip()
-                        # Limpiar bloques de código defensivamente
-                        _raw_fl = _raw_fl.replace("```json", "").replace("```", "").strip()
-                        import json as _json_fl
-                        _ficha_ia = _json_fl.loads(_raw_fl)
+                        # ── PATCH 2: Extractor regex robusto ──────────────────────
+                        # PROBLEMA: la IA a veces añade texto antes/después del JSON
+                        # ("Aquí tienes la ficha…"), rompiendo json.loads() directamente.
+                        # SOLUCIÓN: re.search con re.DOTALL extrae el primer objeto
+                        # {...} válido ignorando cualquier texto envolvente — cubre
+                        # texto libre, bloques ```json``` y campos extra inesperados.
+                        import re as _re_fl, json as _json_fl
+                        _match_fl = _re_fl.search(r"\{.*\}", _raw_fl, _re_fl.DOTALL)
+                        if not _match_fl:
+                            raise ValueError("No se encontró un objeto JSON en la respuesta")
+                        _ficha_ia = _json_fl.loads(_match_fl.group())
                         st.session_state.flota_ficha = {
                             "rendimiento_km_gal": float(_ficha_ia.get("rendimiento_km_gal", 25.0)),
                             "capacidad_max_kg":   float(_ficha_ia.get("capacidad_max_kg",  1_000.0)),
                         }
                         st.session_state.flota_ficha_nombre = _veh_q
                     except Exception as _e_fl:
-                        # Fallback con valores conservadores + advertencia visible
+                        # Mostrar la respuesta cruda para auditar la causa real del fallo
                         st.warning(
-                            f"⚠️ No se pudo obtener la ficha técnica automáticamente "
-                            f"({type(_e_fl).__name__}). "
+                            f"⚠️ No se pudo parsear la ficha técnica "
+                            f"({type(_e_fl).__name__}: {_e_fl}).\n\n"
+                            f"**Respuesta de la IA:** `{_raw_fl or '(vacía — fallo antes de recibir respuesta)'}`\n\n"
                             f"Se asignaron valores por defecto — revísalos antes de guardar.",
                             icon="🔧",
                         )
