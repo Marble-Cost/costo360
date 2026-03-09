@@ -6,6 +6,46 @@ import anthropic
 import streamlit as st
 from parametros import TARIFAS, LOGISTICA, VIATICOS, AIU_DEFAULTS, CATEGORIAS_MATERIAL
 
+
+# ── Serializador de tarifas para RAG dinámico ─────────────────────────────────
+# Convierte la estructura de tarifas (lista de recetas v4 o dict plano legacy)
+# a texto legible para el LLM, sin importar el formato en que estén guardadas.
+def _tarifas_a_texto(tarifas: dict) -> str:
+    """Convierte tarifas (receta o dict plano) a texto descriptivo para el system prompt."""
+    if not tarifas:
+        return "Tarifas no especificadas"
+    lineas = []
+    for mat, entry in tarifas.items():
+        if isinstance(entry, list):   # formato receta v4
+            partes = []
+            for r in entry:
+                val = r.get("valor", 0)
+                ind = r.get("inductor", "")
+                nom = r.get("nombre_interno", "")
+                unidad = {
+                    "por_ml":              "/ml",
+                    "por_m2":              "/m²",
+                    "por_dia":             "/día",
+                    "por_ml_zocalo":       "/ml zócalo",
+                    "porcentaje_material": "% del material",
+                }.get(ind, "")
+                if ind == "porcentaje_material":
+                    partes.append(f"{nom}: {val*100:.1f}{unidad}")
+                else:
+                    partes.append(f"{nom}: ${int(val):,}{unidad}".replace(",", "."))
+            lineas.append(f"- {mat}: " + " | ".join(partes))
+        elif isinstance(entry, dict):  # formato plano legacy
+            lineas.append(
+                f"- {mat}: MO/ml ${int(entry.get('prod_ml',0)):,}"
+                f" | zócalo ${int(entry.get('zocalo',0)):,}/ml"
+                f" | disco ${int(entry.get('disco',0)):,}/m²"
+                f" | máquina ${int(entry.get('maquina',0)):,}/día"
+                f" | consumibles ${int(entry.get('consumibles',0)):,}/m²"
+                f" | riesgo {entry.get('riesgo_rotura',0)*100:.1f}% material".replace(",", ".")
+            )
+    return "\n".join(lineas) if lineas else "Tarifas no especificadas"
+
+
 # ── System prompt principal ────────────────────────────────────────────────────
 SYSTEM_PROMPT = """Eres el asistente experto en costos y cotización de MARMOLES COLLANTE & CASTRO LTDA., 
 Barranquilla, Colombia. Ayudas a marmoleros a calcular el costo real de sus proyectos.
@@ -17,12 +57,7 @@ DATOS DEL MERCADO (Feb 2026, Barranquilla):
 - Externo/Tercero: flete fijo $165.000 | Peaje: $19.500 | Flete agente: $85.000
 - Viáticos pueblo: $145.000/noche/persona | Ciudad: $178.000/noche/persona
 
-TARIFAS DE TRABAJO (mano de obra):
-- Mármol:      corte $25.000/m², elaboración $75.000/m², zócalo $12.000/ml, disco $2.200/m², desgaste maq. $20.000/día
-- Granito:     corte $28.000/m², elaboración $48.000/m², zócalo $14.000/ml, disco $6.000/m², desgaste maq. $25.000/día
-- Sinterizado: corte $45.000/m², elaboración $70.000/m², zócalo $20.000/ml, disco $18.000/m², desgaste maq. $32.000/día
-- Quarztone:   corte $32.000/m², elaboración $55.000/m², zócalo $16.000/ml, disco $5.200/m², desgaste maq. $27.000/día
-- Quarzita:    corte $35.000/m², elaboración $65.000/m², zócalo $15.000/ml, disco $8.000/m², desgaste maq. $28.000/día
+[Las tarifas de mano de obra se inyectan dinámicamente por petición — ver TARIFAS DE TRABAJO ACTUALES DEL TALLER al final del prompt]
 
 ESTRUCTURA AIU (norma colombiana):
 - A = 2%, I = 2%, U = 5-8% (todos sobre Costo Directo)
@@ -94,8 +129,19 @@ def ia_disponible() -> bool:
         return False
 
 
-def chat_con_ia(historial: list, mensaje_usuario: str) -> str:
-    """Respuesta conversacional del asistente."""
+def chat_con_ia(historial: list, mensaje_usuario: str,
+                contexto_tarifas: dict = None) -> str:
+    """Respuesta conversacional del asistente.
+
+    Args:
+        historial:         lista de mensajes previos {role, content}
+        mensaje_usuario:   texto del turno actual
+        contexto_tarifas:  dict de tarifas activas del taller
+                           (st.session_state.tarifas_custom o TARIFAS base).
+                           Se inyecta al final del system prompt para que
+                           la IA use los precios reales del taller, no los
+                           valores hardcoded del prompt original.
+    """
     client = get_client()
     if client is None:
         return (
@@ -103,12 +149,17 @@ def chat_con_ia(historial: list, mensaje_usuario: str) -> str:
             "con tu API key de Anthropic (instrucciones en la barra lateral)."
         )
     try:
+        # RAG dinámico: inyectar tarifas reales del taller al system prompt
+        _tarifas_txt = _tarifas_a_texto(contexto_tarifas or TARIFAS)
+        _prompt_final = SYSTEM_PROMPT + (
+            f"\n\nTARIFAS DE TRABAJO ACTUALES DEL TALLER:\n{_tarifas_txt}"
+        )
         messages = [{"role": m["role"], "content": m["content"]} for m in historial]
         messages.append({"role": "user", "content": mensaje_usuario})
         response = client.messages.create(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
+            system=_prompt_final,
             messages=messages,
         )
         return response.content[0].text
@@ -221,15 +272,20 @@ TONO: Espanol colombiano claro. Amigable pero profesional. Sin tecnicismos innec
 """
 
 
-def chat_sos(pregunta: str, contexto_actual: str = "Inicio", contexto_form: str = "") -> str:
+def chat_sos(pregunta: str, contexto_actual: str = "Inicio", contexto_form: str = "",
+             contexto_tarifas: dict = None) -> str:
     """
     Asistente contextual rapido para el boton SOS del sidebar.
 
     Args:
-        pregunta:       duda del usuario en texto libre
-        contexto_actual: pagina en la que esta el usuario (st.session_state.nav_radio)
-        contexto_form:  volcado en texto de st.session_state.pre — datos
-                        del formulario activo (material, dimensiones, precios, etc.)
+        pregunta:          duda del usuario en texto libre
+        contexto_actual:   pagina en la que esta el usuario (st.session_state.nav_radio)
+        contexto_form:     volcado en texto de st.session_state.pre — datos
+                           del formulario activo (material, dimensiones, precios, etc.)
+        contexto_tarifas:  dict de tarifas activas del taller
+                           (st.session_state.tarifas_custom o TARIFAS base).
+                           Se inyecta al system prompt para que la IA responda
+                           usando los costos reales configurados en Parámetros.
 
     Returns:
         Respuesta en maximo 2 parrafos. Mensaje de error descriptivo si falla.
@@ -241,6 +297,12 @@ def chat_sos(pregunta: str, contexto_actual: str = "Inicio", contexto_form: str 
             "de Anthropic en `.streamlit/secrets.toml` con la clave `ANTHROPIC_API_KEY`."
         )
     try:
+        # ── RAG dinámico: inyectar tarifas reales en el system prompt ──────────
+        _tarifas_txt_sos = _tarifas_a_texto(contexto_tarifas or TARIFAS)
+        _system_sos_final = _SYSTEM_SOS + (
+            f"\n\nTARIFAS DE TRABAJO ACTUALES DEL TALLER:\n{_tarifas_txt_sos}"
+        )
+
         # ── Construir mensaje con contexto del formulario ─────────────────────
         _partes = [f"Estoy en la seccion '{contexto_actual}' de la app."]
         if contexto_form.strip():
@@ -255,7 +317,7 @@ def chat_sos(pregunta: str, contexto_actual: str = "Inicio", contexto_form: str 
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=400,
-            system=_SYSTEM_SOS,
+            system=_system_sos_final,
             messages=[{"role": "user", "content": mensaje}],
         )
         return response.content[0].text
