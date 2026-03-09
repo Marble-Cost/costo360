@@ -3608,6 +3608,31 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         key=f"panc_{idx}",
                         help="Profundidad o alto de la pieza en metros",
                     )
+
+                # ── AUDITOR DE MEDIDAS — Prevención de errores cm→m ──────────
+                # Umbrales: largo > 3.5 m supera cualquier placa estándar del mercado
+                # (máx. 3.20 m × 1.60 m). ancho > 2.2 m también es imposible en una
+                # sola pieza. Si el usuario ingresó, p.ej., 90 en vez de 0.90, aquí
+                # lo detectamos y mostramos una advertencia en tiempo real.
+                # La pieza se incluye en la lista pero el usuario ve el aviso de inmediato.
+                _auditor_largo = ml_p > 3.5
+                _auditor_ancho = ancho_p > 2.2
+                if _auditor_largo:
+                    st.warning(
+                        f"⚠️ **Medida inusual detectada.** Ingresaste **{ml_p:.2f} metros** de largo. "
+                        f"Si tu intención era **{ml_p:.0f} centímetros**, recuerda usar el "
+                        f"formato decimal: **0.{int(ml_p * 100):02d}** m  "
+                        f"*(ejemplo: 90 cm → 0.90 m)*.",
+                        icon="📏",
+                    )
+                if _auditor_ancho:
+                    st.warning(
+                        f"⚠️ **Medida inusual detectada.** Ingresaste **{ancho_p:.2f} metros** de ancho. "
+                        f"Si tu intención era **{ancho_p:.0f} centímetros**, recuerda usar el "
+                        f"formato decimal: **0.{int(ancho_p * 100):02d}** m  "
+                        f"*(ejemplo: 60 cm → 0.60 m)*.",
+                        icon="📏",
+                    )
                 ml_efectivo = ml_p * cantidad_p            # largo × cantidad
                 m2_p = ml_a_m2(ml_efectivo, ancho_p)       # m² totales de esta fila
                 total_m2_piezas += m2_p
@@ -4633,6 +4658,50 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             if _iva_act:
                 _items_d.append(("IVA 19%", _iva_mont))
             bloque_costos(_items_d, "TOTAL CON IVA" if _iva_act else "PRECIO TOTAL", _pf)
+
+            # ── LOGÍSTICA PREDICTIVA DE FLOTA — Panel de Transparencia ───────
+            # Muestra el peso físico del proyecto, el rendimiento ajustado por
+            # ese peso y, si aplica, la alerta de bloqueo por capacidad excedida.
+            _log_det = r.get("c5_detalle", {})
+            _peso_kg = _log_det.get("peso_carga_kg", r.get("peso_carga_kg", 0.0))
+            _rend_ef = _log_det.get("rend_efectivo", 0.0)
+            _bloq    = _log_det.get("bloqueo_capacidad", r.get("log_bloqueo_capacidad", False))
+            _nota_b  = _log_det.get("nota_bloqueo", r.get("log_nota_bloqueo", ""))
+            _veh_key = r.get("vehiculo_entrega", pre.get("vehiculo_entrega", ""))
+            if _peso_kg > 0 or _bloq:
+                with st.expander("🚛 Inteligencia de Flota", expanded=_bloq):
+                    if _bloq:
+                        st.warning(
+                            f"⚠️ **{_nota_b}**\n\n"
+                            f"El costo de logística refleja la tarifa de flete externo.",
+                            icon="🚨",
+                        )
+                    _veh_cfg_disp = VEHICULOS_CONFIG.get(_veh_key, {})
+                    _cap_max_disp = _veh_cfg_disp.get("capacidad_max_kg")
+                    _f1, _f2 = st.columns(2)
+                    with _f1:
+                        st.metric(
+                            "Peso del proyecto",
+                            f"{_peso_kg:,.1f} kg".replace(",", "."),
+                            help="Calculado a partir del área, grosor estándar y densidad del material.",
+                        )
+                    with _f2:
+                        if _cap_max_disp and not _bloq:
+                            _pct_cap = min(100.0, _peso_kg / _cap_max_disp * 100)
+                            st.metric(
+                                "Capacidad usada",
+                                f"{_pct_cap:.1f}%",
+                                f"Límite: {_cap_max_disp:,.0f} kg".replace(",", "."),
+                            )
+                    if not _bloq and _rend_ef > 0:
+                        _veh_rend_base = _veh_cfg_disp.get("rendimiento_km_gal") or _veh_cfg_disp.get("rend", 0.0)
+                        _pen_pct = (1.0 - _rend_ef / _veh_rend_base) * 100 if _veh_rend_base > 0 else 0.0
+                        st.info(
+                            f"**Rendimiento calculado: {_rend_ef:.2f} km/gal** "
+                            f"*(ajustado por el peso de la piedra — "
+                            f"penalización: {_pen_pct:.1f}% sobre {_veh_rend_base:.1f} km/gal base)*",
+                            icon="⛽",
+                        )
 
             # Simulador de margen (bloque AIU / complementario)
             st.markdown("<div style='font-weight:700;margin:14px 0 8px'>Simulador de margen</div>", unsafe_allow_html=True)
