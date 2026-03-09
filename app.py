@@ -40,20 +40,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
-# ── TUTORIALES CONTEXTUALES (Just-in-Time Learning) ──────────────────────────
-# Dialog genérico reutilizable: cada sección dispara su propio tutorial
-# la primera vez que el usuario la visita, marcando la llave en session_state
-# para que no vuelva a aparecer en la misma sesión.
-@st.dialog("💡 Guía Rápida de CostoMármol")
-def mostrar_tutorial_contextual(llave_memoria: str, mensaje_md: str):
-    st.markdown(mensaje_md)
-    if st.button("¡Entendido!", type="primary", use_container_width=True,
-                 key=f"tut_btn_{llave_memoria}"):
-        st.session_state[llave_memoria] = True
-        st.rerun()
-
-
 # ── GESTOR DE COOKIES HTTP (st-cookies-manager) ──────────────────────────────
 # CookieManager bloquea el renderizado con st.stop() hasta que el componente
 # React haya inyectado las cookies del navegador, eliminando la necesidad del
@@ -2431,17 +2417,6 @@ elif pagina == "Cotizacion Directa":
     #   3 — Logística / Extras → vehículo, km, foráneo, adicionales, IVA
     #   4 — Resultado          → pantalla de éxito / success screen
     # ══════════════════════════════════════════════════════════════════
-
-    # ── Tutorial contextual: se muestra solo la primera vez que el usuario
-    # llega a Cotización Directa en la sesión actual.
-    if not st.session_state.get("tut_cotizador_visto"):
-        mostrar_tutorial_contextual(
-            "tut_cotizador_visto",
-            "**¡Bienvenido al Motor Financiero!** 🚀\n\n"
-            "Aquí ingresarás las dimensiones del proyecto. Agrega las piezas una a una, "
-            "activa los zócalos si los necesitas, y observa en tiempo real cómo se calcula "
-            "el retal de tu placa.",
-        )
 
     WIZARD_PASOS = [
         {"icono": "🪨", "label": "Material"},
@@ -7082,45 +7057,26 @@ elif pagina == "Parametros":
                     )
 
     with t_tar:
-        # ── Tutorial contextual: se muestra solo la primera vez que el usuario
-        # abre la pestaña de Tarifas dentro de Parámetros.
-        if not st.session_state.get("tut_parametros_visto"):
-            mostrar_tutorial_contextual(
-                "tut_parametros_visto",
-                "**Tu Fábrica Financiera** ⚙️\n\n"
-                "No te adaptes al software, haz que el software se adapte a ti. "
-                "Usa este tablero para crear tus propias reglas de cobro (por metro, por área o porcentaje). "
-                "El sistema ajustará la cotización automáticamente.",
-            )
 
-        st.caption("Constructor visual de costos por material. Cada fila es una regla de costo que el motor aplica automáticamente al calcular. Agrega, edita o elimina reglas y presiona **Guardar Tarifas**.")
+        # ══════════════════════════════════════════════════════════════════════
+        # ONBOARDING PROGRESIVO — Wizard 3 pasos (estilo Typeform / TurboTax)
+        # ══════════════════════════════════════════════════════════════════════
+        # Lógica de bifurcación:
+        #   setup_tarifas_completado == False  →  muestra wizard de 3 preguntas
+        #   setup_tarifas_completado == True   →  muestra Visual Builder completo
+        #
+        # Las respuestas del wizard se guardan en session_state bajo las llaves:
+        #   wiz_inductor_mo   →  "por_ml" | "por_m2"
+        #   wiz_valor_mo      →  float COP
+        #   wiz_insumos       →  True | False
+        #
+        # Al completar el paso 3, se construye una receta base idéntica en los
+        # 5 materiales y se inyecta en tar_recetas_edit listo para el Builder.
+        # ══════════════════════════════════════════════════════════════════════
 
-        with st.expander("📖 ¿Cómo funciona este constructor?", expanded=False):
-            st.markdown("""
-Cada material tiene una **lista de reglas de costo**. El motor las itera una a una y las suma al presupuesto automáticamente.
-
-| Columna | ¿Qué defines aquí? | Ejemplo |
-|---|---|---|
-| **Concepto** | El nombre del costo — solo para que lo identifiques | "Mano de obra borde", "Disco diamantado" |
-| **¿Cómo se cobra?** | La base matemática del cálculo | `por_ml` → multiplica por metros lineales cortados |
-| **Valor** | El monto en COP (o fracción para %) | `60000` = $60.000/ml · `0.02` = 2% del material |
-| **Sección del PDF** | El bucket donde se acumula en el desglose | `c2_mano_obra`, `c3_zocalos`, `c4_insumos` |
-
-**Inductores disponibles:**
-- `por_ml` — cobra por cada metro lineal de pieza (mesones, bordes, escaleras)
-- `por_m2` — cobra por cada m² de pieza (pisos, fachadas, consumibles, disco)
-- `por_dia` — costo fijo por día de obra (máquina cortadora, arriendo de equipos)
-- `porcentaje_material` — porcentaje del costo del material (provisión de rotura)
-- `por_ml_zocalo` — cobra por ml de zócalo instalado
-
-**💡 Tip:** Puedes agregar reglas personalizadas como "Transporte de equipos especiales por día" sin tocar ningún otro archivo.
-            """)
-
-        # ── Adaptador de retrocompatibilidad ─────────────────────────────────
-        # Si las tarifas en BD todavía tienen el formato plano legacy (prod_ml, disco…)
-        # las convertimos al formato de receta antes de mostrar la UI.
-        # calculos.py exporta _tar_a_receta() para este uso exacto.
-        from calculos import calcular_cotizacion_directa as _ccd_dummy  # noqa — solo para importar módulo
+        # ── Adaptador de retrocompatibilidad (necesario en AMBAS ramas) ──────
+        # Definido aquí, antes del if/else, para que el Builder lo encuentre.
+        from calculos import calcular_cotizacion_directa as _ccd_dummy  # noqa
         import calculos as _calculos_mod
 
         def _tar_a_receta_ui(tar_dict: dict) -> list:
@@ -7137,7 +7093,7 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
 
         def _resolver_receta_ui(entry) -> list:
             if isinstance(entry, list):
-                return [dict(r) for r in entry]   # copia para no mutar el original
+                return [dict(r) for r in entry]
             if isinstance(entry, dict):
                 return _tar_a_receta_ui(entry)
             return _tar_a_receta_ui({})
@@ -7157,152 +7113,473 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
             "c4_insumos":   "④ Insumos",
         }
         _MAT_ICONS = {"Mármol": "🪨", "Granito": "🟫", "Sinterizado": "⬜", "Quarztone": "🔵", "Quarzita": "🟡"}
+        _SS_KEY    = "tar_recetas_edit"
 
-        tar_act = get_tarifas()
+        # ── Inicializar estado del wizard ─────────────────────────────────────
+        if "paso_wizard" not in st.session_state:
+            st.session_state.paso_wizard = 1
 
-        # Inicializar session_state de recetas si no existe o viene del formato legacy
-        _SS_KEY = "tar_recetas_edit"
-        if _SS_KEY not in st.session_state:
-            st.session_state[_SS_KEY] = {}
-        for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-            _entry = tar_act.get(_mat, {})
-            if _mat not in st.session_state[_SS_KEY]:
-                # Primera carga: normalizar al formato de receta
-                st.session_state[_SS_KEY][_mat] = _resolver_receta_ui(_entry)
+        # ─────────────────────────────────────────────────────────────────────
+        # RAMA A — WIZARD DE CONFIGURACIÓN INICIAL
+        # ─────────────────────────────────────────────────────────────────────
+        if not st.session_state.get("setup_tarifas_completado", False):
 
-        # ── Editor visual por material ────────────────────────────────────────
-        for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
-            _receta = st.session_state[_SS_KEY][_mat]
-
-            with st.container(border=True):
-                _ch1, _ch2 = st.columns([5, 1])
-                _ch1.markdown(f"**{_MAT_ICONS.get(_mat, '')} {_mat}** — {len(_receta)} regla{'s' if len(_receta) != 1 else ''}")
-
-                # ── Fila de encabezados de columna ────────────────────────────
-                _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([3, 2, 1.4, 2, 0.6])
-                for _hcol, _hlbl in zip(
-                    [_hc1, _hc2, _hc3, _hc4, _hc5],
-                    ["Concepto", "¿Cómo se cobra?", "Valor (COP o %)", "Sección PDF", ""],
-                ):
-                    _hcol.markdown(
-                        f"<div style='font-size:0.68rem;font-weight:700;text-transform:uppercase;"
-                        f"letter-spacing:0.07em;opacity:0.5;padding-bottom:2px'>{_hlbl}</div>",
-                        unsafe_allow_html=True,
-                    )
-
-                # ── Filas de reglas ───────────────────────────────────────────
-                _indices_a_borrar = []
-                for _ri, _regla in enumerate(_receta):
-                    _rc1, _rc2, _rc3, _rc4, _rc5 = st.columns([3, 2, 1.4, 2, 0.6])
-
-                    # Concepto (nombre_interno)
-                    _nom_key = f"trec_nom_{_mat}_{_ri}"
-                    _regla["nombre_interno"] = _rc1.text_input(
-                        "Concepto", value=_regla.get("nombre_interno", ""),
-                        key=_nom_key, label_visibility="collapsed",
-                        placeholder="Ej: Mano de obra borde",
-                    )
-
-                    # Inductor
-                    _ind_key  = f"trec_ind_{_mat}_{_ri}"
-                    _ind_cur  = _regla.get("inductor", "por_ml")
-                    _ind_idx  = _INDUCTORES.index(_ind_cur) if _ind_cur in _INDUCTORES else 0
-                    _ind_sel  = _rc2.selectbox(
-                        "Inductor", _INDUCTORES, index=_ind_idx,
-                        key=_ind_key, label_visibility="collapsed",
-                        format_func=lambda x: _INDUCTOR_LABEL.get(x, x),
-                    )
-                    _regla["inductor"] = _ind_sel
-
-                    # Valor — formato inteligente: porcentaje_material muestra 4 decimales
-                    _val_key = f"trec_val_{_mat}_{_ri}"
-                    _es_pct  = (_ind_sel == "porcentaje_material")
-                    _val_cur = float(_regla.get("valor", 0.0))
-                    if _es_pct:
-                        _val_new = _rc3.number_input(
-                            "Valor", value=_val_cur,
-                            min_value=0.0, max_value=1.0, step=0.005, format="%.3f",
-                            key=_val_key, label_visibility="collapsed",
-                            help="Fracción del costo del material (ej: 0.02 = 2%)",
-                        )
-                    else:
-                        _val_new = _rc3.number_input(
-                            "Valor", value=_val_cur,
-                            min_value=0.0, step=500.0, format="%.0f",
-                            key=_val_key, label_visibility="collapsed",
-                            help="Monto en COP",
-                        )
-                    _regla["valor"] = _val_new
-
-                    # Etiqueta PDF
-                    _pdf_key = f"trec_pdf_{_mat}_{_ri}"
-                    _pdf_cur = _regla.get("etiqueta_pdf", "c4_insumos")
-                    _pdf_idx = _ETIQUETAS_PDF.index(_pdf_cur) if _pdf_cur in _ETIQUETAS_PDF else 2
-                    _regla["etiqueta_pdf"] = _rc4.selectbox(
-                        "PDF", _ETIQUETAS_PDF, index=_pdf_idx,
-                        key=_pdf_key, label_visibility="collapsed",
-                        format_func=lambda x: _PDF_LABEL.get(x, x),
-                    )
-
-                    # Botón eliminar fila
-                    _rc5.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-                    if _rc5.button("🗑", key=f"trec_del_{_mat}_{_ri}", help="Eliminar esta regla"):
-                        _indices_a_borrar.append(_ri)
-
-                # Aplicar eliminaciones (en orden inverso para no romper índices)
-                for _bi in sorted(_indices_a_borrar, reverse=True):
-                    st.session_state[_SS_KEY][_mat].pop(_bi)
-                if _indices_a_borrar:
-                    st.rerun()
-
-                # Botón agregar regla
-                st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
-                if st.button(
-                    f"＋ Agregar costo a {_mat}",
-                    key=f"trec_add_{_mat}",
-                    use_container_width=True,
-                    help="Inserta una nueva regla de costo vacía para este material",
-                ):
-                    st.session_state[_SS_KEY][_mat].append({
-                        "nombre_interno": "",
-                        "inductor":       "por_m2",
-                        "valor":          0.0,
-                        "etiqueta_pdf":   "c4_insumos",
-                    })
-                    st.rerun()
-
-        st.markdown("")
-        _col_save_tar, _col_reset_tar = st.columns([3, 1])
-        if _col_save_tar.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar", use_container_width=True):
-            # Guardar directamente la estructura de recetas desde session_state
-            _saved_tar = {
-                _sm: list(st.session_state[_SS_KEY].get(_sm, []))
-                for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
+            # CSS del wizard — tarjetas de opción, barra de progreso, contenedor
+            st.markdown("""
+            <style>
+            .wiz-wrap {
+                max-width: 580px;
+                margin: 32px auto 0;
+                font-family: "Inter", "Segoe UI", sans-serif;
             }
-            # ── store_permanente: escritura dual — widget state + store ─────────
-            _sp()["params_tarifas"] = _saved_tar
-            st.session_state.tarifas_custom = _saved_tar
-            # [PERSISTENCIA] Guardar en Supabase para sobrevivir a F5 y reinicios
-            try:
-                _guardar_config("tarifas_custom", _saved_tar)
-            except Exception:
-                pass
-            # Invalidar caché del editor para forzar recarga limpia en el próximo render
-            st.session_state.pop(_SS_KEY, None)
-            st.toast("✅ Tarifas guardadas y persistidas correctamente", icon="💾")
-            st.rerun()
-        if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
-                                  help="Vuelve a los valores por defecto de fábrica"):
-            st.session_state.tarifas_custom = None
-            _sp()["params_tarifas"] = None  # store_permanente sync
-            try:
-                _guardar_config("tarifas_custom", None)
-            except Exception:
-                pass
-            # Limpiar el estado del editor para forzar recarga desde TARIFAS base
-            st.session_state.pop(_SS_KEY, None)
-            st.toast("↺ Tarifas restauradas a valores por defecto", icon="🔄")
-            st.rerun()
+            .wiz-step-label {
+                font-size: 0.72rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                opacity: 0.45;
+                margin-bottom: 6px;
+            }
+            .wiz-title {
+                font-size: 1.35rem;
+                font-weight: 800;
+                line-height: 1.3;
+                margin-bottom: 6px;
+            }
+            .wiz-subtitle {
+                font-size: 0.88rem;
+                opacity: 0.55;
+                margin-bottom: 28px;
+            }
+            .wiz-progress-track {
+                height: 4px;
+                background: var(--secondary-background-color);
+                border-radius: 99px;
+                margin-bottom: 32px;
+                overflow: hidden;
+            }
+            .wiz-progress-fill {
+                height: 100%;
+                border-radius: 99px;
+                background: linear-gradient(90deg, #1B5FA8, #3B82F6);
+                transition: width 0.4s ease;
+            }
+            .wiz-done-box {
+                background: linear-gradient(135deg, #f0f7ff 0%, #e8f5e9 100%);
+                border: 1px solid #b3d4f5;
+                border-radius: 14px;
+                padding: 32px 28px;
+                text-align: center;
+                margin-top: 12px;
+            }
+            .wiz-done-icon  { font-size: 2.8rem; margin-bottom: 8px; }
+            .wiz-done-title { font-size: 1.25rem; font-weight: 800; margin-bottom: 6px; }
+            .wiz-done-sub   { font-size: 0.86rem; opacity: 0.6; }
+            </style>
+            """, unsafe_allow_html=True)
+
+            # ── Barra de progreso visual ──────────────────────────────────────
+            _pct = {1: 15, 2: 50, 3: 82}.get(st.session_state.paso_wizard, 100)
+            st.markdown(
+                f'''<div class="wiz-wrap">
+                  <div class="wiz-step-label">Configuración inicial · Paso {st.session_state.paso_wizard} de 3</div>
+                  <div class="wiz-progress-track">
+                    <div class="wiz-progress-fill" style="width:{_pct}%"></div>
+                  </div>
+                </div>''',
+                unsafe_allow_html=True,
+            )
+
+            # ── Contenedor centrado ───────────────────────────────────────────
+            _, _wc, _ = st.columns([1, 2.8, 1])
+
+            with _wc:
+
+                # ════════════════════════════════════════════════════════
+                # PASO 1 — ¿Cómo pagas la mano de obra?
+                # ════════════════════════════════════════════════════════
+                if st.session_state.paso_wizard == 1:
+                    st.markdown("### ¿Cómo le pagas a tus instaladores/operarios?")
+                    st.caption("Esto define la base de cálculo de la mano de obra en cada cotización.")
+
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                    _b1, _b2 = st.columns(2)
+                    with _b1:
+                        st.markdown("""
+                        <div style="background:var(--secondary-background-color);border:2px solid #1B5FA8;
+                                    border-radius:12px;padding:20px 16px;text-align:center;cursor:pointer">
+                            <div style="font-size:1.8rem;margin-bottom:6px">📏</div>
+                            <div style="font-weight:700;font-size:0.9rem">Por Metro Lineal</div>
+                            <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Recomendado para mesones</div>
+                        </div>""", unsafe_allow_html=True)
+                        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                        if st.button("Elegir → Metro Lineal", key="wiz_btn_ml",
+                                     use_container_width=True, type="primary"):
+                            st.session_state.wiz_inductor_mo = "por_ml"
+                            st.session_state.paso_wizard     = 2
+                            st.rerun()
+
+                    with _b2:
+                        st.markdown("""
+                        <div style="background:var(--secondary-background-color);border:2px solid var(--border-color);
+                                    border-radius:12px;padding:20px 16px;text-align:center;cursor:pointer">
+                            <div style="font-size:1.8rem;margin-bottom:6px">⬛</div>
+                            <div style="font-weight:700;font-size:0.9rem">Por Metro Cuadrado</div>
+                            <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Recomendado para pisos</div>
+                        </div>""", unsafe_allow_html=True)
+                        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                        if st.button("Elegir → Metro Cuadrado", key="wiz_btn_m2",
+                                     use_container_width=True):
+                            st.session_state.wiz_inductor_mo = "por_m2"
+                            st.session_state.paso_wizard     = 2
+                            st.rerun()
+
+                # ════════════════════════════════════════════════════════
+                # PASO 2 — ¿Cuánto cobras por ese metro?
+                # ════════════════════════════════════════════════════════
+                elif st.session_state.paso_wizard == 2:
+                    _ind_elegido = st.session_state.get("wiz_inductor_mo", "por_ml")
+                    _unidad_lbl  = "metro lineal (ML)" if _ind_elegido == "por_ml" else "metro cuadrado (m²)"
+
+                    st.markdown(f"### ¿Cuánto pagas por ese {_unidad_lbl}?")
+                    st.caption("Este valor es el costo de mano de obra que le pagas a tus operarios — sin incluir materiales ni logística.")
+
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                    _wiz_val = st.number_input(
+                        f"Valor por {_unidad_lbl} (COP)",
+                        min_value=0.0,
+                        max_value=500_000.0,
+                        value=float(st.session_state.get("wiz_valor_mo", 60_000.0)),
+                        step=1_000.0,
+                        format="%.0f",
+                        key="wiz_input_valor_mo",
+                        help="Promedio Barranquilla 2026: $50.000–$80.000/ML para mesones de mármol",
+                    )
+
+                    # Referencia de mercado en línea
+                    if _wiz_val < 30_000:
+                        st.warning("⚠️ Parece muy bajo. El mínimo típico en Barranquilla es $30.000/ML.", icon="⚠️")
+                    elif _wiz_val > 150_000:
+                        st.info("ℹ️ Valor alto. Asegúrate de que incluya solo mano de obra, no materiales.", icon="ℹ️")
+
+                    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+                    _nav1, _nav2 = st.columns([1, 2])
+                    with _nav1:
+                        if st.button("← Atrás", key="wiz_back_2", use_container_width=True):
+                            st.session_state.paso_wizard = 1
+                            st.rerun()
+                    with _nav2:
+                        if st.button("Siguiente →", key="wiz_next_2",
+                                     use_container_width=True, type="primary"):
+                            st.session_state.wiz_valor_mo = float(_wiz_val)
+                            st.session_state.paso_wizard  = 3
+                            st.rerun()
+
+                # ════════════════════════════════════════════════════════
+                # PASO 3 — ¿El taller asume los insumos?
+                # ════════════════════════════════════════════════════════
+                elif st.session_state.paso_wizard == 3:
+                    st.markdown("### ¿Tu taller asume los gastos de discos, luz y agua?")
+                    st.caption("Si los operarios usan tus equipos y tu pagas los consumibles, debes incluirlos en el costo.")
+
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+                    _b3, _b4 = st.columns(2)
+                    with _b3:
+                        st.markdown("""
+                        <div style="background:var(--secondary-background-color);border:2px solid var(--border-color);
+                                    border-radius:12px;padding:20px 16px;text-align:center">
+                            <div style="font-size:1.8rem;margin-bottom:6px">✅</div>
+                            <div style="font-weight:700;font-size:0.9rem">Sí, agregar paquete</div>
+                            <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Disco + consumibles + máquina</div>
+                        </div>""", unsafe_allow_html=True)
+                        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                        if st.button("✅ Sí, agregar insumos", key="wiz_btn_insumos_si",
+                                     use_container_width=True, type="primary"):
+                            st.session_state.wiz_insumos = True
+                            st.session_state.paso_wizard = 4   # señal de completado
+                            st.rerun()
+
+                    with _b4:
+                        st.markdown("""
+                        <div style="background:var(--secondary-background-color);border:2px solid var(--border-color);
+                                    border-radius:12px;padding:20px 16px;text-align:center">
+                            <div style="font-size:1.8rem;margin-bottom:6px">🙅</div>
+                            <div style="font-weight:700;font-size:0.9rem">No, ellos asumen todo</div>
+                            <div style="font-size:0.75rem;opacity:0.55;margin-top:4px">Solo mano de obra pura</div>
+                        </div>""", unsafe_allow_html=True)
+                        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                        if st.button("🙅 No incluir insumos", key="wiz_btn_insumos_no",
+                                     use_container_width=True):
+                            st.session_state.wiz_insumos = False
+                            st.session_state.paso_wizard = 4
+                            st.rerun()
+
+                    _nav3, _ = st.columns([1, 2])
+                    with _nav3:
+                        if st.button("← Atrás", key="wiz_back_3", use_container_width=True):
+                            st.session_state.paso_wizard = 2
+                            st.rerun()
+
+                # ════════════════════════════════════════════════════════
+                # CIERRE — Construir receta y transicionar al Builder
+                # paso_wizard == 4 es la señal de "respondió todo"
+                # ════════════════════════════════════════════════════════
+                elif st.session_state.paso_wizard == 4:
+
+                    # ── Animación de éxito ────────────────────────────────────
+                    st.markdown("""
+                    <div class="wiz-done-box">
+                        <div class="wiz-done-icon">🎉</div>
+                        <div class="wiz-done-title">¡Configuración lista!</div>
+                        <div class="wiz-done-sub">Construyendo tu primera receta de costos…</div>
+                    </div>""", unsafe_allow_html=True)
+
+                    # ── Ensamblar receta base a partir de las respuestas ──────
+                    _ind_mo   = st.session_state.get("wiz_inductor_mo", "por_ml")
+                    _val_mo   = float(st.session_state.get("wiz_valor_mo", 60_000.0))
+                    _insumos  = st.session_state.get("wiz_insumos", True)
+
+                    # Nombre del concepto según inductor
+                    _nom_mo = "Mano obra borde" if _ind_mo == "por_ml" else "Mano obra área"
+
+                    # Regla base de mano de obra (única obligatoria)
+                    _receta_wizard: list = [
+                        {
+                            "nombre_interno": _nom_mo,
+                            "inductor":       _ind_mo,
+                            "valor":          _val_mo,
+                            "etiqueta_pdf":   "c2_mano_obra",
+                        },
+                        # Instalación de zócalo — siempre incluida (tarifas por defecto)
+                        {
+                            "nombre_interno": "Instalación zócalo",
+                            "inductor":       "por_ml_zocalo",
+                            "valor":          12_000.0,
+                            "etiqueta_pdf":   "c3_zocalos",
+                        },
+                        # Provisión de rotura — siempre incluida (2 % del material)
+                        {
+                            "nombre_interno": "Riesgo rotura",
+                            "inductor":       "porcentaje_material",
+                            "valor":          0.02,
+                            "etiqueta_pdf":   "c4_insumos",
+                        },
+                    ]
+
+                    # Paquete de insumos opcional (disco + máquina + consumibles)
+                    if _insumos:
+                        _receta_wizard += [
+                            {
+                                "nombre_interno": "Desgaste disco",
+                                "inductor":       "por_m2",
+                                "valor":          2_200.0,
+                                "etiqueta_pdf":   "c4_insumos",
+                            },
+                            {
+                                "nombre_interno": "Uso máquina cortadora",
+                                "inductor":       "por_dia",
+                                "valor":          20_000.0,
+                                "etiqueta_pdf":   "c4_insumos",
+                            },
+                            {
+                                "nombre_interno": "Consumibles (luz, agua, lijas)",
+                                "inductor":       "por_m2",
+                                "valor":          8_500.0,
+                                "etiqueta_pdf":   "c4_insumos",
+                            },
+                        ]
+
+                    # ── Inyectar receta en los 5 materiales ──────────────────
+                    # Se aplica la misma estructura base a todos; el usuario podrá
+                    # personalizar por material una vez dentro del Builder.
+                    st.session_state[_SS_KEY] = {
+                        _m: [dict(r) for r in _receta_wizard]
+                        for _m in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
+                    }
+
+                    # ── Marcar setup como completo y resetear wizard ──────────
+                    st.session_state.setup_tarifas_completado = True
+                    st.session_state.paso_wizard              = 1   # reset para si vuelve a pasar
+                    st.rerun()
+
+        # ─────────────────────────────────────────────────────────────────────
+        # RAMA B — VISUAL BUILDER COMPLETO (usuarios que ya configuraron)
+        # ─────────────────────────────────────────────────────────────────────
+        else:
+            st.caption("Constructor visual de costos por material. Cada fila es una regla de costo que el motor aplica automáticamente al calcular. Agrega, edita o elimina reglas y presiona **Guardar Tarifas**.")
+
+            # Botón secundario para volver a ejecutar el wizard (reset voluntario)
+            with st.expander("🔄 ¿Quieres reconfigurar desde cero?", expanded=False):
+                st.caption("Esto borrará la receta actual del editor (no las tarifas guardadas en BD) y te llevará al wizard de configuración inicial.")
+                if st.button("↺ Volver al asistente de configuración",
+                             key="btn_reset_wizard", use_container_width=True):
+                    st.session_state.setup_tarifas_completado = False
+                    st.session_state.paso_wizard              = 1
+                    st.session_state.pop(_SS_KEY, None)
+                    st.rerun()
+
+            with st.expander("📖 ¿Cómo funciona este constructor?", expanded=False):
+                st.markdown("""
+Cada material tiene una **lista de reglas de costo**. El motor las itera una a una y las suma al presupuesto automáticamente.
+
+| Columna | ¿Qué defines aquí? | Ejemplo |
+|---|---|---|
+| **Concepto** | El nombre del costo — solo para que lo identifiques | "Mano de obra borde", "Disco diamantado" |
+| **¿Cómo se cobra?** | La base matemática del cálculo | `por_ml` → multiplica por metros lineales cortados |
+| **Valor** | El monto en COP (o fracción para %) | `60000` = $60.000/ml · `0.02` = 2% del material |
+| **Sección del PDF** | El bucket donde se acumula en el desglose | `c2_mano_obra`, `c3_zocalos`, `c4_insumos` |
+
+**Inductores disponibles:**
+- `por_ml` — cobra por cada metro lineal de pieza (mesones, bordes, escaleras)
+- `por_m2` — cobra por cada m² de pieza (pisos, fachadas, consumibles, disco)
+- `por_dia` — costo fijo por día de obra (máquina cortadora, arriendo de equipos)
+- `porcentaje_material` — porcentaje del costo del material (provisión de rotura)
+- `por_ml_zocalo` — cobra por ml de zócalo instalado
+
+**💡 Tip:** Puedes agregar reglas personalizadas como "Transporte de equipos especiales por día" sin tocar ningún otro archivo.
+                """)
+
+            tar_act = get_tarifas()
+
+            # Inicializar session_state de recetas si no existe o viene del formato legacy
+            if _SS_KEY not in st.session_state:
+                st.session_state[_SS_KEY] = {}
+            for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                _entry = tar_act.get(_mat, {})
+                if _mat not in st.session_state[_SS_KEY]:
+                    st.session_state[_SS_KEY][_mat] = _resolver_receta_ui(_entry)
+
+            # ── Editor visual por material ────────────────────────────────────
+            for _mat in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                _receta = st.session_state[_SS_KEY][_mat]
+
+                with st.container(border=True):
+                    _ch1, _ch2 = st.columns([5, 1])
+                    _ch1.markdown(f"**{_MAT_ICONS.get(_mat, '')} {_mat}** — {len(_receta)} regla{'s' if len(_receta) != 1 else ''}")
+
+                    # ── Fila de encabezados de columna ────────────────────────
+                    _hc1, _hc2, _hc3, _hc4, _hc5 = st.columns([3, 2, 1.4, 2, 0.6])
+                    for _hcol, _hlbl in zip(
+                        [_hc1, _hc2, _hc3, _hc4, _hc5],
+                        ["Concepto", "¿Cómo se cobra?", "Valor (COP o %)", "Sección PDF", ""],
+                    ):
+                        _hcol.markdown(
+                            f"<div style='font-size:0.68rem;font-weight:700;text-transform:uppercase;"
+                            f"letter-spacing:0.07em;opacity:0.5;padding-bottom:2px'>{_hlbl}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # ── Filas de reglas ───────────────────────────────────────
+                    _indices_a_borrar = []
+                    for _ri, _regla in enumerate(_receta):
+                        _rc1, _rc2, _rc3, _rc4, _rc5 = st.columns([3, 2, 1.4, 2, 0.6])
+
+                        # Concepto (nombre_interno)
+                        _nom_key = f"trec_nom_{_mat}_{_ri}"
+                        _regla["nombre_interno"] = _rc1.text_input(
+                            "Concepto", value=_regla.get("nombre_interno", ""),
+                            key=_nom_key, label_visibility="collapsed",
+                            placeholder="Ej: Mano de obra borde",
+                        )
+
+                        # Inductor
+                        _ind_key  = f"trec_ind_{_mat}_{_ri}"
+                        _ind_cur  = _regla.get("inductor", "por_ml")
+                        _ind_idx  = _INDUCTORES.index(_ind_cur) if _ind_cur in _INDUCTORES else 0
+                        _ind_sel  = _rc2.selectbox(
+                            "Inductor", _INDUCTORES, index=_ind_idx,
+                            key=_ind_key, label_visibility="collapsed",
+                            format_func=lambda x: _INDUCTOR_LABEL.get(x, x),
+                        )
+                        _regla["inductor"] = _ind_sel
+
+                        # Valor — formato inteligente
+                        _val_key = f"trec_val_{_mat}_{_ri}"
+                        _es_pct  = (_ind_sel == "porcentaje_material")
+                        _val_cur = float(_regla.get("valor", 0.0))
+                        if _es_pct:
+                            _val_new = _rc3.number_input(
+                                "Valor", value=_val_cur,
+                                min_value=0.0, max_value=1.0, step=0.005, format="%.3f",
+                                key=_val_key, label_visibility="collapsed",
+                                help="Fracción del costo del material (ej: 0.02 = 2%)",
+                            )
+                        else:
+                            _val_new = _rc3.number_input(
+                                "Valor", value=_val_cur,
+                                min_value=0.0, step=500.0, format="%.0f",
+                                key=_val_key, label_visibility="collapsed",
+                                help="Monto en COP",
+                            )
+                        _regla["valor"] = _val_new
+
+                        # Etiqueta PDF
+                        _pdf_key = f"trec_pdf_{_mat}_{_ri}"
+                        _pdf_cur = _regla.get("etiqueta_pdf", "c4_insumos")
+                        _pdf_idx = _ETIQUETAS_PDF.index(_pdf_cur) if _pdf_cur in _ETIQUETAS_PDF else 2
+                        _regla["etiqueta_pdf"] = _rc4.selectbox(
+                            "PDF", _ETIQUETAS_PDF, index=_pdf_idx,
+                            key=_pdf_key, label_visibility="collapsed",
+                            format_func=lambda x: _PDF_LABEL.get(x, x),
+                        )
+
+                        # Botón eliminar fila
+                        _rc5.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                        if _rc5.button("🗑", key=f"trec_del_{_mat}_{_ri}", help="Eliminar esta regla"):
+                            _indices_a_borrar.append(_ri)
+
+                    # Aplicar eliminaciones
+                    for _bi in sorted(_indices_a_borrar, reverse=True):
+                        st.session_state[_SS_KEY][_mat].pop(_bi)
+                    if _indices_a_borrar:
+                        st.rerun()
+
+                    # Botón agregar regla
+                    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+                    if st.button(
+                        f"＋ Agregar costo a {_mat}",
+                        key=f"trec_add_{_mat}",
+                        use_container_width=True,
+                        help="Inserta una nueva regla de costo vacía para este material",
+                    ):
+                        st.session_state[_SS_KEY][_mat].append({
+                            "nombre_interno": "",
+                            "inductor":       "por_m2",
+                            "valor":          0.0,
+                            "etiqueta_pdf":   "c4_insumos",
+                        })
+                        st.rerun()
+
+            st.markdown("")
+            _col_save_tar, _col_reset_tar = st.columns([3, 1])
+            if _col_save_tar.button("💾 Guardar Tarifas", type="primary", key="btn_save_tar", use_container_width=True):
+                _saved_tar = {
+                    _sm: list(st.session_state[_SS_KEY].get(_sm, []))
+                    for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
+                }
+                _sp()["params_tarifas"] = _saved_tar
+                st.session_state.tarifas_custom = _saved_tar
+                try:
+                    _guardar_config("tarifas_custom", _saved_tar)
+                except Exception:
+                    pass
+                st.session_state.pop(_SS_KEY, None)
+                st.toast("✅ Tarifas guardadas y persistidas correctamente", icon="💾")
+                st.rerun()
+            if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
+                                      help="Vuelve a los valores por defecto de fábrica"):
+                st.session_state.tarifas_custom = None
+                _sp()["params_tarifas"] = None
+                try:
+                    _guardar_config("tarifas_custom", None)
+                except Exception:
+                    pass
+                st.session_state.pop(_SS_KEY, None)
+                st.toast("↺ Tarifas restauradas a valores por defecto", icon="🔄")
+                st.rerun()
 
     with t_via:
         st.caption("Costos de desplazamiento para proyectos fuera de Barranquilla. Modifica y presiona **Guardar Viáticos**.")
@@ -8626,17 +8903,6 @@ elif pagina == "Planos de Taller (IA)":
         <span class="plano-badge">✦ Nesting 2D · Descarga PDF</span>
     </div>
     """, unsafe_allow_html=True)
-
-    # ── Tutorial contextual: se muestra solo la primera vez que el usuario
-    # entra a la sección de Planos de Taller en la sesión actual.
-    if not st.session_state.get("tut_planos_visto"):
-        mostrar_tutorial_contextual(
-            "tut_planos_visto",
-            "**Optimización de Cortes (Nesting)** 📐\n\n"
-            "CostoMármol acomoda tus piezas en la placa de forma inteligente para que sepas "
-            "exactamente cómo cortar la piedra y minimizar el desperdicio. "
-            "¡Puedes descargarlo en PDF para enviarlo al taller!",
-        )
 
     # ── Protección anti-refresco accidental (navegador nativo) ───────────────
     # Intercepta F5 / cierre de pestaña y muestra el diálogo de confirmación
