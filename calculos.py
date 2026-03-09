@@ -436,64 +436,159 @@ def calcular_cotizacion_directa(
     _TIPOS_AREA = {"Piso", "Fachada", "Revestimiento"}
     _es_tipo_area = any(t.strip() in _TIPOS_AREA for t in tipo_proyecto.split(",")) if tipo_proyecto else False
 
-    # ── ② Producción + ③ Zócalos — ASIGNACIÓN DINÁMICA POR PIEZA ────────────
-    # Cada pieza se costed con las tarifas de SU propio material.
-    # Elimina la subcotización cuando el proyecto mezcla materiales de distinta
-    # dureza (ej: Mármol en mesón + Sinterizado en isla).
+    # ── Adaptador: formato plano legacy → formato de receta dinámica ──────────
+    # El editor de tarifas de app.py guarda en BD el formato plano (prod_ml, disco…)
+    # para no requerir migración de datos históricos. Este adaptador convierte
+    # ambos formatos a una lista de reglas homogénea antes de ejecutar el motor.
+    # Si el dict ya es una lista (formato receta nativo), se usa directamente.
+    def _tar_a_receta(tar_dict: dict) -> list:
+        """Convierte un dict plano de tarifas al formato de lista de reglas."""
+        return [
+            {"nombre_interno": "Mano obra borde",       "inductor": "por_ml",              "valor": float(tar_dict.get("prod_ml",       60_000)), "etiqueta_pdf": "c2_mano_obra"},
+            {"nombre_interno": "Mano obra área",         "inductor": "por_m2",              "valor": float(tar_dict.get("prod_m2",       35_000)), "etiqueta_pdf": "c2_mano_obra"},
+            {"nombre_interno": "Instalación zócalo",     "inductor": "por_ml_zocalo",       "valor": float(tar_dict.get("zocalo",        12_000)), "etiqueta_pdf": "c3_zocalos"},
+            {"nombre_interno": "Desgaste disco",         "inductor": "por_m2",              "valor": float(tar_dict.get("disco",          2_200)), "etiqueta_pdf": "c4_insumos"},
+            {"nombre_interno": "Uso máquina cortadora",  "inductor": "por_dia",             "valor": float(tar_dict.get("maquina",       20_000)), "etiqueta_pdf": "c4_insumos"},
+            {"nombre_interno": "Consumibles",            "inductor": "por_m2",              "valor": float(tar_dict.get("consumibles",    8_500)), "etiqueta_pdf": "c4_insumos"},
+            {"nombre_interno": "Riesgo rotura",          "inductor": "porcentaje_material", "valor": float(tar_dict.get("riesgo_rotura",  0.02)), "etiqueta_pdf": "c4_insumos"},
+        ]
+
+    def _resolver_receta(tar_entry) -> list:
+        """Devuelve siempre una lista de reglas, independientemente del formato de entrada."""
+        if isinstance(tar_entry, list):
+            return tar_entry          # formato receta nativo (parametros.py v4)
+        if isinstance(tar_entry, dict):
+            return _tar_a_receta(tar_entry)   # formato plano legacy (BD / tarifas_override)
+        return _tar_a_receta({})      # fallback vacío — usa valores hardcoded de respaldo
+
+    # ── ② Producción + ③ Zócalos + ④ Insumos — Motor de Buckets ─────────────
+    # El motor itera la RECETA de cada material por pieza y acumula los costos
+    # en tres buckets (c2, c3, c4) según la etiqueta_pdf de cada regla.
+    #
+    # Inductores disponibles:
+    #   "por_ml"              → valor × ml_de_la_pieza         (piezas tipo borde)
+    #   "por_m2"              → valor × m²_de_la_pieza         (piezas tipo área)
+    #   "por_dia"             → valor × dias_del_proyecto       (costo global, 1 sola vez)
+    #   "porcentaje_material" → valor × costo_material_pieza    (riesgo proporcional)
+    #   "por_ml_zocalo"       → valor × ml_zócalo_de_la_pieza  (instalación de zócalo)
     #
     # FALLBACK RETROCOMPATIBLE (if not piezas):
     # Si no hay lista de piezas (historial antiguo, cotización rápida, atajo del
     # sidebar), se usa la lógica global con ml_proyecto y tarifas del material
     # principal para que esos registros no se rompan.
     if piezas:
-        c2_ml_acum = 0.0
-        c2_m2_acum = 0.0
-        c3_acum    = 0.0
-        ml_piezas  = 0.0   # acumulado total para precio_por_ml y métricas de UI
-        m2_piezas  = 0.0
+        acumulados = {"c2_mano_obra": 0.0, "c3_zocalos": 0.0, "c4_insumos": 0.0}
+        ml_piezas      = 0.0   # acumulado total para precio_por_ml y métricas de UI
+        m2_piezas      = 0.0
         zocalo_ml_calc = 0.0
         zocalo_m2_calc = 0.0
 
-        for p in piezas:
-            # ① Categoría y tarifas propias de esta pieza
-            cat_p = p.get("categoria", categoria)   # fallback a categoría global
-            tar_p = _tarifas_src.get(cat_p, TARIFAS["Mármol"])
+        # ── Costo de insumos con inductor "por_dia" ────────────────────────────
+        # Este inductor representa costos fijos del proyecto (ej: alquiler de
+        # máquina cortadora), no del metro lineal de cada pieza. Si se sumara
+        # dentro del loop de piezas se multiplicaría por el número de piezas.
+        # Solución: se aplica UNA SOLA VEZ aquí, usando la receta del material
+        # principal del proyecto (primer material de materiales_lista, o categoria).
+        _cat_global  = (materiales_lista[0].get("cat", categoria) if materiales_lista else categoria)
+        _tar_global  = _tarifas_src.get(_cat_global, _tarifas_src.get(categoria, TARIFAS.get("Mármol", {})))
+        _receta_glob = _resolver_receta(_tar_global)
+        for _regla_g in _receta_glob:
+            if _regla_g["inductor"] == "por_dia":
+                _bucket_g = _regla_g["etiqueta_pdf"]
+                if _bucket_g in acumulados:
+                    acumulados[_bucket_g] += _regla_g["valor"] * dias
 
-            # ② Longitud real: "ml" ya viene escalado (largo×cantidad) desde app.py
+        # ── Loop por pieza: inductores proporcionales ──────────────────────────
+        for p in piezas:
+            # Categoría y receta propias de esta pieza
+            cat_p    = p.get("categoria", categoria)
+            tar_p    = _tarifas_src.get(cat_p, _tarifas_src.get(categoria, TARIFAS.get("Mármol", {})))
+            receta_p = _resolver_receta(tar_p)
+
+            # Dimensiones de la pieza
             largo_total = float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
             ancho_p     = float(p.get("ancho_custom", p.get("ancho", 0.60)))
+            area_p      = ml_a_m2(largo_total, ancho_p)
             uv          = p.get("unidad_venta", "ml")
 
-            tarifa_ml_p = tar_p.get("prod_ml", 60_000)
-            tarifa_m2_p = tar_p.get("prod_m2", round(tarifa_ml_p * 0.55))
-
-            # ③ Acumular costo de producción según unidad de venta
+            # Acumular métricas globales de dimensión
             if uv == "ml":
-                ml_piezas  += largo_total
-                c2_ml_acum += largo_total * tarifa_ml_p
+                ml_piezas += largo_total
             else:
-                area_p     = ml_a_m2(largo_total, ancho_p)
-                m2_piezas  += area_p
-                c2_m2_acum += area_p * tarifa_m2_p
+                m2_piezas += area_p
 
-            # ④ Zócalo geométrico individual — se pasa solo [p] a la función
-            # para aislar el cálculo de esta pieza y aplicar SU tarifa de zócalo.
-            _zoc_p = calcular_zocalo_geometrico([p])
-            ml_zoc_p   = _zoc_p["ml"]
-            m2_zoc_p   = _zoc_p["m2"]
-            c3_acum       += ml_zoc_p * tar_p.get("zocalo", tar.get("zocalo", 12_000))
+            # Zócalo geométrico individual — aisla la pieza para aplicar SU tarifa
+            _zoc_p       = calcular_zocalo_geometrico([p])
+            ml_zoc_p     = _zoc_p["ml"]
+            m2_zoc_p     = _zoc_p["m2"]
             zocalo_ml_calc += ml_zoc_p
             zocalo_m2_calc += m2_zoc_p
 
-        c2_ml = c2_ml_acum
-        c2_m2 = c2_m2_acum
-        c2    = c2_ml + c2_m2
-        c3    = c3_acum
+            # Costo del material de esta pieza (para inductor porcentaje_material)
+            _costo_mat_p = 0.0
+            if materiales_lista:
+                for _m in materiales_lista:
+                    if _m.get("cat", _m.get("categoria", "")) == cat_p:
+                        _costo_mat_p = float(_m.get("area_placa", 0)) * float(_m.get("precio_m2", 0))
+                        break
+            if _costo_mat_p == 0.0:
+                # Fallback: prorratear costo_material proporcionalmente por área
+                _costo_mat_p = costo_material * (area_p / max(m2_real, 0.001))
+
+            # ── Aplicar reglas de la receta (excluir "por_dia", ya calculado) ──
+            for regla in receta_p:
+                inductor = regla["inductor"]
+                valor    = regla["valor"]
+                bucket   = regla["etiqueta_pdf"]
+                if bucket not in acumulados:
+                    continue   # etiqueta desconocida → ignorar con seguridad
+
+                if inductor == "por_dia":
+                    pass       # ya calculado globalmente antes del loop
+                elif inductor == "por_ml" and uv == "ml":
+                    acumulados[bucket] += valor * largo_total
+                elif inductor == "por_m2":
+                    # por_m2 aplica a todas las piezas (disco, consumibles)
+                    # Para mano obra área: solo si la unidad de venta es m²
+                    _es_mo_area = regla.get("nombre_interno", "").lower().startswith("mano obra área")
+                    if _es_mo_area:
+                        if uv == "m2":
+                            acumulados[bucket] += valor * area_p
+                    else:
+                        # Insumos y consumibles aplican a toda el área cortada
+                        acumulados[bucket] += valor * area_p
+                elif inductor == "porcentaje_material":
+                    acumulados[bucket] += valor * _costo_mat_p
+                elif inductor == "por_ml_zocalo":
+                    acumulados[bucket] += valor * ml_zoc_p
+
+        # ── Asignar buckets a variables legacy ────────────────────────────────
+        c2_ml = acumulados["c2_mano_obra"]   # no se desglosará ml/m2 en el motor de recetas;
+        c2_m2 = 0.0                           # c2_ml lleva el total — ver nota en return dict
+        c2    = acumulados["c2_mano_obra"]
+        c3    = acumulados["c3_zocalos"]
+
+        # Descomponer c4 en sub-llaves legacy para el dict de salida
+        # (generador_pdf.py y el debug de app.py las leen individualmente)
+        _receta_c4 = _receta_glob   # se usa la receta del material principal para sub-desglose
+        _disco_val  = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Desgaste disco"),        2_200.0)
+        _maq_val    = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Uso máquina cortadora"), 20_000.0)
+        _cons_val   = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Consumibles"),            8_500.0)
+        _risk_val   = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Riesgo rotura"),          0.02)
+        m2_disco         = m2_cortados if m2_cortados > 0 else m2_real
+        costo_disco_maq  = (m2_disco * _disco_val) + (dias * _maq_val)
+        costo_consumibles = m2_real * _cons_val
+        costo_riesgo      = acumulados["c4_insumos"] - costo_disco_maq - costo_consumibles
+        # costo_riesgo puede ser negativo si hay diferencias de redondeo entre recetas
+        # de distintos materiales — lo clampamos a 0 para que el PDF no muestre negativo
+        costo_riesgo = max(0.0, costo_riesgo)
+        c4 = acumulados["c4_insumos"]
 
         # Si ninguna pieza tenía checkboxes de zócalo geométrico, aplicar modo legacy
         if zocalo_ml_calc == 0.0 and zocalo_activo and zocalo_ml > 0:
             zocalo_ml_calc = zocalo_ml
-            c3 = zocalo_ml_calc * tar["zocalo"]
+            _zoc_tarifa = next((r["valor"] for r in _receta_glob if r["inductor"] == "por_ml_zocalo"), 12_000.0)
+            c3 = zocalo_ml_calc * _zoc_tarifa
 
     else:
         # ── FALLBACK GLOBAL — historial antiguo / cotización rápida ──────────
@@ -508,17 +603,29 @@ def calcular_cotizacion_directa(
         else:
             ml_piezas = m2_real / 0.60
 
-        tarifa_prod_ml = tar.get("prod_ml", 60_000)
-        tarifa_prod_m2 = tar.get("prod_m2", round(tarifa_prod_ml * 0.55))
-
-        c2_ml = ml_piezas * tarifa_prod_ml
-        c2_m2 = m2_piezas * tarifa_prod_m2
+        _receta_fb = _resolver_receta(tar)
+        _tarifa_ml_fb  = next((r["valor"] for r in _receta_fb if r["inductor"] == "por_ml"),        60_000.0)
+        _tarifa_m2_fb  = next((r["valor"] for r in _receta_fb if r["inductor"] == "por_m2" and "área" in r.get("nombre_interno","").lower()), round(_tarifa_ml_fb * 0.55))
+        c2_ml = ml_piezas * _tarifa_ml_fb
+        c2_m2 = m2_piezas * _tarifa_m2_fb
         c2    = c2_ml + c2_m2
 
         # Zócalo modo legacy (ML total ingresado manualmente)
         zocalo_ml_calc = zocalo_ml if zocalo_activo else 0.0
         zocalo_m2_calc = 0.0
-        c3 = zocalo_ml_calc * tar["zocalo"]
+        _zoc_tarifa_fb = next((r["valor"] for r in _receta_fb if r["inductor"] == "por_ml_zocalo"), 12_000.0)
+        c3 = zocalo_ml_calc * _zoc_tarifa_fb
+
+        # Insumos globales (fallback)
+        _disco_val_fb = next((r["valor"] for r in _receta_fb if r["nombre_interno"] == "Desgaste disco"),        2_200.0)
+        _maq_val_fb   = next((r["valor"] for r in _receta_fb if r["nombre_interno"] == "Uso máquina cortadora"), 20_000.0)
+        _cons_val_fb  = next((r["valor"] for r in _receta_fb if r["nombre_interno"] == "Consumibles"),            8_500.0)
+        _risk_val_fb  = next((r["valor"] for r in _receta_fb if r["nombre_interno"] == "Riesgo rotura"),          0.02)
+        m2_disco          = m2_cortados if m2_cortados > 0 else m2_real
+        costo_disco_maq   = (m2_disco * _disco_val_fb) + (dias * _maq_val_fb)
+        costo_consumibles = m2_real * _cons_val_fb
+        costo_riesgo      = costo_material * _risk_val_fb
+        c4 = costo_disco_maq + costo_consumibles + costo_riesgo
 
     # Exponer el ML real y los m² de material usados en zócalos (para PDF y UI)
     zocalo_ml_efectivo = zocalo_ml_calc
@@ -529,24 +636,6 @@ def calcular_cotizacion_directa(
     # de material adicional para no generar doble cobro al cliente.
     costo_extra_material_zocalo = 0.0
     costo_material_total = costo_material
-
-    # ── ④ Insumos, Consumibles y Riesgo (Corregido Multi-Riesgo) ─────────────
-    m2_disco = m2_cortados if m2_cortados > 0 else m2_real
-    costo_disco_maq  = (m2_disco * tar.get("disco", 2_200)) + (dias * tar.get("maquina", 20_000))
-    costo_consumibles = m2_real * tar.get("consumibles", 10_000)
-
-    # Calcular riesgo de rotura independientemente por la dureza de cada material
-    if materiales_lista:
-        costo_riesgo = 0.0
-        for m in materiales_lista:
-            cat_m = m.get("categoria", categoria)
-            tar_m = _tarifas_src.get(cat_m, TARIFAS["Mármol"])
-            riesgo_m = tar_m.get("riesgo_rotura", 0.02)
-            costo_riesgo += (float(m.get("area_placa", 0)) * float(m.get("precio_m2", 0))) * riesgo_m
-    else:
-        costo_riesgo = costo_material * tar.get("riesgo_rotura", 0.02)
-
-    c4 = costo_disco_maq + costo_consumibles + costo_riesgo
 
     # ── ⑤ Logística con peso de carga y peajes exactos ──────────────────────
     # Calculamos el peso total para penalizar el rendimiento km/gal del vehículo
