@@ -225,11 +225,17 @@ def _db_conn():
 def _guardar_config(clave: str, valor) -> None:
     """Serializa `valor` como JSON y lo guarda/actualiza en app_config.
 
+    SEGURIDAD MULTI-TENANT: la clave se transforma via _clave_tenant() antes
+    de escribir en BD. Claves globales (empresa_info, logo) se escriben sin
+    sufijo. Claves operativas llevan sufijo _uUID para aislar datos entre
+    usuarios: "tarifas_custom_u12" nunca colisiona con "tarifas_custom_u7".
+
     FIX-3 Serialización Base64: los bytes se deben convertir a str UTF-8
     antes de llegar aquí (ver _guardar_logo). json.dumps no serializa bytes
     nativamente y lanzaría TypeError silencioso. Se conserva `default=str`
     como red de seguridad, pero la responsabilidad primaria es del llamador.
     """
+    _clave_bd = _clave_tenant(clave)
     with _db_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -237,18 +243,39 @@ def _guardar_config(clave: str, valor) -> None:
                    VALUES (%s, %s, %s)
                    ON CONFLICT (clave) DO UPDATE
                    SET valor = EXCLUDED.valor, actualizado = EXCLUDED.actualizado""",
-                (clave, json.dumps(valor, ensure_ascii=False, default=str), _hoy().isoformat())
+                (_clave_bd, json.dumps(valor, ensure_ascii=False, default=str), _hoy().isoformat())
             )
         conn.commit()
 
 def _leer_config(clave: str, defecto=None):
-    """Lee un valor de app_config. Devuelve `defecto` si la clave no existe."""
+    """Lee un valor de app_config. Devuelve `defecto` si la clave no existe.
+
+    SEGURIDAD MULTI-TENANT: lee primero la clave tenant (_clave_tenant()).
+    Si no existe, intenta la clave sin sufijo (legacy) para migración
+    transparente: usuarios existentes no pierden su configuración al
+    desplegar este parche. La próxima escritura ya usará la clave tenant.
+    """
     try:
+        _clave_bd = _clave_tenant(clave)
         with _db_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT valor FROM app_config WHERE clave = %s", (clave,))
+                cur.execute("SELECT valor FROM app_config WHERE clave = %s", (_clave_bd,))
                 row = cur.fetchone()
-        return json.loads(row[0]) if row else defecto
+        if row:
+            return json.loads(row[0])
+        # Fallback de migración: leer clave legacy solo para claves tenant
+        # (_clave_bd != clave significa que se le aplicó sufijo de usuario).
+        if _clave_bd != clave:
+            try:
+                with _db_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT valor FROM app_config WHERE clave = %s", (clave,))
+                        row_legacy = cur.fetchone()
+                if row_legacy:
+                    return json.loads(row_legacy[0])
+            except Exception:
+                pass
+        return defecto
     except Exception:
         return defecto
 
@@ -269,6 +296,31 @@ def _uid() -> str:
     if u and u.get("id"):
         return str(u["id"])
     return "anon"
+
+def _clave_tenant(clave: str) -> str:
+    """
+    Convierte una clave de app_config en una clave aislada por usuario.
+
+    El esquema app_config tiene PRIMARY KEY en (clave), sin columna usuario_id,
+    por lo que el aislamiento multi-tenant se implementa sufixando la clave:
+        "tarifas_custom"  →  "tarifas_custom_u12"   (usuario id=12)
+
+    Claves GLOBALES (compartidas por todos, no sufixadas):
+        empresa_info, empresa_logo_b64
+    Claves OPERATIVAS (aisladas por usuario, sufixadas):
+        tarifas_custom, logistica_custom, viaticos_custom, adicionales_custom
+        y cualquier otra clave de configuración individual.
+
+    El prefijo "_u" hace las claves tenant legibles en la BD y distinguibles
+    de las claves legacy sin sufijo (ver fallback en _leer_config).
+    """
+    _CLAVES_GLOBALES = frozenset({
+        "empresa_info",
+        "empresa_logo_b64",
+    })
+    if clave in _CLAVES_GLOBALES:
+        return clave
+    return f"{clave}_u{_uid()}"
 
 def _clave_borrador_cdir() -> str:
     return f"borrador_cotizacion_directa_{_uid()}"
@@ -1037,15 +1089,23 @@ def _limpiar_sesion() -> None:
         cookies.save()
     except Exception:
         pass
-    for k in ["usuario_actual", "_session_token", "_config_cargada",
-              "cotizacion", "pre", "piezas", "materiales_proyecto",
-              "chat", "resumen_ia",
-              "_cotiz_guardada", "_cotiz_guardada_num",
-              "_aiu_guardada", "_aiu_guardada_num",
-              # ── store_permanente: limpiar completamente al cerrar sesión ──
-              "store_permanente", "_sp_borrador_hash", "_sp_aiu_hash",
-              "_borrador_restaurado"]:
-        st.session_state.pop(k, None)
+    # ── Borrado profundo: eliminar TODO el estado del tenant ─────────────────
+    # La lista hardcodeada anterior dejaba sobrevivir tarifas_custom,
+    # logistica_custom, viaticos_custom, tar_recetas_edit, params_wizard_chat,
+    # setup_tarifas_completado, wiz_*, aiu_items y más — permitiendo que el
+    # próximo usuario en la misma pestaña heredara la configuración del anterior.
+    #
+    # Preservamos ÚNICAMENTE "cookies_ok": es un flag de infraestructura del
+    # componente React (st-cookies-manager). Borrarlo hace que el componente JS
+    # quede colgado esperando una cookie que nunca llega en el siguiente render.
+    # No contiene datos de negocio ni identificadores de usuario.
+    _INFRA_KEYS = frozenset({"cookies_ok"})
+    for _k in list(st.session_state.keys()):
+        if _k not in _INFRA_KEYS:
+            try:
+                del st.session_state[_k]
+            except Exception:
+                pass
 
 
 
@@ -7245,18 +7305,44 @@ elif pagina == "Parametros":
                     unsafe_allow_html=True
                 )
 
-                # Producción por material (mano obra borde — primer inductor por_ml)
-                for _m in ["Mármol", "Granito", "Sinterizado"]:
-                    _mat_tar = _tar_now.get(_m, {})
-                    if isinstance(_mat_tar, list):
-                        _pml = next((r["valor"] for r in _mat_tar if r.get("inductor") == "por_ml"), 0)
+                # ── Elaboración por material: itera los 5 materiales ─────────
+                # Fuente primaria: tar_recetas_edit (estado vivo del Builder,
+                # refleja ediciones no guardadas aún). Fallback: _tar_now
+                # (última versión guardada en BD).
+                #
+                # Busca la regla con etiqueta_pdf=="c2_mano_obra" y con
+                # inductor "por_ml" (prioridad) o "por_m2". Muestra la unidad
+                # real del taller (ml o m2) según cómo se configuró en el wizard.
+                # Solo renderiza filas con valor > 0 para no ensuciar el panel.
+                _recetas_vivas = st.session_state.get("tar_recetas_edit", {})
+                for _m in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]:
+                    _receta_m = _recetas_vivas.get(_m) or _tar_now.get(_m, {})
+                    if isinstance(_receta_m, list):
+                        _mo_reglas = [
+                            r for r in _receta_m
+                            if r.get("etiqueta_pdf") == "c2_mano_obra"
+                            and r.get("inductor") in ("por_ml", "por_m2")
+                        ]
+                        # Priorizar por_ml (cobro por borde); fallback por_m2
+                        _mo_regla = (
+                            next((r for r in _mo_reglas if r.get("inductor") == "por_ml"), None)
+                            or next(iter(_mo_reglas), None)
+                        )
+                        _pmo   = _mo_regla["valor"]   if _mo_regla else 0
+                        _unid  = _mo_regla["inductor"] if _mo_regla else "por_ml"
                     else:
-                        _pml = _mat_tar.get("prod_ml", 0)
-                    st.markdown(
-                        f'<div class="val-actual-row"><span class="val-label">MO {_m}</span>'
-                        f'<span class="val-num">${int(_pml):,}'.replace(",", ".") + '/ml</span></div>',
-                        unsafe_allow_html=True
-                    )
+                        _pmo  = _receta_m.get("prod_ml", 0)
+                        _unid = "por_ml"
+                    _unid_lbl = "ml" if _unid == "por_ml" else "m²"
+                    if _pmo > 0:
+                        st.markdown(
+                            f'<div class="val-actual-row">'
+                            f'<span class="val-label">Elaboración {_m}</span>'
+                            f'<span class="val-num">'
+                            + f'${int(_pmo):,}'.replace(",", ".")
+                            + f'/{_unid_lbl}</span></div>',
+                            unsafe_allow_html=True
+                        )
 
                 # Viáticos pueblo y ciudad
                 _via_p = _via_now.get("pueblo", {})
