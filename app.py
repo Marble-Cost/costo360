@@ -7572,10 +7572,10 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                         else:
                             _val_ui = _rc3.number_input(
                                 "$ COP",
-                                value=max(0.0, _val_stored),
+                                value=float(max(0.0, _val_stored)),
                                 min_value=0.0,
                                 step=1_000.0,
-                                format="%d",
+                                format="%.0f",
                                 key=_val_key,
                                 label_visibility="collapsed",
                                 help="Monto en pesos colombianos. Ej: 60000 = $60.000.",
