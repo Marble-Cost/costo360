@@ -344,6 +344,73 @@ def _cargar_config_desde_db() -> None:
         except Exception:
             pass
 
+    # ── PERSISTENCIA TARIFAS DINÁMICAS ───────────────────────────────────────
+    # Si hay tarifas_custom guardadas en BD (ya cargadas arriba en _CLAVES_CONFIG),
+    # necesitamos hacer tres cosas adicionales que la carga genérica no hace:
+    #
+    #  1. Marcar setup_tarifas_completado = True para que el usuario no vea
+    #     el Wizard de novatos al volver a la pestaña de Parámetros.
+    #
+    #  2. Pre-cargar tar_recetas_edit (el estado interno del Visual Builder)
+    #     para que las reglas aparezcan ya listas sin necesidad de abrir la pestaña.
+    #     Usamos la misma lógica _resolver_receta_ui inline para no depender de
+    #     funciones definidas más adelante en el archivo.
+    #
+    #  3. Sincronizar params_tarifas en el store_permanente (si ya existe).
+    #     store_permanente puede no existir aún en este punto del arranque;
+    #     la sincronización a store se hace al inicializar _sp_init() más adelante.
+    try:
+        _tc = st.session_state.get("tarifas_custom")
+        if _tc and isinstance(_tc, dict) and len(_tc) > 0:
+            # 1 — El usuario ya configuró sus tarifas → saltarse el Wizard
+            st.session_state["setup_tarifas_completado"] = True
+            st.session_state["paso_wizard"] = 1  # reset por seguridad
+
+            # 2 — Pre-cargar tar_recetas_edit solo si el editor no tiene datos
+            #     (evitar pisar ediciones en curso dentro de la misma sesión)
+            if "tar_recetas_edit" not in st.session_state:
+                _recetas_precargadas = {}
+                for _m_pc, _entry_pc in _tc.items():
+                    if isinstance(_entry_pc, list):
+                        # Formato receta v4 — copia directa
+                        _recetas_precargadas[_m_pc] = [dict(r) for r in _entry_pc]
+                    elif isinstance(_entry_pc, dict):
+                        # Formato plano legacy — convertir a receta inline
+                        _recetas_precargadas[_m_pc] = [
+                            {"nombre_interno": "Elaboración e Instalación",
+                             "inductor": "por_ml",
+                             "valor": float(_entry_pc.get("prod_ml", 60_000)),
+                             "etiqueta_pdf": "c2_mano_obra"},
+                            {"nombre_interno": "Mano obra área",
+                             "inductor": "por_m2",
+                             "valor": float(_entry_pc.get("prod_m2", 35_000)),
+                             "etiqueta_pdf": "c2_mano_obra"},
+                            {"nombre_interno": "Instalación zócalo",
+                             "inductor": "por_ml_zocalo",
+                             "valor": float(_entry_pc.get("zocalo", 12_000)),
+                             "etiqueta_pdf": "c3_zocalos"},
+                            {"nombre_interno": "Desgaste disco",
+                             "inductor": "por_m2",
+                             "valor": float(_entry_pc.get("disco", 2_200)),
+                             "etiqueta_pdf": "c4_insumos"},
+                            {"nombre_interno": "Uso máquina cortadora",
+                             "inductor": "por_dia",
+                             "valor": float(_entry_pc.get("maquina", 20_000)),
+                             "etiqueta_pdf": "c4_insumos"},
+                            {"nombre_interno": "Consumibles (lijas, masilla, sellador)",
+                             "inductor": "por_m2",
+                             "valor": float(_entry_pc.get("consumibles", 8_500)),
+                             "etiqueta_pdf": "c4_insumos"},
+                            {"nombre_interno": "Riesgo rotura",
+                             "inductor": "porcentaje_material",
+                             "valor": float(_entry_pc.get("riesgo_rotura", 0.02)),
+                             "etiqueta_pdf": "c4_insumos"},
+                        ]
+                if _recetas_precargadas:
+                    st.session_state["tar_recetas_edit"] = _recetas_precargadas
+    except Exception:
+        pass  # Falla silenciosa — la app sigue funcionando con defaults
+
     st.session_state["_config_cargada"] = True
 
     # ── Precargar borrador de Cotización Directa desde BD ────────────────────
@@ -1330,6 +1397,9 @@ _defaults = {
     "cdir_success": False,
     "aiu_paso": 0,
     "aiu_success": False,
+    # Wizard de Tarifas — se marca True al cargar si hay tarifas en BD
+    "setup_tarifas_completado": False,
+    "paso_wizard": 1,
 }
 for k, v in _defaults.items():
     if k not in st.session_state:
@@ -1485,6 +1555,13 @@ def _sp_init():
         sp["params_viaticos"]  = st.session_state.viaticos_custom
     if st.session_state.get("adicionales_custom"):
         sp["params_adicionales"] = st.session_state.adicionales_custom
+
+    # ── Sincronizar bandera del wizard de Tarifas ─────────────────────────
+    # Si en session_state ya se marcó como completado (por carga desde BD o
+    # por el usuario durante esta sesión), propagarlo al store para que
+    # sobreviva a la navegación entre páginas de Streamlit.
+    if st.session_state.get("setup_tarifas_completado"):
+        sp["setup_tarifas_completado"] = True
 
     # ── Precargar ítems AIU si existen ────────────────────────────────────────
     if st.session_state.get("aiu_items"):
@@ -7631,18 +7708,34 @@ Cada material tiene una **lista de reglas de costo**. El motor las itera una a u
                     _sm: list(st.session_state[_SS_KEY].get(_sm, []))
                     for _sm in ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
                 }
+                # ── Escritura en capas: sesión → store → BD ───────────────────
+                # Orden deliberado: la sesión se actualiza primero para que cualquier
+                # rerun inmediato vea los datos correctos aunque falle la BD.
+                st.session_state.tarifas_custom        = _saved_tar
+                st.session_state.setup_tarifas_completado = True   # no vuelve al wizard
                 _sp()["params_tarifas"] = _saved_tar
-                st.session_state.tarifas_custom = _saved_tar
+                _bd_ok = False
                 try:
                     _guardar_config("tarifas_custom", _saved_tar)
-                except Exception:
-                    pass
+                    _bd_ok = True
+                except Exception as _e_save:
+                    st.warning(
+                        f"⚠️ Las tarifas se aplicaron en esta sesión, pero no pudieron "
+                        f"guardarse en la base de datos ({type(_e_save).__name__}). "
+                        f"Verifica la conexión a Supabase.",
+                        icon="⚠️",
+                    )
                 st.session_state.pop(_SS_KEY, None)
-                st.toast("✅ Tarifas guardadas y persistidas correctamente", icon="💾")
+                if _bd_ok:
+                    st.toast("✅ Tarifas guardadas y persistidas correctamente", icon="💾")
+                else:
+                    st.toast("⚠️ Aplicadas en sesión — sin persistencia en BD", icon="⚠️")
                 st.rerun()
             if _col_reset_tar.button("↺ Restaurar", key="btn_reset_tar", use_container_width=True,
                                       help="Vuelve a los valores por defecto de fábrica"):
-                st.session_state.tarifas_custom = None
+                st.session_state.tarifas_custom         = None
+                st.session_state.setup_tarifas_completado = False  # vuelve al wizard
+                st.session_state.paso_wizard              = 1
                 _sp()["params_tarifas"] = None
                 try:
                     _guardar_config("tarifas_custom", None)
