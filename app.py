@@ -2755,6 +2755,167 @@ elif pagina == "Cotizacion Directa":
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
+        # ════════════════════════════════════════════════════════════════════
+        # 💾 FORMALIZAR Y GUARDAR COTIZACIÓN — Opt-in explícito en success screen
+        # ════════════════════════════════════════════════════════════════════
+        # Esta sección registra la cotización en la tabla `cotizaciones` con los
+        # datos de cliente y proyecto ingresados conscientemente por el usuario.
+        # Es independiente del guardado automático del Paso 4 (que puede ser un
+        # borrador sin nombre). Usar _cotiz_formalizada como bandera de sesión
+        # para no re-mostrar el formulario si el usuario ya formalizó.
+        # ────────────────────────────────────────────────────────────────────
+        _ya_formalizada = st.session_state.get("_cotiz_formalizada", False)
+
+        with st.expander(
+            "💾 Formalizar y Guardar Cotización" if not _ya_formalizada else "✅ Cotización formalizada",
+            expanded=not _ya_formalizada,
+        ):
+            if _ya_formalizada:
+                # ── Estado post-guardado ──────────────────────────────────
+                _num_form = st.session_state.get("_cotiz_formalizada_num", "")
+                st.success(
+                    f"Cotización **{_num_form}** registrada en el historial. "
+                    f"Puedes descargar los documentos a continuación.",
+                    icon="✅",
+                )
+            else:
+                # ── Instrucción contextual ────────────────────────────────
+                st.markdown(
+                    "<div style='font-size:0.85rem;opacity:0.75;margin-bottom:12px'>"
+                    "Completa los datos del cliente y el proyecto para registrar esta cotización "
+                    "en tu historial permanente. <em>Si es solo una prueba, puedes omitir este paso.</em>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+                _fc1, _fc2 = st.columns(2)
+                with _fc1:
+                    _form_cliente = st.text_input(
+                        "Nombre del Cliente *",
+                        value=r.get("nombre_cliente", ""),
+                        placeholder="Ej: Constructora Ducal S.A.S.",
+                        key="form_cliente_nombre",
+                        help="Nombre de la persona o empresa que recibirá la cotización.",
+                    )
+                with _fc2:
+                    _form_proyecto = st.text_input(
+                        "Nombre del Proyecto *",
+                        value="",
+                        placeholder="Ej: Cocina Ducal Gold — Apto 402",
+                        key="form_proyecto_nombre",
+                        help="Descripción corta del proyecto. Aparecerá en el historial y en los PDFs.",
+                    )
+
+                _num_form_input = st.text_input(
+                    "Número de cotización",
+                    value=st.session_state.get("_cotiz_guardada_num")
+                          or st.session_state.get("cdir_num_auto", f"COT-{_hoy().strftime('%Y')}-001"),
+                    key="form_num_cotizacion",
+                    help="Puedes editarlo manualmente. Se asignará automáticamente si lo dejas como está.",
+                )
+
+                _fb1, _fb2 = st.columns([2, 1])
+                with _fb1:
+                    _btn_formalizar = st.button(
+                        "💾 Guardar en Historial",
+                        type="primary",
+                        use_container_width=True,
+                        key="btn_formalizar_cotiz",
+                    )
+                with _fb2:
+                    _btn_omitir = st.button(
+                        "✕ Omitir",
+                        use_container_width=True,
+                        key="btn_omitir_formalizar",
+                        help="Descarga el PDF sin guardar en el historial.",
+                    )
+
+                # ── Lógica de guardado ────────────────────────────────────
+                if _btn_formalizar:
+                    _err_form = []
+                    if not _form_cliente.strip():
+                        _err_form.append("el **Nombre del Cliente**")
+                    if not _form_proyecto.strip():
+                        _err_form.append("el **Nombre del Proyecto**")
+                    if _err_form:
+                        st.warning(
+                            f"Por favor completa {' y '.join(_err_form)} antes de guardar.",
+                            icon="⚠️",
+                        )
+                    else:
+                        # Construir resultado enriquecido con datos del formulario
+                        _r_formalizado = dict(r)
+                        _r_formalizado["nombre_cliente"]   = _form_cliente.strip()
+                        _r_formalizado["nombre_proyecto"]  = _form_proyecto.strip()
+                        _precio_total_form = (
+                            r["precio_sugerido"] * 1.19
+                            if r.get("incluir_iva", False)
+                            else r["precio_sugerido"]
+                        )
+                        _margen_form = float(r.get("margen_pct", 0))
+
+                        try:
+                            # ── Verificar si ya existe un registro del Paso 4 ──────
+                            # Si el Paso 4 ya guardó esta cotización con un número,
+                            # actualizamos ese registro en lugar de duplicarlo.
+                            _id_existente = st.session_state.get("editando_id")
+                            _num_ya_guardado = st.session_state.get("_cotiz_guardada_num", "")
+
+                            if _id_existente and _num_ya_guardado:
+                                # Actualizar el registro existente con cliente y proyecto
+                                _actualizar_cotizacion(
+                                    _id_existente,
+                                    _num_form_input.strip(),
+                                    _form_cliente.strip(),
+                                    _r_formalizado,
+                                )
+                                _num_registrado = _num_form_input.strip()
+                            else:
+                                # Insertar nuevo registro formalizado
+                                _guardar_cotizacion(
+                                    _num_form_input.strip(),
+                                    _form_cliente.strip(),
+                                    _r_formalizado,
+                                )
+                                _num_registrado = _num_form_input.strip()
+
+                            # Marcar retales usados si aplica
+                            for _mi_f, _md_f in enumerate(
+                                st.session_state.get("materiales_proyecto", [])
+                            ):
+                                if _md_f.get("es_retal") and _md_f.get("retal_id"):
+                                    try:
+                                        _marcar_retal_usado(
+                                            _md_f["retal_id"], _md_f.get("area_placa", 0)
+                                        )
+                                        st.session_state.pop(f"usar_retal_{_mi_f}", None)
+                                    except Exception:
+                                        pass
+
+                            # Actualizar estado de sesión
+                            st.session_state["_cotiz_formalizada"]     = True
+                            st.session_state["_cotiz_formalizada_num"] = _num_registrado
+                            st.session_state["_cotiz_guardada"]        = True
+                            st.session_state["_cotiz_guardada_num"]    = _num_registrado
+                            st.rerun()
+
+                        except Exception as _e_form:
+                            st.error(
+                                f"No se pudo guardar en la base de datos: "
+                                f"**{type(_e_form).__name__}** — {_e_form}. "
+                                f"Verifica la conexión a Supabase. "
+                                f"Puedes descargar el PDF de todas formas.",
+                                icon="🚨",
+                            )
+
+                if _btn_omitir:
+                    # El usuario quiere el PDF sin registro formal
+                    st.session_state["_cotiz_formalizada"] = True
+                    st.session_state["_cotiz_formalizada_num"] = ""
+                    st.rerun()
+
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
         # ── Exportar PDFs ────────────────────────────────────────────
         st.markdown("### 📄 Documentos para el cliente")
         from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
@@ -2817,6 +2978,7 @@ elif pagina == "Cotizacion Directa":
                     "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
                     "_borrador_restaurado", "_sp_borrador_hash",
                     "_cantidades_add_restauradas",
+                    "_cotiz_formalizada", "_cotiz_formalizada_num",
                 ]
                 for k in _DATA_KEYS_NUEVA:
                     st.session_state.pop(k, None)
@@ -2887,6 +3049,7 @@ elif pagina == "Cotizacion Directa":
                     "_cotiz_guardada", "_cotiz_guardada_num", "_num_auto_sugerido",
                     "_borrador_restaurado", "_sp_borrador_hash",
                     "_cantidades_add_restauradas",
+                    "_cotiz_formalizada", "_cotiz_formalizada_num",
                 ]
                 for k in _DATA_KEYS:
                     st.session_state.pop(k, None)
