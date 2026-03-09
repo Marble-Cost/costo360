@@ -7676,6 +7676,60 @@ elif pagina == "Parametros":
                             icon="ℹ️",
                         )
 
+                    # ── Política de Insumos Directos ─────────────────────
+                    # Separador visual entre la calculadora CIF y la política
+                    # de insumos, para que el usuario distinga claramente los
+                    # dos conceptos: costos fijos (servicios) vs. consumibles
+                    # variables (discos, lijas, pegante).
+                    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                    st.divider()
+                    st.markdown("#### 🛠️ Política de Insumos")
+                    st.caption(
+                        "Los **insumos físicos** (lijas, discos, pegantes, masillas) son distintos "
+                        "de los servicios públicos que acabas de calcular. "
+                        "Define quién los asume en tu modelo de negocio."
+                    )
+
+                    # Opciones de política — se almacenan como constantes para que
+                    # la comparación en el Paso 4 sea robusta ante espacios o typos.
+                    _POL_TALLER   = "El Taller los compra (Agregar costo de insumos)"
+                    _POL_OPERARIO = "Los Operarios los traen (Ya está incluido en lo que les pago)"
+
+                    # Recuperar selección previa para que el radio no se resetee
+                    # si el usuario navega Atrás y vuelve al Paso 3.
+                    _pol_prev = st.session_state.get("wiz_politica_insumos", _POL_TALLER)
+                    _pol_idx  = 0 if _pol_prev == _POL_TALLER else 1
+
+                    _wiz_politica = st.radio(
+                        "¿Quién asume el costo de los insumos físicos "
+                        "(lijas, discos, pegantes, masillas)?",
+                        [_POL_TALLER, _POL_OPERARIO],
+                        index=_pol_idx,
+                        key="wiz_radio_politica_insumos",
+                        help=(
+                            "**El Taller los compra:** se añade una regla de "
+                            "\"Consumibles Directos\" con valor sugerido a la receta. "
+                            "**Los Operarios los traen:** el costo ya está absorbido en "
+                            "el valor de mano de obra que ingresaste en el Paso 2."
+                        ),
+                    )
+
+                    # Feedback inmediato según elección
+                    if _wiz_politica == _POL_TALLER:
+                        st.success(
+                            "✅ Se agregará la regla **\"Consumibles Directos "
+                            "(Discos, Lijas, Pegante)\"** con $15.000/m² a tu receta. "
+                            "Podrás ajustar ese valor en el Visual Builder.",
+                            icon="🛠️",
+                        )
+                    else:
+                        st.info(
+                            "ℹ️ Los consumibles no se agregarán como regla separada. "
+                            "Recuerda que el valor de mano de obra del Paso 2 debe "
+                            "cubrir ese costo implícitamente.",
+                            icon="ℹ️",
+                        )
+
                     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
                     _nav3a, _nav3b = st.columns([1, 2])
                     with _nav3a:
@@ -7689,17 +7743,18 @@ elif pagina == "Parametros":
                             use_container_width=True,
                             type="primary",
                         ):
-                            # Persistir todos los valores antes del rerun()
+                            # Persistir TODOS los valores del paso antes del rerun().
+                            # Orden: calculadora CIF → unidad → política de insumos.
                             st.session_state.wiz_recibo_servicios  = float(_wiz_recibo)
                             st.session_state.wiz_m2_mes_taller     = float(_wiz_m2_mes)
                             st.session_state.wiz_unidad_produccion = _unidad_sel
-                            # Si el taller trabaja en ML, guardar también ese valor
-                            # para que al volver al Paso 3 no pierda lo que ingresó.
                             if _unidad_sel == _OPT_ML:
                                 st.session_state.wiz_ml_mes_taller = float(_input_produccion)
-                            # CIF calculado: el Paso 4 lo inyecta en "Servicios de Taller"
                             st.session_state.wiz_cif_por_m2        = round(_cif_por_m2, 2)
                             st.session_state.wiz_insumos           = True  # siempre True con CIF
+                            # Política de insumos — persistida aquí para que el Paso 4
+                            # pueda leerla desde session_state sin depender del widget.
+                            st.session_state.wiz_politica_insumos  = _wiz_politica
                             st.session_state.paso_wizard           = 4
                             st.rerun()
 
@@ -7751,44 +7806,60 @@ elif pagina == "Parametros":
                         },
                     ]
 
-                    # ── Paquete CIF + insumos de taller ──────────────────
-                    # wiz_insumos siempre llega True desde la Calculadora CIF,
-                    # pero el guard mantiene compatibilidad con sesiones restauradas.
-                    # wiz_cif_por_m2: calculado en Paso 3 = recibo / m²_mes.
-                    # Fallback $3.000 cubre migraciones desde wizard anterior.
+                    # ════════════════════════════════════════════════════
+                    # MODELO HÍBRIDO — 4 bloques de construcción de receta
+                    # ════════════════════════════════════════════════════
+                    # A. Mano de Obra/Instalación      → ya en _receta_wizard
+                    # B. Instalación zócalo            → ya en _receta_wizard
+                    # C. Provisión por Riesgo          → ya en _receta_wizard
+                    # D. CIF Servicios de Taller       → SIEMPRE, con valor real
+                    # E. Consumibles Directos          → CONDICIONAL según política
+                    # ────────────────────────────────────────────────────
+
+                    # ── BLOQUE D: CIF Servicios de Taller (SIEMPRE) ──────
+                    # Leer el CIF calculado en Paso 3. Fallback $3.000/m²
+                    # para sesiones migradas desde el wizard anterior que
+                    # no tenían wiz_cif_por_m2 en session_state.
                     _cif_inyectado = float(
                         st.session_state.get("wiz_cif_por_m2", 3_000.0)
                     )
-                    if _insumos:
+                    _receta_wizard += [
+                        # CIF — distribuye el costo fijo de servicios públicos
+                        # entre los m² elaborados. Valor exacto de la Calculadora CIF:
+                        #   _cif_inyectado = recibo_mensual_taller ÷ m²_elaborados_mes
+                        {
+                            "nombre_interno": "Servicios de Taller (Luz y Agua)",
+                            "inductor":       "por_m2",
+                            "valor":          _cif_inyectado,
+                            "etiqueta_pdf":   "c4_insumos",
+                        },
+                    ]
+
+                    # ── BLOQUE E: Consumibles Directos (CONDICIONAL) ──────
+                    # Leer la política de insumos guardada en el Paso 3.
+                    # Fallback _POL_TALLER para sesiones sin dato previo
+                    # (comportamiento conservador: incluir el costo).
+                    _POL_TALLER_4 = "El Taller los compra (Agregar costo de insumos)"
+                    _politica_insumos = st.session_state.get(
+                        "wiz_politica_insumos", _POL_TALLER_4
+                    )
+                    if _politica_insumos == _POL_TALLER_4:
+                        # El taller compra los insumos directos → agregar regla
+                        # separada para que sea visible y ajustable en el Builder.
+                        # Valor sugerido $15.000/m² (mercado Barranquilla 2026):
+                        #   disco  ≈ $2.200/m² · lijas ≈ $3.800/m²
+                        #   pegante ≈ $5.000/m² · masilla/sellador ≈ $4.000/m²
                         _receta_wizard += [
                             {
-                                "nombre_interno": "Desgaste disco",
+                                "nombre_interno": "Consumibles Directos (Discos, Lijas, Pegante)",
                                 "inductor":       "por_m2",
-                                "valor":          2_200.0,
-                                "etiqueta_pdf":   "c4_insumos",
-                            },
-                            {
-                                "nombre_interno": "Uso máquina cortadora",
-                                "inductor":       "por_dia",
-                                "valor":          20_000.0,
-                                "etiqueta_pdf":   "c4_insumos",
-                            },
-                            {
-                                "nombre_interno": "Consumibles (lijas, masilla, sellador)",
-                                "inductor":       "por_m2",
-                                "valor":          8_500.0,
-                                "etiqueta_pdf":   "c4_insumos",
-                            },
-                            # CIF — Servicios de Taller (Luz y Agua).
-                            # Valor exacto de la Calculadora CIF del Paso 3:
-                            #   _cif_inyectado = recibo_mensual ÷ m²_elaborados_mes
-                            {
-                                "nombre_interno": "Servicios de Taller (Luz y Agua)",
-                                "inductor":       "por_m2",
-                                "valor":          _cif_inyectado,
+                                "valor":          15_000.0,
                                 "etiqueta_pdf":   "c4_insumos",
                             },
                         ]
+                    # else: los operarios traen sus insumos → el costo está
+                    # implícito en el valor de mano de obra del Paso 2.
+                    # No se inyecta ninguna regla adicional.
 
                     # ── Inyectar receta en los 5 materiales ──────────────────
                     # Se aplica la misma estructura base a todos; el usuario podrá
