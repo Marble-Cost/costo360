@@ -913,7 +913,7 @@ REGLAS DE RESPUESTA:
         for m in historial:
             _prompt_cp += f"{m['role'].upper()}: {m['content']}\n"
         _prompt_cp += f"USER: {mensaje}"
-        return chat_con_ia(_prompt_cp)
+        return chat_con_ia([], _prompt_cp)
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -8705,7 +8705,7 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                             f"Sin texto adicional, sin bloques de código, sin comillas extra. "
                             f"Ejemplo: {{\"rendimiento_km_gal\": 28.0, \"capacidad_max_kg\": 900.0}}"
                         )
-                        _raw_fl = chat_con_ia(_prompt_fl)
+                        _raw_fl = chat_con_ia([], _prompt_fl)
                         _raw_fl_clean = _raw_fl.replace("```json", "").replace("```", "").strip()
                         _match_fl = _re_fl.search(r"\{.*\}", _raw_fl_clean, _re_fl.DOTALL)
                         if not _match_fl:
