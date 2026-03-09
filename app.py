@@ -2120,7 +2120,8 @@ with st.sidebar:
         for _q in _PREGUNTAS_RAPIDAS:
             if st.button(_q, use_container_width=True, key=f"sos_q_{_q[:20]}"):
                 with st.spinner("Consultando IA..."):
-                    _resp_rapida = chat_sos(_q, _sos_ctx, _sos_form_ctx)
+                    _resp_rapida = chat_sos(_q, _sos_ctx, _sos_form_ctx,
+                                                  contexto_tarifas=st.session_state.get("tarifas_custom"))
                 st.session_state["_sos_ultima_respuesta"] = _resp_rapida
                 st.session_state["_sos_ultima_pregunta"]  = _q
 
@@ -2138,7 +2139,8 @@ with st.sidebar:
                      type="primary"):
             if _sos_pregunta.strip():
                 with st.spinner("Consultando..."):
-                    _sos_resp = chat_sos(_sos_pregunta.strip(), _sos_ctx, _sos_form_ctx)
+                    _sos_resp = chat_sos(_sos_pregunta.strip(), _sos_ctx, _sos_form_ctx,
+                                               contexto_tarifas=st.session_state.get("tarifas_custom"))
                 st.session_state["_sos_ultima_respuesta"] = _sos_resp
                 st.session_state["_sos_ultima_pregunta"]  = _sos_pregunta.strip()
             else:
@@ -3806,9 +3808,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     st.caption(f"Calculado automáticamente ({pct_auto*100:.0f}% de {fmt_m2(m2_real)})")
 
             with _cv2:
-                _tar_actual      = get_tarifas().get(cat_sel, TARIFAS.get(cat_sel, TARIFAS["Mármol"]))
-                _costo_disco_ret = extra_corte * _tar_actual.get("disco", 2_200)
-                _costo_disco_base = m2_real * _tar_actual.get("disco", 2_200)
+                _tar_actual = get_tarifas().get(cat_sel, TARIFAS.get(cat_sel, TARIFAS["Mármol"]))
+                # _tar_actual puede ser lista de reglas (recetas v4) o dict plano legacy.
+                # Extractor defensivo: nunca llama .get() sobre una lista.
+                if isinstance(_tar_actual, list):
+                    _disco_tarifa = next(
+                        (r["valor"] for r in _tar_actual
+                         if r.get("nombre_interno") == "Desgaste disco"
+                         or (r.get("inductor") == "por_m2"
+                             and "disco" in r.get("nombre_interno", "").lower())),
+                        2_200,
+                    )
+                else:
+                    _disco_tarifa = _tar_actual.get("disco", 2_200)
+                _costo_disco_ret  = extra_corte * _disco_tarifa
+                _costo_disco_base = m2_real    * _disco_tarifa
                 st.markdown(f"""
                 <div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
                             border-radius:8px;padding:10px 14px;font-size:0.82rem">
@@ -7844,7 +7858,8 @@ elif pagina == "Asistente IA":
                     if st.button("Consultar →", key=f"arr_{_i}", use_container_width=True):
                         st.session_state.chat.append({"role": "user", "content": _ar["msg"]})
                         with st.spinner("El asistente está analizando…"):
-                            _r = chat_con_ia([], _ar["msg"])
+                            _r = chat_con_ia([], _ar["msg"],
+                                               contexto_tarifas=st.session_state.get("tarifas_custom"))
                             _datos = None
                             if any(w in _ar["msg"].lower() for w in ["mesón", "cocina", "ml", "metros", "placa"]):
                                 _datos = interpretar_proyecto(_ar["msg"])
@@ -7935,7 +7950,8 @@ elif pagina == "Asistente IA":
                             _sr = chat_con_ia(
                                 [m for m in st.session_state.chat[:-1]
                                  if m["role"] in ("user", "assistant")],
-                                _sug
+                                _sug,
+                                contexto_tarifas=st.session_state.get("tarifas_custom"),
                             )
                         st.session_state.chat.append({"role": "assistant", "content": _sr})
                         st.session_state.chat_input_key += 1
@@ -7982,7 +7998,8 @@ elif pagina == "Asistente IA":
             _datos_ext   = interpretar_proyecto(_texto) if _es_proyecto else None
             _resp        = chat_con_ia(
                 [m for m in st.session_state.chat[:-1] if m["role"] in ("user","assistant")],
-                _texto
+                _texto,
+                contexto_tarifas=st.session_state.get("tarifas_custom"),
             )
 
         _nuevo_msg_ia = {"role": "assistant", "content": _resp}
