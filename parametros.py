@@ -213,24 +213,40 @@ VEHICULOS = {
 }
 
 # Configuración detallada de vehículos propios (editable en Parámetros)
+#
+# NUEVAS LLAVES (Logística Predictiva de Flota — v5):
+#   rendimiento_km_gal : rendimiento BASE en km/galón sin carga (condición ideal).
+#                        calculos.py aplica la penalización termodinámica sobre este
+#                        valor según el peso del proyecto para obtener el rendimiento real.
+#                        Nota: "rend" es el rendimiento legacy con carga típica — se
+#                        conserva para retro-compatibilidad. "rendimiento_km_gal" es el
+#                        valor sin carga que usa la nueva fórmula termodinámica.
+#   capacidad_max_kg   : carga útil máxima del vehículo en kg.
+#                        Si peso_total_proyecto > capacidad_max_kg → bloqueo automático
+#                        y activación de flete externo.
+#
+# Frontier NP300: capacidad útil real ≈ 850 kg (especificación Nissan Colombia).
+# Cheyenne V8 (C30): plataforma pesada, capacidad útil ≈ 1.800 kg.
 VEHICULOS_CONFIG = {
     "frontier": {
         "nombre": "Frontier NP300",
         "tipo": "propio",
-        "rend": 7.2,
+        "rend": 7.2,                        # legacy: rendimiento con carga típica
+        "rendimiento_km_gal": 10.5,          # sin carga — base para cálculo termodinámico
+        "capacidad_max_kg": 850.0,           # carga útil máxima (kg)
         "desgaste": 148,
         "base": 65_000,
-        # Aporte al fondo de rodamiento por km recorrido (llantas, aceite, filtros)
         "costo_mantenimiento_por_km": 85,
         "descripcion": "Camioneta pickup — carga media, ideal transporte losa",
     },
     "cheyenne": {
         "nombre": "Cheyenne V8",
         "tipo": "propio",
-        "rend": 4.1,
+        "rend": 4.1,                         # legacy: rendimiento con carga típica
+        "rendimiento_km_gal": 6.5,           # sin carga — base para cálculo termodinámico
+        "capacidad_max_kg": 1_800.0,         # carga útil máxima (kg)
         "desgaste": 340,
         "base": 85_000,
-        # Aporte al fondo de rodamiento por km recorrido (llantas, aceite, filtros)
         "costo_mantenimiento_por_km": 160,
         "descripcion": "Camión grande — carga pesada, varios proyectos",
     },
