@@ -2078,14 +2078,48 @@ def get_adicionales():
     import copy
     return copy.deepcopy(st.session_state.adicionales_custom) if st.session_state.adicionales_custom else copy.deepcopy(ADICIONALES)
 def get_vehiculos_config():
+    """
+    Devuelve el mapa completo de vehículos fusionando tres capas (en orden de prioridad):
+      1. VEHICULOS_CONFIG  — base de fábrica (Frontier, Cheyenne, Externo).
+      2. vehiculos_custom  — overrides legacy de session_state (retro-compat).
+      3. flota_propia      — vehículos añadidos por el usuario en el Gestor de Flota.
+                             Viven en logistica_custom["flota_propia"] y se proyectan
+                             con tipo="propio" para que calcular_logistica los procese.
+    Esta función es el ÚNICO punto de verdad de vehículos; todos los selectores
+    y llamadas a calcular_logistica deben pasar por aquí.
+    """
     import copy
-    base = copy.deepcopy(VEHICULOS_CONFIG)
+    base   = copy.deepcopy(VEHICULOS_CONFIG)
     custom = st.session_state.get("vehiculos_custom") or {}
-    for k, v in custom.items(): base[k] = v
+    for k, v in custom.items():
+        base[k] = v
+    # ── Flota propia guardada en el Gestor de Flota ───────────────────────────
+    _log_c = st.session_state.get("logistica_custom") or {}
+    _flota = _log_c.get("flota_propia", {})
+    for _slug, _vcfg in _flota.items():
+        if _slug in base:          # nunca pisar Frontier / Cheyenne / Externo
+            continue
+        base[_slug] = {
+            "nombre":                    _vcfg.get("nombre", _slug),
+            "tipo":                      "propio",
+            # rendimiento_km_gal es la base termodinámica (sin carga) para calculos.py v5
+            "rendimiento_km_gal":        float(_vcfg.get("rendimiento_km_gal", 25.0)),
+            "rend":                      float(_vcfg.get("rendimiento_km_gal", 25.0)),  # alias legacy
+            "capacidad_max_kg":          float(_vcfg.get("capacidad_max_kg",  1_000.0)),
+            "desgaste":                  int(_vcfg.get("desgaste",   120)),
+            "base":                      int(_vcfg.get("base",    50_000)),
+            "costo_mantenimiento_por_km": int(_vcfg.get("costo_mantenimiento_por_km", 80)),
+            "descripcion":               _vcfg.get("descripcion", "Vehículo personalizado"),
+        }
     return base
+
 def get_vehiculos_dict():
+    """Label → slug. Usado por los selectores de vehículo en toda la app."""
     vc = get_vehiculos_config()
-    return {f"{cfg.get('nombre', k)} ({'propio' if cfg.get('tipo')=='propio' else 'flete externo'})": k for k, cfg in vc.items()}
+    return {
+        f"{cfg.get('nombre', k)} ({'propio' if cfg.get('tipo') == 'propio' else 'flete externo'})": k
+        for k, cfg in vc.items()
+    }
 
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -2696,8 +2730,7 @@ elif pagina == "Cotizacion Directa":
                             piezas=_pre_sb.get("piezas", []),
                             ml_proyecto=float(_pre_sb.get("ml_proyecto", 0)),
                             logistica_override=st.session_state.get("logistica_custom"),
-                            vehiculos_custom={**VEHICULOS_CONFIG,
-                                              **(st.session_state.get("vehiculos_custom") or {})},
+                            vehiculos_custom=get_vehiculos_config(),
                             tarifas_override=st.session_state.get("tarifas_custom"),
                             # C-05: pasar IVA para que precio_por_ml y precio_por_m2_venta
                             # reflejen el precio FINAL al cliente (con IVA), no el subtotal.
@@ -4573,7 +4606,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
                     ml_proyecto=_ml_tot,
                     logistica_override=st.session_state.get("logistica_custom"),
-                    vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+                    vehiculos_custom=get_vehiculos_config(),
                     tarifas_override=st.session_state.get("tarifas_custom"),
                     piezas=_piezas,
                     # Innovación 7: peaje exacto por caseta
@@ -5469,7 +5502,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** — Decreto 1372/92 Colomb
                     # Cotización Directa — IVA AIU sigue siendo solo sobre U).
                     logistica_override=st.session_state.get("logistica_custom"),
                     viaticos_override=st.session_state.get("viaticos_custom"),
-                    vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+                    vehiculos_custom=get_vehiculos_config(),
                     costo_peaje_unitario=float(st.session_state.pre.get("costo_peaje_unitario", 0.0)),
                 )
                 res_aiu["tipo_proyecto"]   = "Licitación AIU"
@@ -5872,7 +5905,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             # C-03: overrides de tarifas personalizadas del usuario
             logistica_override=st.session_state.get("logistica_custom"),
             viaticos_override=st.session_state.get("viaticos_custom"),
-            vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+            vehiculos_custom=get_vehiculos_config(),
             costo_peaje_unitario=float(st.session_state.pre.get("costo_peaje_unitario", 0.0)),
         )
 
@@ -5968,7 +6001,7 @@ no sobre el total del contrato. La app calcula esto automáticamente.
             # C-03: recálculo defensivo también debe respetar tarifas personalizadas
             logistica_override=st.session_state.get("logistica_custom"),
             viaticos_override=st.session_state.get("viaticos_custom"),
-            vehiculos_custom={**VEHICULOS_CONFIG, **(st.session_state.get("vehiculos_custom") or {})},
+            vehiculos_custom=get_vehiculos_config(),
             costo_peaje_unitario=float(_pre.get("costo_peaje_unitario", 0.0)),
         )
         _res_aiu_pre["tipo_proyecto"]   = "Licitación AIU"
@@ -8537,9 +8570,234 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                 key="log_ext_flete",
                 help="Precio pactado con el flete externo. Aplica sin importar la distancia.")
 
+        # ══════════════════════════════════════════════════════════════════════
+        # GESTOR INTELIGENTE DE FLOTA
+        # Permite agregar cualquier vehículo, consultar su ficha técnica vía IA,
+        # validar los valores y guardarlo en logistica_custom["flota_propia"].
+        # Los vehículos aquí guardados aparecen automáticamente en el cotizador
+        # a través de get_vehiculos_config() → get_vehiculos_dict().
+        # ══════════════════════════════════════════════════════════════════════
+        st.markdown("### 🚚 Mi Flota de Vehículos")
+        st.caption(
+            "Agrega cualquier vehículo propio. La IA consulta su rendimiento y capacidad "
+            "de carga automáticamente. Los vehículos guardados aparecen en el cotizador."
+        )
+
+        # ── Flota guardada actualmente ────────────────────────────────────────
+        _log_c_now    = st.session_state.get("logistica_custom") or {}
+        _flota_actual = _log_c_now.get("flota_propia", {})
+
+        if _flota_actual:
+            st.markdown("**Vehículos en tu flota:**")
+            for _fslug, _fvcfg in list(_flota_actual.items()):
+                with st.container(border=True):
+                    _fc1, _fc2, _fc3, _fc4 = st.columns([2.8, 1.2, 1.2, 0.5])
+                    _fc1.markdown(
+                        f"**{_fvcfg.get('nombre', _fslug)}**  \n"
+                        f"<span style='font-size:0.73rem;opacity:0.55'>"
+                        f"{_fvcfg.get('descripcion', 'Vehículo personalizado')}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    _fc2.metric(
+                        "Rendimiento",
+                        f"{_fvcfg.get('rendimiento_km_gal', 0):.1f} km/gal",
+                    )
+                    _fc3.metric(
+                        "Cap. máx.",
+                        f"{int(_fvcfg.get('capacidad_max_kg', 0)):,} kg".replace(",", "."),
+                    )
+                    if _fc4.button("🗑️", key=f"flota_del_{_fslug}",
+                                   help=f"Eliminar {_fvcfg.get('nombre', _fslug)} de la flota"):
+                        _log_del  = dict(st.session_state.get("logistica_custom") or {})
+                        _flota_del = dict(_log_del.get("flota_propia", {}))
+                        _flota_del.pop(_fslug, None)
+                        _log_del["flota_propia"] = _flota_del
+                        st.session_state.logistica_custom = _log_del
+                        _sp()["params_logistica"] = _log_del
+                        try:
+                            _guardar_config("logistica_custom", _log_del)
+                        except Exception:
+                            pass
+                        st.toast(f"🗑️ {_fvcfg.get('nombre', _fslug)} eliminado de la flota.", icon="🚛")
+                        st.rerun()
+        else:
+            st.info(
+                "Aún no tienes vehículos en tu flota personalizada. "
+                "Usa el formulario de abajo para agregar el primero.",
+                icon="🚛",
+            )
+
+        # ── Formulario: nombre + botón investigar ─────────────────────────────
+        with st.container(border=True):
+            st.markdown("**➕ Agregar vehículo a la flota**")
+            _flota_input = st.text_input(
+                "Agrega un vehículo (Ej: Toyota Hilux 2022, Chevrolet NHR)",
+                key="flota_nombre_input",
+                placeholder="Escribe marca, modelo y año del vehículo",
+                help="La IA buscará el rendimiento y la capacidad de carga estimados.",
+            )
+
+            _btn_investigar = st.button(
+                "🔍 Investigar Ficha Técnica",
+                type="primary",
+                key="btn_flota_investigar",
+                disabled=not (_flota_input or "").strip(),
+            )
+
+            # ── Estado persistente del resultado de investigación ─────────────
+            # Usamos session_state para que el resultado sobreviva el rerun al
+            # presionar "Investigar" y el formulario de edición siga visible.
+            if "flota_ficha" not in st.session_state:
+                st.session_state.flota_ficha = None   # {"rendimiento_km_gal": x, "capacidad_max_kg": y}
+            if "flota_ficha_nombre" not in st.session_state:
+                st.session_state.flota_ficha_nombre = ""
+
+            if _btn_investigar and (_flota_input or "").strip():
+                _veh_q = _flota_input.strip()
+                with st.spinner(f"Consultando ficha técnica de **{_veh_q}**…"):
+                    # Llamada directa a anthropic (mismo patrón que _chat_parametros).
+                    # No usamos chat_con_ia porque su prompt está orientado a cotización,
+                    # no a datos técnicos de vehículos; y necesitamos JSON puro.
+                    try:
+                        import anthropic as _anth
+                        _api_fl = st.secrets.get("ANTHROPIC_API_KEY", "")
+                        if not _api_fl:
+                            raise ValueError("ANTHROPIC_API_KEY no configurada en secrets.toml")
+                        _cli_fl = _anth.Anthropic(api_key=_api_fl)
+                        _prompt_fl = (
+                            f"Eres un experto automotriz. Dame la ficha técnica estimada "
+                            f"de un(a) {_veh_q} para transporte de carga en Colombia. "
+                            f"Responde ÚNICAMENTE con un JSON válido con dos llaves numéricas: "
+                            f"\"rendimiento_km_gal\" (kilómetros por galón en ciudad con carga típica) "
+                            f"y \"capacidad_max_kg\" (carga útil máxima en kilogramos). "
+                            f"Sin texto adicional, sin bloques de código, sin comillas extra. "
+                            f"Ejemplo: {{\"rendimiento_km_gal\": 28.0, \"capacidad_max_kg\": 900.0}}"
+                        )
+                        _resp_fl = _cli_fl.messages.create(
+                            model="claude-sonnet-4-6",
+                            max_tokens=80,
+                            messages=[{"role": "user", "content": _prompt_fl}],
+                        )
+                        _raw_fl = _resp_fl.content[0].text.strip()
+                        # Limpiar bloques de código defensivamente
+                        _raw_fl = _raw_fl.replace("```json", "").replace("```", "").strip()
+                        import json as _json_fl
+                        _ficha_ia = _json_fl.loads(_raw_fl)
+                        st.session_state.flota_ficha = {
+                            "rendimiento_km_gal": float(_ficha_ia.get("rendimiento_km_gal", 25.0)),
+                            "capacidad_max_kg":   float(_ficha_ia.get("capacidad_max_kg",  1_000.0)),
+                        }
+                        st.session_state.flota_ficha_nombre = _veh_q
+                    except Exception as _e_fl:
+                        # Fallback con valores conservadores + advertencia visible
+                        st.warning(
+                            f"⚠️ No se pudo obtener la ficha técnica automáticamente "
+                            f"({type(_e_fl).__name__}). "
+                            f"Se asignaron valores por defecto — revísalos antes de guardar.",
+                            icon="🔧",
+                        )
+                        st.session_state.flota_ficha = {
+                            "rendimiento_km_gal": 25.0,
+                            "capacidad_max_kg":   1_000.0,
+                        }
+                        st.session_state.flota_ficha_nombre = _veh_q
+
+            # ── Formulario de validación manual (visible solo si hay resultado) ──
+            if st.session_state.get("flota_ficha") and st.session_state.get("flota_ficha_nombre"):
+                _nombre_ficha = st.session_state.flota_ficha_nombre
+                st.success(
+                    f"✅ Ficha técnica obtenida para **{_nombre_ficha}**. "
+                    f"Ajusta los valores si es necesario y presiona **Guardar**.",
+                    icon="🔍",
+                )
+                _fv1, _fv2 = st.columns(2)
+                with _fv1:
+                    _rend_val = st.number_input(
+                        "Rendimiento Base (km/gal)",
+                        min_value=1.0, max_value=80.0, step=0.5, format="%.1f",
+                        value=float(st.session_state.flota_ficha["rendimiento_km_gal"]),
+                        key="flota_rend_edit",
+                        help=(
+                            "Kilómetros por galón sin carga (base termodinámica). "
+                            "El motor aplica la penalización por peso del proyecto automáticamente."
+                        ),
+                    )
+                with _fv2:
+                    _cap_val = st.number_input(
+                        "Capacidad Máxima de Carga (kg)",
+                        min_value=50.0, max_value=20_000.0, step=50.0, format="%.0f",
+                        value=float(st.session_state.flota_ficha["capacidad_max_kg"]),
+                        key="flota_cap_edit",
+                        help=(
+                            "Si el proyecto supera este peso, el sistema activa "
+                            "flete externo automáticamente y lo indica en el resultado."
+                        ),
+                    )
+                _fv3, _fv4 = st.columns(2)
+                with _fv3:
+                    _desg_val = st.number_input(
+                        "Desgaste por km (COP/km)",
+                        min_value=0, max_value=1_000, step=5, format="%d",
+                        value=120,
+                        key="flota_desg_edit",
+                        help="Amortización de llantas, frenos, suspensión. Rango típico: $80–$200/km.",
+                    )
+                with _fv4:
+                    _base_val = st.number_input(
+                        "Flete base mínimo (COP)",
+                        min_value=0, max_value=500_000, step=5_000, format="%d",
+                        value=50_000,
+                        key="flota_base_edit",
+                        help="Costo mínimo por salir, sin importar la distancia al destino.",
+                    )
+
+                if st.button("💾 Guardar en mi Flota", type="primary",
+                             key="btn_flota_guardar", use_container_width=True):
+                    # Generar slug: solo minúsculas, números y guion bajo, máx. 30 chars
+                    import re as _re_fl
+                    _slug = _re_fl.sub(r"[^a-z0-9]+", "_",
+                                       _nombre_ficha.lower().strip())[:30].strip("_")
+                    # Nunca pisar los vehículos base
+                    _slugs_base = {"frontier", "cheyenne", "externo"}
+                    if _slug in _slugs_base:
+                        _slug = f"custom_{_slug}"
+
+                    _veh_nuevo = {
+                        "nombre":             _nombre_ficha,
+                        "rendimiento_km_gal": float(st.session_state.get("flota_rend_edit", _rend_val)),
+                        "capacidad_max_kg":   float(st.session_state.get("flota_cap_edit",  _cap_val)),
+                        "desgaste":           int(st.session_state.get("flota_desg_edit",   _desg_val)),
+                        "base":               int(st.session_state.get("flota_base_edit",   _base_val)),
+                        "costo_mantenimiento_por_km": 80,
+                        "descripcion":        "Agregado desde Gestor de Flota",
+                    }
+                    # Fusionar: preservar gasolina/peajes/frontier/cheyenne/externo existentes
+                    _log_save  = dict(st.session_state.get("logistica_custom") or {})
+                    _flota_upd = dict(_log_save.get("flota_propia", {}))
+                    _flota_upd[_slug] = _veh_nuevo
+                    _log_save["flota_propia"] = _flota_upd
+
+                    st.session_state.logistica_custom = _log_save
+                    _sp()["params_logistica"] = _log_save
+                    try:
+                        _guardar_config("logistica_custom", _log_save)
+                    except Exception:
+                        pass
+                    # Limpiar estado de investigación
+                    st.session_state.flota_ficha        = None
+                    st.session_state.flota_ficha_nombre = ""
+                    for _fk in ["flota_nombre_input", "flota_rend_edit",
+                                "flota_cap_edit", "flota_desg_edit", "flota_base_edit"]:
+                        st.session_state.pop(_fk, None)
+                    st.toast(f"✅ {_nombre_ficha} guardado en la flota.", icon="🚛")
+                    st.rerun()
+
         st.markdown("")
         _col_save_log, _col_reset_log = st.columns([3, 1])
         if _col_save_log.button("💾 Guardar Logística", type="primary", key="btn_save_log", use_container_width=True):
+            # Preservar flota_propia — no debe borrarse cuando el usuario actualiza
+            # tarifas de gasolina, peajes o vehículos base (Frontier/Cheyenne).
+            _flota_preservada = (st.session_state.get("logistica_custom") or {}).get("flota_propia", {})
             _saved_log = {
                 "gasolina": int(st.session_state.get("log_gas",      16_000)),
                 "peaje":    int(st.session_state.get("log_pea",      19_500)),
@@ -8558,6 +8816,8 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                 "externo": {
                     "flete": int(st.session_state.get("log_ext_flete", 165_000)),
                 },
+                # Reinyectar la flota propia para que nunca se pierda con este guardado
+                "flota_propia": _flota_preservada,
             }
             # ── store_permanente: escritura dual ────────────────────────────────
             _sp()["params_logistica"] = _saved_log
