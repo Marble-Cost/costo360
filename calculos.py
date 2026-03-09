@@ -36,6 +36,9 @@ def calcular_peso_proyecto(piezas: list, categoria: str) -> float:
     Parámetros:
         piezas    : lista de piezas con llaves 'largo', 'ancho', 'categoria' (opcional)
         categoria : material principal del proyecto (fallback cuando pieza no tiene categoria)
+
+    Retorna:
+        float — peso total en kg, redondeado a 2 decimales.
     """
     props_default = PROPIEDADES_MATERIAL.get(categoria, PROPIEDADES_MATERIAL["Mármol"])
     peso_total = 0.0
@@ -44,7 +47,7 @@ def calcular_peso_proyecto(piezas: list, categoria: str) -> float:
         cat_pieza = p.get("categoria", categoria)
         props = PROPIEDADES_MATERIAL.get(cat_pieza, props_default)
         largo_total = float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
-        ancho = float(p.get("ancho", 0.60))
+        ancho = float(p.get("ancho_custom", p.get("ancho", 0.60)))
         area_pieza = largo_total * ancho                       # m²
         grosor     = props["grosor_std_m"]                     # m
         densidad   = props["densidad_kg_m3"]                   # kg/m³
@@ -161,17 +164,32 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     """
     Calcula costo logístico completo desglosado.
 
-    Innovación 3 — Logística por Peso y Mantenimiento:
-      • El rendimiento km/gal se penaliza según el peso de la carga.
-        Fórmula: rend_efectivo = rend_base × (1 - factor_penalizacion)
-        factor_penalizacion = min(0.30, peso_kg / (peso_max × 2))
-        — El vehículo pierde hasta un 30% de rendimiento a carga máxima.
-      • Se suma costo_mantenimiento_por_km × km × 2 (ida y vuelta)
-        como aporte al fondo de rodamiento (llantas, aceite, filtros).
+    Logística Predictiva de Flota (v5):
+    ─────────────────────────────────────────────────────────────────────────
+    REGLA DE BLOQUEO POR CAPACIDAD:
+      Si el vehículo propio seleccionado no puede cargar el peso del proyecto
+      (peso_carga_kg > capacidad_max_kg del vehículo), el sistema:
+        1. Invalida el uso del vehículo propio — costo_combustible = 0.
+        2. Activa automáticamente la tarifa de Flete Externo.
+        3. Añade la clave "bloqueo_capacidad": True al resultado.
+        4. Incluye nota legible en "nota_bloqueo" para la UI.
+      El flete de proveedor (agente externo) se suma igual al total.
+
+    REGLA TERMODINÁMICA (si el peso está dentro del límite):
+      Por cada 45 kg de carga, el rendimiento baja un 1.5%.
+      Fórmula: penalizacion = min(0.40, (peso_carga_kg / 45.0) * 0.015)
+      rendimiento_real = rendimiento_km_gal_base * (1 - penalizacion)
+      Se usa "rendimiento_km_gal" si está disponible; si no, "rend" (legacy).
+      Tope: máximo 40% de reducción.
+
+    Innovación 3 legacy (retro-compatible):
+      Si no hay "rendimiento_km_gal" en el vehículo, se usa "rend" con la
+      penalización antigua (peso_max_penalizacion_kg del material) para
+      no romper vehículos custom configurados antes de esta versión.
 
     Innovación 7 — Peajes Exactos:
-      • Si se pasa costo_peaje_unitario > 0, se usa num_peajes × costo_peaje_unitario.
-      • Si no, se usa el peaje promedio del diccionario de logística (comportamiento legacy).
+      Si se pasa costo_peaje_unitario > 0, se usa num_peajes × costo_peaje_unitario.
+      Si no, se usa el peaje promedio del diccionario de logística (modo legacy).
     """
     p = logistica_override or LOGISTICA
 
@@ -179,66 +197,89 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     es_externo = veh_cfg.get("tipo") == "externo"
 
     costo_mantenimiento = 0.0
-    rend_efectivo = 0.0   # B-03: inicializado aquí para que sea accesible en el return
-                          # tanto si el vehículo es externo (queda en 0.0) como interno
-                          # (se sobreescribe en el bloque else con el valor real penalizado).
+    rend_efectivo       = 0.0
+    bloqueo_capacidad   = False
+    nota_bloqueo        = ""
 
     if es_externo:
         _ext_src = p.get("externo", {})
         _ext_flete_default = _ext_src.get("flete", 165_000) if isinstance(_ext_src, dict) else int(_ext_src)
-        flete_ext = veh_cfg.get("flete", _ext_flete_default)
+        flete_ext      = veh_cfg.get("flete", _ext_flete_default)
         costo_vehiculo = flete_ext
-        costo_km   = 0.0
-        costo_base = 0.0
+        costo_km       = 0.0
+        costo_base     = 0.0
     else:
-        gasolina   = p.get("gasolina", LOGISTICA["gasolina"])
-        rend_base  = veh_cfg.get("rend",     7.2)
-        desg       = veh_cfg.get("desgaste", 148)
-        costo_base = veh_cfg.get("base",  65_000)
+        gasolina    = p.get("gasolina", LOGISTICA["gasolina"])
+        desg        = veh_cfg.get("desgaste", 148)
+        costo_base  = veh_cfg.get("base", 65_000)
         mant_por_km = veh_cfg.get("costo_mantenimiento_por_km", 0)
 
-        # ── Penalización km/gal por peso de carga ─────────────────────────────
-        # A mayor peso, el motor trabaja más → menor rendimiento de gasolina.
-        # Escalamos linealmente: 0 kg = sin penalización, peso_max = 30% menos.
-        # peso_max = 2 × peso_max_penalizacion del material (aprox. capacidad útil).
-        props_mat = PROPIEDADES_MATERIAL.get(categoria, {})
-        peso_max_ref = props_mat.get("peso_max_penalizacion_kg", 300) * 2
-        if peso_carga_kg > 0 and peso_max_ref > 0:
-            factor_pen = min(0.30, peso_carga_kg / peso_max_ref)
+        # ── REGLA DE BLOQUEO POR CAPACIDAD ────────────────────────────────────
+        capacidad_max = veh_cfg.get("capacidad_max_kg", float("inf"))
+        if peso_carga_kg > 0 and peso_carga_kg > capacidad_max:
+            # Vehículo excedido: redirigir a flete externo automáticamente
+            bloqueo_capacidad = True
+            nota_bloqueo = (
+                f"Vehículo excedido en capacidad. "
+                f"El proyecto pesa {peso_carga_kg:,.1f} kg y la capacidad máxima "
+                f"del {veh_cfg.get('nombre', vehiculo)} es {capacidad_max:,.0f} kg. "
+                f"Flete externo activado automáticamente."
+            )
+            _ext_cfg    = VEHICULOS_CONFIG.get("externo", {})
+            _p_ext      = p.get("externo", {})
+            _flete_ext  = _ext_cfg.get("flete", _p_ext.get("flete", 165_000) if isinstance(_p_ext, dict) else 165_000)
+            costo_vehiculo = _flete_ext
+            costo_km       = 0.0
+            costo_base     = 0.0
+            rend_efectivo  = 0.0
         else:
-            factor_pen = 0.0
-        rend_efectivo = rend_base * (1 - factor_pen)
+            # ── REGLA TERMODINÁMICA ────────────────────────────────────────────
+            # Nueva fórmula v5: usa rendimiento_km_gal (sin carga) como base.
+            # Fallback a "rend" (legacy con carga típica) si el vehículo es antiguo.
+            rend_base_sin_carga = veh_cfg.get("rendimiento_km_gal") or veh_cfg.get("rend", 7.2)
 
-        costo_por_km = (gasolina / rend_efectivo) + desg
-        costo_km     = costo_por_km * km * 2           # ida y vuelta
-        # Fondo de rodamiento: aporte por km recorrido (llantas, aceite, filtros)
-        costo_mantenimiento = mant_por_km * km * 2
-        costo_vehiculo = costo_base + costo_km + costo_mantenimiento
+            if peso_carga_kg > 0:
+                # Por cada 45 kg de peso → 1.5% menos de rendimiento. Tope: 40%.
+                factor_pen    = min(0.40, (peso_carga_kg / 45.0) * 0.015)
+            else:
+                # Sin peso declarado: fallback a penalización legacy (retro-compat)
+                props_mat    = PROPIEDADES_MATERIAL.get(categoria, {})
+                peso_max_ref = props_mat.get("peso_max_penalizacion_kg", 300) * 2
+                factor_pen   = min(0.30, peso_carga_kg / peso_max_ref) if peso_max_ref > 0 else 0.0
+
+            rend_efectivo  = rend_base_sin_carga * (1.0 - factor_pen)
+
+            costo_por_km   = (gasolina / rend_efectivo) + desg
+            costo_km       = costo_por_km * km * 2           # ida y vuelta
+            # Fondo de rodamiento: llantas, aceite, filtros
+            costo_mantenimiento = mant_por_km * km * 2
+            costo_vehiculo = costo_base + costo_km + costo_mantenimiento
 
     # ── Peajes exactos ────────────────────────────────────────────────────────
-    # Si el usuario ingresó el costo unitario por peaje, se usa ese valor exacto.
-    # Si no, se usa el peaje promedio configurado en LOGISTICA (modo legacy).
     if costo_peaje_unitario > 0:
         costo_peajes = num_peajes * costo_peaje_unitario
     else:
         costo_peajes = num_peajes * p.get("peaje", LOGISTICA["peaje"])
 
     costo_herram = p.get("herram", LOGISTICA["herram"])
+    # Flete de proveedor (agente externo taller → origen): se suma siempre al total
     costo_agente = p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
 
     costo_total = costo_vehiculo + costo_peajes + costo_herram + costo_agente
 
     return {
-        "total":        costo_total,
-        "vehiculo":     costo_vehiculo,
-        "base":         costo_base if not es_externo else 0,
-        "km_costo":     costo_km,
-        "mantenimiento": costo_mantenimiento,
-        "peajes":       costo_peajes,
-        "herram":       costo_herram,
-        "agente":       costo_agente,
-        "peso_carga_kg": peso_carga_kg,
-        "rend_efectivo": rend_efectivo,
+        "total":              costo_total,
+        "vehiculo":           costo_vehiculo,
+        "base":               costo_base if not es_externo and not bloqueo_capacidad else 0,
+        "km_costo":           costo_km,
+        "mantenimiento":      costo_mantenimiento,
+        "peajes":             costo_peajes,
+        "herram":             costo_herram,
+        "agente":             costo_agente,
+        "peso_carga_kg":      peso_carga_kg,
+        "rend_efectivo":      rend_efectivo,
+        "bloqueo_capacidad":  bloqueo_capacidad,
+        "nota_bloqueo":       nota_bloqueo,
     }
 
 
@@ -750,6 +791,10 @@ def calcular_cotizacion_directa(
         "peso_carga_kg":     peso_carga_kg,
         "merma_info":        _merma_info,
         "merma_total_m2":    _merma_info["merma_total_m2"],
+        # Logística predictiva: trazabilidad del vehículo y bloqueo por capacidad
+        "vehiculo_entrega":       vehiculo_entrega,
+        "log_bloqueo_capacidad":  log_dict.get("bloqueo_capacidad", False),
+        "log_nota_bloqueo":       log_dict.get("nota_bloqueo", ""),
     }
 
 
