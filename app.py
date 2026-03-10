@@ -4816,50 +4816,6 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _items_d.append(("IVA 19%", _iva_mont))
             bloque_costos(_items_d, "TOTAL CON IVA" if _iva_act else "PRECIO TOTAL", _pf)
 
-            # ── LOGÍSTICA PREDICTIVA DE FLOTA — Panel de Transparencia ───────
-            # Muestra el peso físico del proyecto, el rendimiento ajustado por
-            # ese peso y, si aplica, la alerta de bloqueo por capacidad excedida.
-            _log_det = r.get("c5_detalle", {})
-            _peso_kg = _log_det.get("peso_carga_kg", r.get("peso_carga_kg", 0.0))
-            _rend_ef = _log_det.get("rend_efectivo", 0.0)
-            _bloq    = _log_det.get("bloqueo_capacidad", r.get("log_bloqueo_capacidad", False))
-            _nota_b  = _log_det.get("nota_bloqueo", r.get("log_nota_bloqueo", ""))
-            _veh_key = r.get("vehiculo_entrega", pre.get("vehiculo_entrega", ""))
-            if _peso_kg > 0 or _bloq:
-                with st.expander("🚛 Inteligencia de Flota", expanded=_bloq):
-                    if _bloq:
-                        st.warning(
-                            f"⚠️ **{_nota_b}**\n\n"
-                            f"El costo de logística refleja la tarifa de flete externo.",
-                            icon="🚨",
-                        )
-                    _veh_cfg_disp = VEHICULOS_CONFIG.get(_veh_key, {})
-                    _cap_max_disp = _veh_cfg_disp.get("capacidad_max_kg")
-                    _f1, _f2 = st.columns(2)
-                    with _f1:
-                        st.metric(
-                            "Peso del proyecto",
-                            f"{_peso_kg:,.1f} kg".replace(",", "."),
-                            help="Calculado a partir del área, grosor estándar y densidad del material.",
-                        )
-                    with _f2:
-                        if _cap_max_disp and not _bloq:
-                            _pct_cap = min(100.0, _peso_kg / _cap_max_disp * 100)
-                            st.metric(
-                                "Capacidad usada",
-                                f"{_pct_cap:.1f}%",
-                                f"Límite: {_cap_max_disp:,.0f} kg".replace(",", "."),
-                            )
-                    if not _bloq and _rend_ef > 0:
-                        _veh_rend_base = _veh_cfg_disp.get("rendimiento_km_gal") or _veh_cfg_disp.get("rend", 0.0)
-                        _pen_pct = (1.0 - _rend_ef / _veh_rend_base) * 100 if _veh_rend_base > 0 else 0.0
-                        st.info(
-                            f"**Rendimiento calculado: {_rend_ef:.2f} km/gal** "
-                            f"*(ajustado por el peso de la piedra — "
-                            f"penalización: {_pen_pct:.1f}% sobre {_veh_rend_base:.1f} km/gal base)*",
-                            icon="⛽",
-                        )
-
             # Simulador de margen (bloque AIU / complementario)
             st.markdown("<div style='font-weight:700;margin:14px 0 8px'>Simulador de margen</div>", unsafe_allow_html=True)
             _sim_m = st.slider("Margen (%)", 5, 80, int(r["margen_pct"]), 1, key="sim_slider")
