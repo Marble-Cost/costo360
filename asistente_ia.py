@@ -2,6 +2,7 @@
 # MARMOLES COLLANTE & CASTRO LTDA.
 
 import json
+import re
 import anthropic
 import streamlit as st
 from parametros import TARIFAS, LOGISTICA, VIATICOS, AIU_DEFAULTS, CATEGORIAS_MATERIAL
@@ -108,6 +109,66 @@ JSON a retornar:
   "personas": numero_o_null,
   "datos_faltantes": ["lista de campos que el usuario no mencionó y son necesarios"]
 }
+"""
+
+
+# ── System prompt del Traductor Arquitectónico ────────────────────────────────
+_SYSTEM_TRADUCTOR = """Eres un Traductor Arquitectónico especializado en marmolería y piedra natural.
+Tu única tarea es convertir mensajes de clientes (recibidos por WhatsApp u otro medio) en un array JSON
+estructurado que el motor de cálculo de CostoMármol pueda procesar directamente.
+
+REGLAS ABSOLUTAS:
+1. Devuelve ÚNICAMENTE el array JSON. Sin texto antes, sin texto después, sin backticks, sin explicaciones.
+2. El array debe contener un objeto por cada pieza o sección de piedra mencionada.
+3. Si el cliente describe varias piezas, crea un objeto separado para cada una.
+4. Convierte todas las medidas a metros con punto decimal (ej: 60cm → 0.60, 2mt → 2.0).
+5. Si el ancho no se menciona, usa 0.60 como valor por defecto (ancho estándar de mesón colombiano).
+6. Si la cantidad no se menciona, usa 1.
+7. zoc_trasero es true si el cliente menciona zócalo, salpicadero, guardapolvo, media caña trasera
+   o cualquier pieza vertical pegada a la pared detrás del mesón. En caso contrario es false.
+8. Para categoria, clasifica según el material mencionado:
+   - "Granito" si dice granito
+   - "Mármol" si dice mármol o marble
+   - "Cuarzo" si dice cuarzo, quarztone, silestone, caesarstone o similar
+   - "Sinterizado" si dice sinterizado, neolith, dekton, laminam o similar
+   - "Cuarcita" si dice cuarcita o quarzita
+   - "Otro" si menciona un material que no encaja en las anteriores
+   - Si no menciona material pero el contexto es claro, infiere la categoría más probable
+9. Para nombre, usa etiquetas descriptivas y secuenciales: "Mesón 1", "Mesón 2", "Isla 1",
+   "Baño 1", "Pieza 1", etc., basándote en lo que el cliente llama a cada sección.
+10. cantidad debe ser un entero. Si el cliente dice "dos mesones iguales", crea un solo objeto con cantidad: 2.
+
+ESTRUCTURA DE CADA OBJETO DEL ARRAY:
+{
+  "nombre": "string descriptivo (ej: Mesón Principal, Isla de Cocina, Pieza 1)",
+  "categoria": "Granito|Mármol|Cuarzo|Sinterizado|Cuarcita|Otro",
+  "largo": número flotante en metros,
+  "ancho": número flotante en metros (default 0.60),
+  "cantidad": número entero (default 1),
+  "zoc_trasero": true o false
+}
+
+EJEMPLOS DE ENTRADA Y SALIDA ESPERADA:
+
+Entrada: "cotízame un mesón de granito de 2x0.60 y otro pedazo de 1.5x0.60 con zócalo"
+Salida:
+[
+  {"nombre": "Mesón 1", "categoria": "Granito", "largo": 2.0, "ancho": 0.60, "cantidad": 1, "zoc_trasero": false},
+  {"nombre": "Mesón 2", "categoria": "Granito", "largo": 1.5, "ancho": 0.60, "cantidad": 1, "zoc_trasero": true}
+]
+
+Entrada: "necesito cuatro piezas de mármol de 90x90 para un baño"
+Salida:
+[
+  {"nombre": "Piso Baño 1", "categoria": "Mármol", "largo": 0.90, "ancho": 0.90, "cantidad": 4, "zoc_trasero": false}
+]
+
+Entrada: "mesón en L: un tramo de 2.5 metros y uno de 1.20, ambos con salpicadero, en cuarzo blanco"
+Salida:
+[
+  {"nombre": "Mesón Tramo Largo", "categoria": "Cuarzo", "largo": 2.5, "ancho": 0.60, "cantidad": 1, "zoc_trasero": true},
+  {"nombre": "Mesón Tramo Corto", "categoria": "Cuarzo", "largo": 1.20, "ancho": 0.60, "cantidad": 1, "zoc_trasero": true}
+]
 """
 
 
@@ -234,6 +295,8 @@ Sé directo y usa formato de moneda colombiana ($1.000.000)."""
         return response.content[0].text
     except Exception:
         return ""
+
+
 # ── System prompt del Bot SOS ─────────────────────────────────────────────────
 _SYSTEM_SOS = """Eres el asistente de ayuda rapida del sistema de cotizacion de MARMOLES COLLANTE & CASTRO LTDA.
 
@@ -385,95 +448,4 @@ Eres un sistema experto en especificaciones técnicas automotrices para flotas d
 Tu tarea es obtener datos reales y precisos de un vehículo específico.
 
 PROCESO OBLIGATORIO:
-1. Usa web_search para buscar la ficha técnica oficial del vehículo.
-   Busca: "[marca] [modelo] [año] ficha técnica carga útil Colombia"
-   o en inglés: "[marca] [modelo] [año] payload capacity specifications"
-2. Extrae del fabricante o fuente técnica:
-   - rendimiento_km_gal: km por galón en uso urbano/mixto con carga típica
-     (si encuentras l/100km, convierte: 235.2 / litros_por_100km)
-   - capacidad_max_kg: carga útil máxima en kg según ficha del fabricante
-3. Responde ÚNICAMENTE con un objeto JSON válido con exactamente dos llaves numéricas.
-   Sin texto antes ni después del JSON. Sin markdown. Sin explicaciones.
-
-Ejemplo de respuesta correcta:
-{"rendimiento_km_gal": 9.5, "capacidad_max_kg": 850.0}
-"""
-
-
-def investigar_vehiculo(nombre_vehiculo: str) -> dict:
-    """
-    Investiga la ficha técnica REAL de un vehículo usando IA con web_search.
-
-    Usa el tool web_search de Anthropic para consultar fuentes técnicas reales
-    (fabricante, fichas técnicas, bases de datos automotrices) en lugar de
-    depender del conocimiento estático de entrenamiento.
-
-    Args:
-        nombre_vehiculo: nombre del vehículo (ej: "Ford Ranger 2024")
-
-    Retorna:
-        dict con {"rendimiento_km_gal": float, "capacidad_max_kg": float}
-
-    Lanza:
-        ValueError si la IA no devuelve JSON parseable con las llaves esperadas.
-        RuntimeError si el cliente de IA no está disponible.
-    """
-    import re as _re
-    client = get_client()
-    if client is None:
-        raise RuntimeError(
-            "IA no disponible. Configura ANTHROPIC_API_KEY en .streamlit/secrets.toml"
-        )
-
-    # Intentar primero con web_search para datos reales
-    # Si falla (rate limit, etc.), intentar sin web_search como fallback
-    _query = nombre_vehiculo.strip()
-    _raw = ""
-
-    for _use_web in (True, False):
-        try:
-            _kwargs = dict(
-                model="claude-sonnet-4-6",
-                max_tokens=512,
-                system=_SYSTEM_VEHICULO,
-                messages=[{"role": "user", "content": _query}],
-            )
-            if _use_web:
-                _kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
-            response = client.messages.create(**_kwargs)
-            # Extraer texto de todos los bloques content (puede haber tool_use + text)
-            _raw = " ".join(
-                b.text for b in response.content
-                if hasattr(b, "text") and b.text
-            ).strip()
-            if _raw:
-                break  # tenemos respuesta, salir del loop
-        except Exception as _e_web:
-            if not _use_web:
-                raise  # si falla sin web también, relanzar
-            # Si falla con web, intentar sin web_search
-            continue
-
-    if not _raw:
-        raise ValueError("La IA no devolvió respuesta para el vehículo solicitado.")
-
-    # Extracción robusta: greedy + DOTALL captura JSON aunque tenga saltos de línea
-    raw_clean = _raw.replace("```json", "").replace("```", "").strip()
-    match = _re.search(r"\{[^{}]*\}", raw_clean, _re.DOTALL)
-    if not match:
-        # Intentar extracción más permisiva con nested braces
-        match = _re.search(r"\{.*\}", raw_clean, _re.DOTALL)
-    if not match:
-        raise ValueError(f"La IA no devolvió JSON válido. Respuesta: {_raw[:300]!r}")
-
-    data = json.loads(match.group(0))
-    rend = data.get("rendimiento_km_gal")
-    cap  = data.get("capacidad_max_kg")
-    if rend is None or cap is None:
-        raise ValueError(
-            f"JSON incompleto — faltan llaves esperadas. Datos: {data}"
-        )
-    return {
-        "rendimiento_km_gal": float(rend),
-        "capacidad_max_kg":   float(cap),
-    }
+1. Usa web_search para bus
