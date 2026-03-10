@@ -29,7 +29,7 @@ from parametros import (
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
 )
-from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano, traductor_arquitectonico
+from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
 import plotly.graph_objects as go
 from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_pdf, optimizar_corte_2d
 
@@ -3592,6 +3592,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 if _texto_magico.strip():
                     with st.spinner("🧠 Analizando dimensiones y materiales..."):
                         try:
+                            # IMPORTACIÓN LOCAL (A prueba de fallos circulares)
+                            from asistente_ia import traductor_arquitectonico
                             _piezas_ia = traductor_arquitectonico(_texto_magico)
 
                             # Recuperar lista actual de piezas desde el store_permanente
