@@ -448,4 +448,190 @@ Eres un sistema experto en especificaciones técnicas automotrices para flotas d
 Tu tarea es obtener datos reales y precisos de un vehículo específico.
 
 PROCESO OBLIGATORIO:
-1. Usa web_search para bus
+1. Usa web_search para buscar la ficha técnica oficial del vehículo.
+   Busca: "[marca] [modelo] [año] ficha técnica carga útil Colombia"
+   o en inglés: "[marca] [modelo] [año] payload capacity specifications"
+2. Extrae del fabricante o fuente técnica:
+   - rendimiento_km_gal: km por galón en uso urbano/mixto con carga típica
+     (si encuentras l/100km, convierte: 235.2 / litros_por_100km)
+   - capacidad_max_kg: carga útil máxima en kg según ficha del fabricante
+3. Responde ÚNICAMENTE con un objeto JSON válido con exactamente dos llaves numéricas.
+   Sin texto antes ni después del JSON. Sin markdown. Sin explicaciones.
+
+Ejemplo de respuesta correcta:
+{"rendimiento_km_gal": 9.5, "capacidad_max_kg": 850.0}
+"""
+
+
+def investigar_vehiculo(nombre_vehiculo: str) -> dict:
+    """
+    Investiga la ficha técnica REAL de un vehículo usando IA con web_search.
+
+    Usa el tool web_search de Anthropic para consultar fuentes técnicas reales
+    (fabricante, fichas técnicas, bases de datos automotrices) en lugar de
+    depender del conocimiento estático de entrenamiento.
+
+    Args:
+        nombre_vehiculo: nombre del vehículo (ej: "Ford Ranger 2024")
+
+    Retorna:
+        dict con {"rendimiento_km_gal": float, "capacidad_max_kg": float}
+
+    Lanza:
+        ValueError si la IA no devuelve JSON parseable con las llaves esperadas.
+        RuntimeError si el cliente de IA no está disponible.
+    """
+    client = get_client()
+    if client is None:
+        raise RuntimeError(
+            "IA no disponible. Configura ANTHROPIC_API_KEY en .streamlit/secrets.toml"
+        )
+
+    _query = nombre_vehiculo.strip()
+    _raw = ""
+
+    for _use_web in (True, False):
+        try:
+            _kwargs = dict(
+                model="claude-sonnet-4-6",
+                max_tokens=512,
+                system=_SYSTEM_VEHICULO,
+                messages=[{"role": "user", "content": _query}],
+            )
+            if _use_web:
+                _kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+            response = client.messages.create(**_kwargs)
+            # Extraer texto de todos los bloques content (puede haber tool_use + text)
+            _raw = " ".join(
+                b.text for b in response.content
+                if hasattr(b, "text") and b.text
+            ).strip()
+            if _raw:
+                break
+        except Exception as _e_web:
+            if not _use_web:
+                raise
+            continue
+
+    if not _raw:
+        raise ValueError("La IA no devolvió respuesta para el vehículo solicitado.")
+
+    # Extracción robusta: greedy + DOTALL captura JSON aunque tenga saltos de línea
+    raw_clean = _raw.replace("```json", "").replace("```", "").strip()
+    match = re.search(r"\{[^{}]*\}", raw_clean, re.DOTALL)
+    if not match:
+        # Intentar extracción más permisiva con nested braces
+        match = re.search(r"\{.*\}", raw_clean, re.DOTALL)
+    if not match:
+        raise ValueError(
+            f"No se encontró JSON válido en la respuesta de la IA.\nRespuesta recibida: {_raw[:300]}"
+        )
+
+    try:
+        datos = json.loads(match.group())
+    except json.JSONDecodeError as e:
+        raise ValueError(f"JSON malformado en respuesta de la IA: {e}\nFragmento: {match.group()[:200]}")
+
+    # Validar llaves esperadas
+    if "rendimiento_km_gal" not in datos or "capacidad_max_kg" not in datos:
+        raise ValueError(
+            f"El JSON no contiene las llaves esperadas. Recibido: {list(datos.keys())}"
+        )
+
+    return {
+        "rendimiento_km_gal": float(datos["rendimiento_km_gal"]),
+        "capacidad_max_kg":   float(datos["capacidad_max_kg"]),
+    }
+
+
+# ── Traductor Arquitectónico ──────────────────────────────────────────────────
+# Convierte mensajes de clientes en lenguaje natural (WhatsApp, verbal) a un
+# array JSON estructurado listo para el motor de cálculo de CostoMármol.
+# Cada elemento del array representa una pieza o sección de piedra independiente.
+
+def traductor_arquitectonico(texto_cliente: str) -> list:
+    """
+    Traduce un mensaje de cliente en lenguaje natural a una lista de piezas
+    estructuradas para el motor de cálculo.
+
+    Args:
+        texto_cliente: texto libre del cliente describiendo su pedido
+                       (ej: "cotízame un mesón de granito de 2x0.60 con zócalo")
+
+    Retorna:
+        list de dicts, cada uno con las claves:
+            - nombre     (str):   etiqueta descriptiva de la pieza
+            - categoria  (str):   Granito | Mármol | Cuarzo | Sinterizado | Cuarcita | Otro
+            - largo      (float): longitud en metros
+            - ancho      (float): ancho en metros (default 0.60)
+            - cantidad   (int):   número de unidades iguales
+            - zoc_trasero (bool): True si el cliente pide zócalo o salpicadero
+
+    Lanza:
+        ValueError si la IA no devuelve un array JSON válido o parseable.
+        RuntimeError si el cliente de IA no está disponible.
+    """
+    client = get_client()
+    if client is None:
+        raise RuntimeError(
+            "IA no disponible. Configura ANTHROPIC_API_KEY en .streamlit/secrets.toml"
+        )
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=_SYSTEM_TRADUCTOR,
+            messages=[{"role": "user", "content": texto_cliente}],
+        )
+        _raw = response.content[0].text.strip()
+    except anthropic.AuthenticationError:
+        raise RuntimeError("API key inválida. Verifica el archivo .streamlit/secrets.toml.")
+    except anthropic.RateLimitError:
+        raise RuntimeError("Límite de consultas alcanzado. Espera unos segundos e intenta de nuevo.")
+    except Exception as e:
+        raise RuntimeError(f"Error al consultar la IA: {type(e).__name__}: {e}")
+
+    # Limpieza de backticks por si el modelo los incluye de todas formas
+    _raw_clean = _raw.replace("```json", "").replace("```", "").strip()
+
+    # Extracción robusta del array JSON usando regex con DOTALL
+    # Captura desde el primer '[' hasta el último ']', tolerando saltos de línea
+    match = re.search(r'\[.*\]', _raw_clean, re.DOTALL)
+    if not match:
+        raise ValueError(
+            f"El Traductor Arquitectónico no devolvió un array JSON válido.\n"
+            f"Respuesta recibida:\n{_raw[:400]}"
+        )
+
+    try:
+        piezas = json.loads(match.group())
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Array JSON malformado en respuesta del Traductor Arquitectónico: {e}\n"
+            f"Fragmento recibido: {match.group()[:300]}"
+        )
+
+    # Validación estructural básica: debe ser lista no vacía de dicts con llaves mínimas
+    if not isinstance(piezas, list) or len(piezas) == 0:
+        raise ValueError(
+            "El Traductor Arquitectónico devolvió una lista vacía o estructura inválida."
+        )
+
+    _llaves_requeridas = {"nombre", "categoria", "largo", "ancho", "cantidad", "zoc_trasero"}
+    for i, pieza in enumerate(piezas):
+        if not isinstance(pieza, dict):
+            raise ValueError(f"El elemento #{i + 1} del array no es un objeto JSON válido.")
+        _faltantes = _llaves_requeridas - pieza.keys()
+        if _faltantes:
+            raise ValueError(
+                f"El elemento #{i + 1} ('{pieza.get('nombre', '?')}') "
+                f"carece de las llaves: {sorted(_faltantes)}"
+            )
+        # Coerción de tipos para garantizar compatibilidad con el motor de cálculo
+        pieza["largo"]       = float(pieza["largo"])
+        pieza["ancho"]       = float(pieza["ancho"])
+        pieza["cantidad"]    = int(pieza["cantidad"])
+        pieza["zoc_trasero"] = bool(pieza["zoc_trasero"])
+
+    return piezas
