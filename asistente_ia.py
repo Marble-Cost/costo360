@@ -546,8 +546,8 @@ def auditor_rentabilidad(datos_cotizacion: dict) -> dict:
         )
 
         response = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=600,
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=2000,
             system=_SYSTEM_AUDITOR,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -560,7 +560,7 @@ def auditor_rentabilidad(datos_cotizacion: dict) -> dict:
         # Extracción robusta del primer bloque JSON con regex
         match = re.search(r"\{.*\}", raw, re.DOTALL)
         if not match:
-            raise ValueError("La IA no devolvió un JSON reconocible para la auditoría.")
+            raise ValueError(f"La IA no devolvió un JSON válido. Esto fue lo que respondió:\n{raw}")
 
         json_str = match.group(0)
         data = json.loads(json_str)
