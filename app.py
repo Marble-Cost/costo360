@@ -2068,6 +2068,29 @@ else:
     # ── Sin token → primera visita o sesión expirada ───────────────────
     _pantalla_login()
     st.stop()
+
+# ── LATE CONFIG LOAD (post-auth, claves reales del usuario) ─────────────
+# _cargar_config_desde_db() corre antes del login con _uid()="anon",
+# por lo que lee "logistica_custom_uanon" en lugar de "logistica_custom_u{id}".
+# La bandera _config_cargada=True impide una segunda carga. Este bloque
+# repara eso: en el primer render post-auth, recarga todas las claves
+# operativas con el ID real del usuario autenticado.
+if st.session_state.get("usuario_actual") and not st.session_state.get("_config_hidratada_postauth"):
+    _claves_postauth = [
+        ("tarifas_custom",      "tarifas_custom"),
+        ("logistica_custom",    "logistica_custom"),
+        ("viaticos_custom",     "viaticos_custom"),
+        ("adicionales_custom",  "adicionales_custom"),
+    ]
+    for _ss_key_pa, _db_key_pa in _claves_postauth:
+        try:
+            _v_pa = _leer_config(_db_key_pa)   # _uid() ya tiene el ID real
+            if _v_pa is not None:
+                st.session_state[_ss_key_pa] = _v_pa
+        except Exception:
+            pass
+    st.session_state["_config_hidratada_postauth"] = True
+
 def get_tarifas(): return st.session_state.tarifas_custom or TARIFAS
 def get_logistica(): return st.session_state.logistica_custom or LOGISTICA
 def get_viaticos(): return st.session_state.viaticos_custom or VIATICOS
@@ -8607,20 +8630,33 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
 
         # ══════════════════════════════════════════════════════════════════════
         # GESTOR INTELIGENTE DE FLOTA
-        # Permite agregar cualquier vehículo, consultar su ficha técnica vía IA,
-        # validar los valores y guardarlo en logistica_custom["flota_propia"].
-        # Los vehículos aquí guardados aparecen automáticamente en el cotizador
-        # a través de get_vehiculos_config() → get_vehiculos_dict().
         # ══════════════════════════════════════════════════════════════════════
         st.markdown("### 🚚 Mi Flota de Vehículos")
         st.caption(
-            "Agrega cualquier vehículo propio. La IA consulta su rendimiento y capacidad "
-            "de carga automáticamente. Los vehículos guardados aparecen en el cotizador."
+            "Agrega cualquier vehículo propio. La IA investiga su ficha técnica real "
+            "(rendimiento y capacidad de carga). Los vehículos guardados aparecen "
+            "en el cotizador y activan el Motor Físico de logística."
         )
+
+        # ── Inicializar estado de investigación (persiste entre reruns) ──────
+        if "flota_ficha" not in st.session_state:
+            st.session_state.flota_ficha = None
+        if "flota_ficha_nombre" not in st.session_state:
+            st.session_state.flota_ficha_nombre = ""
+        if "flota_guardado_ok" not in st.session_state:
+            st.session_state.flota_guardado_ok = ""
 
         # ── Flota guardada actualmente ────────────────────────────────────────
         _log_c_now    = st.session_state.get("logistica_custom") or {}
         _flota_actual = _log_c_now.get("flota_propia", {})
+
+        if st.session_state.flota_guardado_ok:
+            st.success(
+                f"✅ **{st.session_state.flota_guardado_ok}** guardado en tu flota y "
+                f"persistido en la base de datos. Ya aparece en el cotizador.",
+                icon="🚛",
+            )
+            st.session_state.flota_guardado_ok = ""
 
         if _flota_actual:
             st.markdown("**Vehículos en tu flota:**")
@@ -8643,17 +8679,18 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                     )
                     if _fc4.button("🗑️", key=f"flota_del_{_fslug}",
                                    help=f"Eliminar {_fvcfg.get('nombre', _fslug)} de la flota"):
-                        _log_del  = dict(st.session_state.get("logistica_custom") or {})
+                        _log_del   = dict(st.session_state.get("logistica_custom") or {})
                         _flota_del = dict(_log_del.get("flota_propia", {}))
+                        _nombre_del = _fvcfg.get("nombre", _fslug)
                         _flota_del.pop(_fslug, None)
                         _log_del["flota_propia"] = _flota_del
                         st.session_state.logistica_custom = _log_del
                         _sp()["params_logistica"] = _log_del
                         try:
                             _guardar_config("logistica_custom", _log_del)
-                        except Exception:
-                            pass
-                        st.toast(f"🗑️ {_fvcfg.get('nombre', _fslug)} eliminado de la flota.", icon="🚛")
+                            st.toast(f"🗑️ {_nombre_del} eliminado de la flota.", icon="🚛")
+                        except Exception as _e_del:
+                            st.toast(f"⚠️ Eliminado en sesión pero error en BD: {_e_del}", icon="⚠️")
                         st.rerun()
         else:
             st.info(
@@ -8662,38 +8699,34 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                 icon="🚛",
             )
 
-        # ── Formulario: nombre + botón investigar ─────────────────────────────
+        # ── Formulario: investigar + confirmar + guardar ──────────────────────
         with st.container(border=True):
             st.markdown("**➕ Agregar vehículo a la flota**")
-            _flota_input = st.text_input(
-                "Agrega un vehículo (Ej: Toyota Hilux 2022, Chevrolet NHR)",
+            _flota_col1, _flota_col2 = st.columns([3, 1])
+            _flota_input = _flota_col1.text_input(
+                "Marca y modelo",
                 key="flota_nombre_input",
-                placeholder="Escribe marca, modelo y año del vehículo",
-                help="La IA buscará el rendimiento y la capacidad de carga estimados.",
+                placeholder="Ej: Toyota Hilux 2023, Ford Ranger XL, Chevrolet NHR",
+                help="La IA investiga rendimiento km/gal y capacidad máxima de carga en kg.",
+                label_visibility="collapsed",
             )
-
-            _btn_investigar = st.button(
-                "🔍 Investigar Ficha Técnica",
+            _btn_investigar = _flota_col2.button(
+                "🔍 Investigar con IA",
                 type="primary",
                 key="btn_flota_investigar",
                 disabled=not (_flota_input or "").strip(),
+                use_container_width=True,
             )
-
-            # ── Estado persistente del resultado de investigación ─────────────
-            # Usamos session_state para que el resultado sobreviva el rerun al
-            # presionar "Investigar" y el formulario de edición siga visible.
-            if "flota_ficha" not in st.session_state:
-                st.session_state.flota_ficha = None   # {"rendimiento_km_gal": x, "capacidad_max_kg": y}
-            if "flota_ficha_nombre" not in st.session_state:
-                st.session_state.flota_ficha_nombre = ""
 
             if _btn_investigar and (_flota_input or "").strip():
                 _veh_q = _flota_input.strip()
-                with st.spinner(f"🔬 Investigando ficha técnica de **{_veh_q}** con IA…"):
+                st.session_state.flota_ficha = None
+                st.session_state.flota_ficha_nombre = ""
+                for _fk2 in ["flota_rend_edit", "flota_cap_edit",
+                             "flota_desg_edit", "flota_base_edit"]:
+                    st.session_state.pop(_fk2, None)
+                with st.spinner(f"🔬 Consultando ficha técnica de **{_veh_q}**…"):
                     try:
-                        # ── ARQUITECTURA LIMPIA: función dedicada en asistente_ia.py ──
-                        # investigar_vehiculo() usa su propio system prompt automotriz,
-                        # aislado de los guardrails del asistente de marmolería.
                         _ficha_ia = investigar_vehiculo(_veh_q)
                         st.session_state.flota_ficha = {
                             "rendimiento_km_gal": _ficha_ia["rendimiento_km_gal"],
@@ -8701,57 +8734,50 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                         }
                         st.session_state.flota_ficha_nombre = _veh_q
                     except Exception as _e_fl:
-                        st.warning(
-                            f"⚠️ No se pudo obtener la ficha técnica "
-                            f"({type(_e_fl).__name__}: {_e_fl}).\n\n"
-                            f"Ingresa los valores manualmente o intenta de nuevo.",
+                        st.error(
+                            f"❌ No se pudo obtener la ficha técnica: {_e_fl}\n\n"
+                            f"Verifica que la IA esté configurada o ingresa los valores manualmente.",
                             icon="🔧",
                         )
-                        st.session_state.flota_ficha = {
-                            "rendimiento_km_gal": 25.0,
-                            "capacidad_max_kg":   1_000.0,
-                        }
-                        st.session_state.flota_ficha_nombre = _veh_q
 
-            # ── Formulario de validación manual (visible solo si hay resultado) ──
             if st.session_state.get("flota_ficha") and st.session_state.get("flota_ficha_nombre"):
                 _nombre_ficha = st.session_state.flota_ficha_nombre
-                st.success(
-                    f"✅ Ficha técnica obtenida para **{_nombre_ficha}**. "
-                    f"Ajusta los valores si es necesario y presiona **Guardar**.",
-                    icon="🔍",
+                st.info(
+                    f"📋 Ficha técnica para **{_nombre_ficha}** — "
+                    f"ajusta si es necesario y presiona **Guardar**."
                 )
                 _fv1, _fv2 = st.columns(2)
                 with _fv1:
                     _rend_val = st.number_input(
-                        "Rendimiento Base (km/gal)",
-                        min_value=1.0, max_value=80.0, step=0.5, format="%.1f",
+                        "Rendimiento sin carga (km/gal)",
+                        min_value=1.0, max_value=80.0, step=0.1, format="%.1f",
                         value=float(st.session_state.flota_ficha["rendimiento_km_gal"]),
                         key="flota_rend_edit",
                         help=(
-                            "Kilómetros por galón sin carga (base termodinámica). "
-                            "El motor aplica la penalización por peso del proyecto automáticamente."
+                            "Base termodinámica sin carga. El Motor Físico aplica "
+                            "penalización automática: cada 45 kg de piedra reduce "
+                            "el rendimiento 1.5%% (tope 40%%)."
                         ),
                     )
                 with _fv2:
                     _cap_val = st.number_input(
-                        "Capacidad Máxima de Carga (kg)",
-                        min_value=50.0, max_value=20_000.0, step=50.0, format="%.0f",
+                        "Capacidad máxima de carga (kg)",
+                        min_value=50.0, max_value=30_000.0, step=50.0, format="%.0f",
                         value=float(st.session_state.flota_ficha["capacidad_max_kg"]),
                         key="flota_cap_edit",
                         help=(
-                            "Si el proyecto supera este peso, el sistema activa "
-                            "flete externo automáticamente y lo indica en el resultado."
+                            "Si el proyecto supera este peso, el sistema bloquea "
+                            "este vehículo y activa flete externo automáticamente."
                         ),
                     )
                 _fv3, _fv4 = st.columns(2)
                 with _fv3:
                     _desg_val = st.number_input(
                         "Desgaste por km (COP/km)",
-                        min_value=0, max_value=1_000, step=5, format="%d",
+                        min_value=0, max_value=2_000, step=5, format="%d",
                         value=120,
                         key="flota_desg_edit",
-                        help="Amortización de llantas, frenos, suspensión. Rango típico: $80–$200/km.",
+                        help="Llantas, frenos, suspensión. Rango típico pickup: $80–$200/km.",
                     )
                 with _fv4:
                     _base_val = st.number_input(
@@ -8759,49 +8785,55 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                         min_value=0, max_value=500_000, step=5_000, format="%d",
                         value=50_000,
                         key="flota_base_edit",
-                        help="Costo mínimo por salir, sin importar la distancia al destino.",
+                        help="Costo fijo por salir independiente de la distancia.",
                     )
 
-                if st.button("💾 Guardar en mi Flota", type="primary",
-                             key="btn_flota_guardar", use_container_width=True):
-                    # Generar slug: solo minúsculas, números y guion bajo, máx. 30 chars
-                    import re as _re_fl
-                    _slug = _re_fl.sub(r"[^a-z0-9]+", "_",
-                                       _nombre_ficha.lower().strip())[:30].strip("_")
-                    # Nunca pisar los vehículos base
-                    _slugs_base = {"frontier", "cheyenne", "externo"}
-                    if _slug in _slugs_base:
-                        _slug = f"custom_{_slug}"
-
-                    _veh_nuevo = {
-                        "nombre":             _nombre_ficha,
-                        "rendimiento_km_gal": float(st.session_state.get("flota_rend_edit", _rend_val)),
-                        "capacidad_max_kg":   float(st.session_state.get("flota_cap_edit",  _cap_val)),
-                        "desgaste":           int(st.session_state.get("flota_desg_edit",   _desg_val)),
-                        "base":               int(st.session_state.get("flota_base_edit",   _base_val)),
-                        "costo_mantenimiento_por_km": 80,
-                        "descripcion":        "Agregado desde Gestor de Flota",
-                    }
-                    # Fusionar: preservar gasolina/peajes/frontier/cheyenne/externo existentes
-                    _log_save  = dict(st.session_state.get("logistica_custom") or {})
-                    _flota_upd = dict(_log_save.get("flota_propia", {}))
-                    _flota_upd[_slug] = _veh_nuevo
-                    _log_save["flota_propia"] = _flota_upd
-
-                    st.session_state.logistica_custom = _log_save
-                    _sp()["params_logistica"] = _log_save
-                    try:
-                        _guardar_config("logistica_custom", _log_save)
-                    except Exception:
-                        pass
-                    # Limpiar estado de investigación
-                    st.session_state.flota_ficha        = None
-                    st.session_state.flota_ficha_nombre = ""
-                    for _fk in ["flota_nombre_input", "flota_rend_edit",
-                                "flota_cap_edit", "flota_desg_edit", "flota_base_edit"]:
-                        st.session_state.pop(_fk, None)
-                    st.toast(f"✅ {_nombre_ficha} guardado en la flota.", icon="🚛")
-                    st.rerun()
+            _btn_guardar_flota = st.button(
+                "💾 Guardar Vehículo en mi Flota",
+                type="primary",
+                key="btn_flota_guardar",
+                use_container_width=True,
+                disabled=not (st.session_state.get("flota_ficha") and
+                              st.session_state.get("flota_ficha_nombre")),
+            )
+            if _btn_guardar_flota:
+                import re as _re_fl
+                _nombre_ficha_g = st.session_state.flota_ficha_nombre
+                _slug = _re_fl.sub(r"[^a-z0-9]+", "_",
+                                   _nombre_ficha_g.lower().strip())[:30].strip("_")
+                if _slug in {"frontier", "cheyenne", "externo"}:
+                    _slug = f"custom_{_slug}"
+                _veh_nuevo = {
+                    "nombre":             _nombre_ficha_g,
+                    "rendimiento_km_gal": float(st.session_state.get("flota_rend_edit",
+                                               st.session_state.flota_ficha["rendimiento_km_gal"])),
+                    "capacidad_max_kg":   float(st.session_state.get("flota_cap_edit",
+                                               st.session_state.flota_ficha["capacidad_max_kg"])),
+                    "desgaste":           int(st.session_state.get("flota_desg_edit", 120)),
+                    "base":               int(st.session_state.get("flota_base_edit", 50_000)),
+                    "costo_mantenimiento_por_km": 80,
+                    "descripcion":        f"Investigado por IA — {_nombre_ficha_g}",
+                }
+                _log_save  = dict(st.session_state.get("logistica_custom") or {})
+                _flota_upd = dict(_log_save.get("flota_propia", {}))
+                _flota_upd[_slug] = _veh_nuevo
+                _log_save["flota_propia"] = _flota_upd
+                st.session_state.logistica_custom = _log_save
+                _sp()["params_logistica"] = _log_save
+                _save_err = None
+                try:
+                    _guardar_config("logistica_custom", _log_save)
+                except Exception as _e_save:
+                    _save_err = str(_e_save)
+                st.session_state.flota_ficha        = None
+                st.session_state.flota_ficha_nombre = ""
+                st.session_state.flota_guardado_ok  = _nombre_ficha_g
+                for _fk in ["flota_nombre_input", "flota_rend_edit",
+                            "flota_cap_edit", "flota_desg_edit", "flota_base_edit"]:
+                    st.session_state.pop(_fk, None)
+                if _save_err:
+                    st.warning(f"⚠️ Guardado en sesión pero falló persistencia en BD: {_save_err}")
+                st.rerun()
 
         st.markdown("")
         _col_save_log, _col_reset_log = st.columns([3, 1])
