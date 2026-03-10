@@ -8697,13 +8697,14 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                     try:
                         import re as _re_fl, json as _json_fl
                         _prompt_fl = (
-                            f"Eres un experto automotriz. Dame la ficha técnica estimada "
-                            f"de un(a) {_veh_q} para transporte de carga en Colombia. "
-                            f"Responde ÚNICAMENTE con un JSON válido con dos llaves numéricas: "
-                            f"\"rendimiento_km_gal\" (kilómetros por galón en ciudad con carga típica) "
-                            f"y \"capacidad_max_kg\" (carga útil máxima en kilogramos). "
-                            f"Sin texto adicional, sin bloques de código, sin comillas extra. "
-                            f"Ejemplo: {{\"rendimiento_km_gal\": 28.0, \"capacidad_max_kg\": 900.0}}"
+                            f"CONTEXTO INTERNO DE LA MARMOLERÍA: Necesitamos calcular los costos de flete "
+                            f"y logística para enviar nuestros proyectos de mármol y granito a los clientes. "
+                            f"Para configurar nuestro motor de costos, necesito la ficha técnica de carga de nuestro vehículo. "
+                            f"Actúa como experto en logística automotriz y dame los datos de un(a) {_veh_q} en Colombia. "
+                            f"Responde ÚNICAMENTE con un JSON válido con dos llaves numéricas exactas: "
+                            f"\"rendimiento_km_gal\" (kilómetros por galón en ciudad con carga) y "
+                            f"\"capacidad_max_kg\" (carga útil máxima en kilogramos que soporta). "
+                            f"No incluyas NINGÚN texto adicional, saludos, ni justificaciones. Solo el JSON puro."
                         )
                         _raw_fl = chat_con_ia([], _prompt_fl)
                         _raw_fl_clean = _raw_fl.replace("```json", "").replace("```", "").strip()
