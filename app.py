@@ -3244,26 +3244,19 @@ elif pagina == "Cotizacion Directa":
         unsafe_allow_html=True
     )
 
-    # ── Navegación no-lineal: pills de salto directo entre pasos ─────────────
-    # Permite saltar a cualquier paso sin usar los botones Anterior/Siguiente.
-    # Importante: mostramos todos los pasos (incluyendo Resultado) para que el
-    # usuario pueda volver a revisar. El cambio aplica inmediatamente vía rerun.
-    _pill_labels_cdir = [
-        f"{p['icono']} {i+1}. {p['label']}"
-        for i, p in enumerate(WIZARD_PASOS)
-    ]
-    _pill_sel_cdir = st.pills(
-        "Ir al paso",
-        options=_pill_labels_cdir,
-        default=_pill_labels_cdir[paso],
-        key=f"nav_pills_cdir_{paso}",        # key incluye paso para forzar reset al avanzar
-        label_visibility="collapsed",
-    )
-    if _pill_sel_cdir is not None:
-        _paso_pill = _pill_labels_cdir.index(_pill_sel_cdir)
-        if _paso_pill != paso:
-            st.session_state.cdir_paso = _paso_pill
-            st.rerun()
+    # ── Navegación no-lineal: botones anti-congelamiento ─────────────────────
+    # NAVEGADOR ANTI-CONGELAMIENTO
+    st.markdown("<br>", unsafe_allow_html=True)
+    _cols_nav_cdir = st.columns(len(WIZARD_PASOS))
+    for _i, _p in enumerate(WIZARD_PASOS):
+        _nombre_paso_cdir = f"{_p['icono']} { _p['label']}"
+        with _cols_nav_cdir[_i]:
+            _tipo_btn = "primary" if st.session_state.cdir_paso == _i else "secondary"
+            if st.button(_nombre_paso_cdir, key=f"nav_cd_{_i}", type=_tipo_btn, use_container_width=True):
+                st.session_state.cdir_paso = _i
+                _sp_set("cdir_paso", _i)
+                st.rerun()
+    st.markdown("---")
 
     # ════════════════════════════════════════════════════════════════════
     # PASO 0 — MATERIAL(ES)
@@ -5236,23 +5229,19 @@ elif pagina == "Cotizacion AIU":
         unsafe_allow_html=True
     )
 
-    # ── Navegación no-lineal AIU: pills de salto directo entre pasos ─────────
-    _pill_labels_aiu = [
-        f"{p['icono']} {i+1}. {p['label']}"
-        for i, p in enumerate(WIZARD_AIU_PASOS)
-    ]
-    _pill_sel_aiu = st.pills(
-        "Ir al paso AIU",
-        options=_pill_labels_aiu,
-        default=_pill_labels_aiu[paso_aiu],
-        key=f"nav_pills_aiu_{paso_aiu}",
-        label_visibility="collapsed",
-    )
-    if _pill_sel_aiu is not None:
-        _paso_aiu_pill = _pill_labels_aiu.index(_pill_sel_aiu)
-        if _paso_aiu_pill != paso_aiu:
-            st.session_state.aiu_paso = _paso_aiu_pill
-            st.rerun()
+    # ── Navegación no-lineal AIU: botones anti-congelamiento ─────────────────
+    # NAVEGADOR ANTI-CONGELAMIENTO
+    st.markdown("<br>", unsafe_allow_html=True)
+    _cols_nav_aiu = st.columns(len(WIZARD_AIU_PASOS))
+    for _i, _p in enumerate(WIZARD_AIU_PASOS):
+        _nombre_paso_aiu = f"{_p['icono']} { _p['label']}"
+        with _cols_nav_aiu[_i]:
+            _tipo_btn = "primary" if st.session_state.aiu_paso == _i else "secondary"
+            if st.button(_nombre_paso_aiu, key=f"nav_aiu_{_i}", type=_tipo_btn, use_container_width=True):
+                st.session_state.aiu_paso = _i
+                _sp_set("aiu_paso", _i)
+                st.rerun()
+    st.markdown("---")
 
     # ════════════════════════════════════════════════════════════════════
     # PASO AIU 0 — ÍTEMS DEL CONTRATO
