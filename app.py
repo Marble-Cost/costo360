@@ -8641,12 +8641,14 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
             st.markdown("Vehículos/Fletes guardados:")
             for _fslug, _fvcfg in list(_flota_actual.items()):
                 with st.container(border=True):
-                    _fc1, _fc2, _fc3 = st.columns([3, 2, 0.5])
+                    _fc1, _fc2, _fc3 = st.columns([4, 4, 1])
                     _fc1.markdown(f"**{_fvcfg.get('nombre', _fslug)}**", unsafe_allow_html=True)
                     if _fvcfg.get("tipo") == "flete_fijo":
+                        # SOLO muestra el costo por viaje para fletes fijos
                         _fc2.markdown(f"Costo por viaje: ${_fvcfg.get('costo_viaje', 0):,.0f}".replace(",", "."))
                     else:
-                        _fc2.markdown(f"Rendimiento: {_fvcfg.get('rendimiento_km_gal', 0)} km/gal")
+                        # Muestra rendimiento y desgaste SOLO para vehículos propios antiguos
+                        _fc2.markdown(f"Rendimiento: {_fvcfg.get('rendimiento_km_gal', _fvcfg.get('rend', 0))} km/gal | Desgaste: ${_fvcfg.get('desgaste', 0)}/km")
 
                     if _fc3.button("🗑️", key=f"flota_del_{_fslug}"):
                         _log_del = dict(st.session_state.get("logistica_custom") or {})
