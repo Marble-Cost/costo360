@@ -29,7 +29,7 @@ from parametros import (
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
 )
-from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano, investigar_vehiculo
+from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
 import plotly.graph_objects as go
 from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_pdf, optimizar_corte_2d
 
@@ -2102,9 +2102,9 @@ def get_vehiculos_config():
     Devuelve el mapa completo de vehículos fusionando tres capas (en orden de prioridad):
       1. VEHICULOS_CONFIG  — base de fábrica (Frontier, Cheyenne, Externo).
       2. vehiculos_custom  — overrides legacy de session_state (retro-compat).
-      3. flota_propia      — vehículos añadidos por el usuario en el Gestor de Flota.
-                             Viven en logistica_custom["flota_propia"] y se proyectan
-                             con tipo="propio" para que calcular_logistica los procese.
+      3. flota_propia      — vehículos del Gestor Manual de Fletes.
+                             Tipo "flete_fijo": costo_viaje fijo por viaje, sin cálculo km.
+                             Tipo "propio" (legacy): motor termodinámico completo.
     Esta función es el ÚNICO punto de verdad de vehículos; todos los selectores
     y llamadas a calcular_logistica deben pasar por aquí.
     """
@@ -2113,33 +2113,47 @@ def get_vehiculos_config():
     custom = st.session_state.get("vehiculos_custom") or {}
     for k, v in custom.items():
         base[k] = v
-    # ── Flota propia guardada en el Gestor de Flota ───────────────────────────
+    # ── Flota propia guardada en el Gestor Manual de Fletes ──────────────────
     _log_c = st.session_state.get("logistica_custom") or {}
     _flota = _log_c.get("flota_propia", {})
     for _slug, _vcfg in _flota.items():
         if _slug in base:          # nunca pisar Frontier / Cheyenne / Externo
             continue
-        base[_slug] = {
-            "nombre":                    _vcfg.get("nombre", _slug),
-            "tipo":                      "propio",
-            # rendimiento_km_gal es la base termodinámica (sin carga) para calculos.py v5
-            "rendimiento_km_gal":        float(_vcfg.get("rendimiento_km_gal", 25.0)),
-            "rend":                      float(_vcfg.get("rendimiento_km_gal", 25.0)),  # alias legacy
-            "capacidad_max_kg":          float(_vcfg.get("capacidad_max_kg",  1_000.0)),
-            "desgaste":                  int(_vcfg.get("desgaste",   120)),
-            "base":                      int(_vcfg.get("base",    50_000)),
-            "costo_mantenimiento_por_km": int(_vcfg.get("costo_mantenimiento_por_km", 80)),
-            "descripcion":               _vcfg.get("descripcion", "Vehículo personalizado"),
-        }
+        _tipo = _vcfg.get("tipo", "flete_fijo")
+        if _tipo == "flete_fijo":
+            base[_slug] = {
+                "nombre":       _vcfg.get("nombre", _slug),
+                "tipo":         "flete_fijo",
+                "costo_viaje":  float(_vcfg.get("costo_viaje", 0.0)),
+                "descripcion":  _vcfg.get("descripcion", "Flete fijo manual"),
+            }
+        else:
+            # Legacy tipo="propio": motor termodinámico completo
+            base[_slug] = {
+                "nombre":                    _vcfg.get("nombre", _slug),
+                "tipo":                      "propio",
+                "rendimiento_km_gal":        float(_vcfg.get("rendimiento_km_gal", 25.0)),
+                "rend":                      float(_vcfg.get("rendimiento_km_gal", 25.0)),
+                "capacidad_max_kg":          float(_vcfg.get("capacidad_max_kg",  1_000.0)),
+                "desgaste":                  int(_vcfg.get("desgaste",   120)),
+                "base":                      int(_vcfg.get("base",    50_000)),
+                "costo_mantenimiento_por_km": int(_vcfg.get("costo_mantenimiento_por_km", 80)),
+                "descripcion":               _vcfg.get("descripcion", "Vehículo personalizado"),
+            }
     return base
 
 def get_vehiculos_dict():
     """Label → slug. Usado por los selectores de vehículo en toda la app."""
     vc = get_vehiculos_config()
-    return {
-        f"{cfg.get('nombre', k)} ({'propio' if cfg.get('tipo') == 'propio' else 'flete externo'})": k
-        for k, cfg in vc.items()
-    }
+    def _label(k, cfg):
+        t = cfg.get("tipo", "")
+        if t == "flete_fijo":
+            return f"{cfg.get('nombre', k)} (flete fijo)"
+        elif t == "propio":
+            return f"{cfg.get('nombre', k)} (propio)"
+        else:
+            return f"{cfg.get('nombre', k)} (flete externo)"
+    return {_label(k, cfg): k for k, cfg in vc.items()}
 
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -8629,56 +8643,48 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                 help="Precio pactado con el flete externo. Aplica sin importar la distancia.")
 
         # ══════════════════════════════════════════════════════════════════════
-        # GESTOR INTELIGENTE DE FLOTA
+        # GESTOR MANUAL DE FLETES
+        # El usuario define un nombre y un costo fijo por viaje.
+        # Sin cálculos de km ni IA — tarifa directa y persistente.
         # ══════════════════════════════════════════════════════════════════════
-        st.markdown("### 🚚 Mi Flota de Vehículos")
+        st.markdown("### 🚚 Mis Vehículos y Fletes")
         st.caption(
-            "Agrega cualquier vehículo propio. La IA investiga su ficha técnica real "
-            "(rendimiento y capacidad de carga). Los vehículos guardados aparecen "
-            "en el cotizador y activan el Motor Físico de logística."
+            "Agrega tus propios vehículos o servicios de flete con un costo fijo por viaje. "
+            "Los registros guardados aparecen en el cotizador junto a los vehículos por defecto."
         )
 
-        # ── Inicializar estado de investigación (persiste entre reruns) ──────
-        if "flota_ficha" not in st.session_state:
-            st.session_state.flota_ficha = None
-        if "flota_ficha_nombre" not in st.session_state:
-            st.session_state.flota_ficha_nombre = ""
+        # ── Inicializar estado de guardado OK ─────────────────────────────────
         if "flota_guardado_ok" not in st.session_state:
             st.session_state.flota_guardado_ok = ""
 
-        # ── Flota guardada actualmente ────────────────────────────────────────
-        _log_c_now    = st.session_state.get("logistica_custom") or {}
-        _flota_actual = _log_c_now.get("flota_propia", {})
-
         if st.session_state.flota_guardado_ok:
             st.success(
-                f"✅ **{st.session_state.flota_guardado_ok}** guardado en tu flota y "
-                f"persistido en la base de datos. Ya aparece en el cotizador.",
+                f"✅ **{st.session_state.flota_guardado_ok}** guardado y disponible en el cotizador.",
                 icon="🚛",
             )
             st.session_state.flota_guardado_ok = ""
 
+        # ── Listado de flota guardada ─────────────────────────────────────────
+        _log_c_now    = st.session_state.get("logistica_custom") or {}
+        _flota_actual = _log_c_now.get("flota_propia", {})
+
         if _flota_actual:
-            st.markdown("**Vehículos en tu flota:**")
+            st.markdown("**Vehículos/fletes registrados:**")
             for _fslug, _fvcfg in list(_flota_actual.items()):
                 with st.container(border=True):
-                    _fc1, _fc2, _fc3, _fc4 = st.columns([2.8, 1.2, 1.2, 0.5])
+                    _fc1, _fc2, _fc4 = st.columns([3.5, 1.5, 0.5])
                     _fc1.markdown(
                         f"**{_fvcfg.get('nombre', _fslug)}**  \n"
                         f"<span style='font-size:0.73rem;opacity:0.55'>"
-                        f"{_fvcfg.get('descripcion', 'Vehículo personalizado')}</span>",
+                        f"{_fvcfg.get('descripcion', 'Flete fijo manual')}</span>",
                         unsafe_allow_html=True,
                     )
                     _fc2.metric(
-                        "Rendimiento",
-                        f"{_fvcfg.get('rendimiento_km_gal', 0):.1f} km/gal",
-                    )
-                    _fc3.metric(
-                        "Cap. máx.",
-                        f"{int(_fvcfg.get('capacidad_max_kg', 0)):,} kg".replace(",", "."),
+                        "Costo por viaje",
+                        f"${int(_fvcfg.get('costo_viaje', 0)):,}".replace(",", "."),
                     )
                     if _fc4.button("🗑️", key=f"flota_del_{_fslug}",
-                                   help=f"Eliminar {_fvcfg.get('nombre', _fslug)} de la flota"):
+                                   help=f"Eliminar {_fvcfg.get('nombre', _fslug)}"):
                         _log_del   = dict(st.session_state.get("logistica_custom") or {})
                         _flota_del = dict(_log_del.get("flota_propia", {}))
                         _nombre_del = _fvcfg.get("nombre", _fslug)
@@ -8688,136 +8694,58 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                         _sp()["params_logistica"] = _log_del
                         try:
                             _guardar_config("logistica_custom", _log_del)
-                            st.toast(f"🗑️ {_nombre_del} eliminado de la flota.", icon="🚛")
+                            st.toast(f"🗑️ {_nombre_del} eliminado.", icon="🚛")
                         except Exception as _e_del:
-                            st.toast(f"⚠️ Eliminado en sesión pero error en BD: {_e_del}", icon="⚠️")
+                            st.toast(
+                                f"⚠️ Eliminado en sesión pero error en BD: {_e_del}",
+                                icon="⚠️",
+                            )
                         st.rerun()
         else:
             st.info(
-                "Aún no tienes vehículos en tu flota personalizada. "
+                "Aún no tienes vehículos o fletes registrados. "
                 "Usa el formulario de abajo para agregar el primero.",
                 icon="🚛",
             )
 
-        # ── Formulario: investigar + confirmar + guardar ──────────────────────
+        # ── Formulario ultra simple: nombre + costo fijo ──────────────────────
         with st.container(border=True):
-            st.markdown("**➕ Agregar vehículo a la flota**")
-            _flota_col1, _flota_col2 = st.columns([3, 1])
-            _flota_input = _flota_col1.text_input(
-                "Marca y modelo",
+            st.markdown("**➕ Agregar vehículo o servicio de flete**")
+            _flota_nombre_nuevo = st.text_input(
+                "Nombre del Vehículo o Servicio (Ej: Mi Camioneta, Flete Externo Norte)",
                 key="flota_nombre_input",
-                placeholder="Ej: Toyota Hilux 2023, Ford Ranger XL, Chevrolet NHR",
-                help="La IA investiga rendimiento km/gal y capacidad máxima de carga en kg.",
-                label_visibility="collapsed",
+                placeholder="Ej: Mi Camioneta, Flete Externo Norte, Moto Mensajería",
             )
-            _btn_investigar = _flota_col2.button(
-                "🔍 Investigar con IA",
-                type="primary",
-                key="btn_flota_investigar",
-                disabled=not (_flota_input or "").strip(),
-                use_container_width=True,
+            _flota_costo_nuevo = st.number_input(
+                "Costo del flete por viaje ($ COP)",
+                min_value=0,
+                step=5_000,
+                format="%d",
+                key="flota_costo_input",
+                help="Precio total que pagas por cada viaje con este vehículo o servicio.",
             )
-
-            if _btn_investigar and (_flota_input or "").strip():
-                _veh_q = _flota_input.strip()
-                st.session_state.flota_ficha = None
-                st.session_state.flota_ficha_nombre = ""
-                for _fk2 in ["flota_rend_edit", "flota_cap_edit",
-                             "flota_desg_edit", "flota_base_edit"]:
-                    st.session_state.pop(_fk2, None)
-                with st.spinner(f"🔬 Consultando ficha técnica de **{_veh_q}**…"):
-                    try:
-                        _ficha_ia = investigar_vehiculo(_veh_q)
-                        st.session_state.flota_ficha = {
-                            "rendimiento_km_gal": _ficha_ia["rendimiento_km_gal"],
-                            "capacidad_max_kg":   _ficha_ia["capacidad_max_kg"],
-                        }
-                        st.session_state.flota_ficha_nombre = _veh_q
-                    except Exception as _e_fl:
-                        st.error(
-                            f"❌ No se pudo obtener la ficha técnica: {_e_fl}\n\n"
-                            f"Verifica que la IA esté configurada o ingresa los valores manualmente.",
-                            icon="🔧",
-                        )
-
-            if st.session_state.get("flota_ficha") and st.session_state.get("flota_ficha_nombre"):
-                _nombre_ficha = st.session_state.flota_ficha_nombre
-                st.info(
-                    f"📋 Ficha técnica para **{_nombre_ficha}** — "
-                    f"ajusta si es necesario y presiona **Guardar**."
-                )
-                _fv1, _fv2 = st.columns(2)
-                with _fv1:
-                    _rend_val = st.number_input(
-                        "Rendimiento sin carga (km/gal)",
-                        min_value=1.0, max_value=80.0, step=0.1, format="%.1f",
-                        value=float(st.session_state.flota_ficha["rendimiento_km_gal"]),
-                        key="flota_rend_edit",
-                        help=(
-                            "Base termodinámica sin carga. El Motor Físico aplica "
-                            "penalización automática: cada 45 kg de piedra reduce "
-                            "el rendimiento 1.5%% (tope 40%%)."
-                        ),
-                    )
-                with _fv2:
-                    _cap_val = st.number_input(
-                        "Capacidad máxima de carga (kg)",
-                        min_value=50.0, max_value=30_000.0, step=50.0, format="%.0f",
-                        value=float(st.session_state.flota_ficha["capacidad_max_kg"]),
-                        key="flota_cap_edit",
-                        help=(
-                            "Si el proyecto supera este peso, el sistema bloquea "
-                            "este vehículo y activa flete externo automáticamente."
-                        ),
-                    )
-                _fv3, _fv4 = st.columns(2)
-                with _fv3:
-                    _desg_val = st.number_input(
-                        "Desgaste por km (COP/km)",
-                        min_value=0, max_value=2_000, step=5, format="%d",
-                        value=120,
-                        key="flota_desg_edit",
-                        help="Llantas, frenos, suspensión. Rango típico pickup: $80–$200/km.",
-                    )
-                with _fv4:
-                    _base_val = st.number_input(
-                        "Flete base mínimo (COP)",
-                        min_value=0, max_value=500_000, step=5_000, format="%d",
-                        value=50_000,
-                        key="flota_base_edit",
-                        help="Costo fijo por salir independiente de la distancia.",
-                    )
-
             _btn_guardar_flota = st.button(
-                "💾 Guardar Vehículo en mi Flota",
+                "💾 Guardar Vehículo/Flete",
                 type="primary",
                 key="btn_flota_guardar",
                 use_container_width=True,
-                disabled=not (st.session_state.get("flota_ficha") and
-                              st.session_state.get("flota_ficha_nombre")),
+                disabled=not (_flota_nombre_nuevo or "").strip(),
             )
-            if _btn_guardar_flota:
+            if _btn_guardar_flota and (_flota_nombre_nuevo or "").strip():
                 import re as _re_fl
-                _nombre_ficha_g = st.session_state.flota_ficha_nombre
+                _nombre_g = _flota_nombre_nuevo.strip()
                 _slug = _re_fl.sub(r"[^a-z0-9]+", "_",
-                                   _nombre_ficha_g.lower().strip())[:30].strip("_")
+                                   _nombre_g.lower())[:30].strip("_")
                 if _slug in {"frontier", "cheyenne", "externo"}:
                     _slug = f"custom_{_slug}"
-                # Leer valores exactamente como los muestra el widget
-                _rend_final = float(st.session_state.get("flota_rend_edit",
-                                   st.session_state.flota_ficha["rendimiento_km_gal"]))
-                _cap_final  = float(st.session_state.get("flota_cap_edit",
-                                   st.session_state.flota_ficha["capacidad_max_kg"]))
                 _veh_nuevo = {
-                    "nombre":             _nombre_ficha_g,
-                    "tipo":               "propio",            # requerido por calcular_logistica
-                    "rendimiento_km_gal": _rend_final,
-                    "rend":               _rend_final,         # alias legacy para calculos.py
-                    "capacidad_max_kg":   _cap_final,
-                    "desgaste":           int(st.session_state.get("flota_desg_edit", 120)),
-                    "base":               int(st.session_state.get("flota_base_edit", 50_000)),
-                    "costo_mantenimiento_por_km": 80,
-                    "descripcion":        f"Investigado por IA — {_nombre_ficha_g}",
+                    "nombre":       _nombre_g,
+                    "tipo":         "flete_fijo",
+                    "costo_viaje":  float(_flota_costo_nuevo),
+                    "descripcion":  (
+                        f"Flete fijo — "
+                        f"${int(_flota_costo_nuevo):,}/viaje".replace(",", ".")
+                    ),
                 }
                 _log_save  = dict(st.session_state.get("logistica_custom") or {})
                 _flota_upd = dict(_log_save.get("flota_propia", {}))
@@ -8830,15 +8758,15 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                     _guardar_config("logistica_custom", _log_save)
                 except Exception as _e_save:
                     _save_err = str(_e_save)
-                st.session_state.flota_ficha        = None
-                st.session_state.flota_ficha_nombre = ""
-                st.session_state.flota_guardado_ok  = _nombre_ficha_g
-                for _fk in ["flota_nombre_input", "flota_rend_edit",
-                            "flota_cap_edit", "flota_desg_edit", "flota_base_edit"]:
+                st.session_state.flota_guardado_ok = _nombre_g
+                for _fk in ["flota_nombre_input", "flota_costo_input"]:
                     st.session_state.pop(_fk, None)
                 if _save_err:
-                    st.warning(f"⚠️ Guardado en sesión pero falló persistencia en BD: {_save_err}")
+                    st.warning(
+                        f"⚠️ Guardado en sesión pero falló persistencia en BD: {_save_err}"
+                    )
                 st.rerun()
+
 
         st.markdown("")
         _col_save_log, _col_reset_log = st.columns([3, 1])
