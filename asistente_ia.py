@@ -373,3 +373,73 @@ JSON a retornar:
         return json.loads(raw.strip())
     except Exception:
         return None
+
+
+# ── Sistema de Investigación Automotriz (Gestor Inteligente de Flota) ──────────
+# Función aislada con su propio system prompt técnico, sin guardrails de marmolería.
+# Retorna {"rendimiento_km_gal": float, "capacidad_max_kg": float} o lanza excepción.
+
+_SYSTEM_VEHICULO = """\
+Eres un sistema experto en especificaciones técnicas automotrices para flotas de carga en Colombia.
+Tu única función es devolver datos técnicos de vehículos de transporte.
+
+REGLAS ABSOLUTAS:
+1. Responde ÚNICAMENTE con un objeto JSON válido. Cero texto fuera del JSON.
+2. El JSON debe tener exactamente dos llaves numéricas:
+   - "rendimiento_km_gal": kilómetros por galón en uso urbano/mixto con carga típica (float)
+   - "capacidad_max_kg": carga útil máxima homologada en kilogramos (float)
+3. Si el nombre del vehículo tiene errores tipográficos, infiere el modelo real más cercano.
+4. Usa los valores típicos del mercado colombiano (altitud media, combustible corriente).
+5. NUNCA escribas explicaciones, saludos, advertencias ni markdown. Solo el JSON puro.
+
+Ejemplo de respuesta correcta:
+{"rendimiento_km_gal": 9.5, "capacidad_max_kg": 850.0}
+"""
+
+
+def investigar_vehiculo(nombre_vehiculo: str) -> dict:
+    """
+    Investiga la ficha técnica de carga de un vehículo usando IA automotriz.
+
+    Función aislada del asistente de cotización — usa su propio system prompt
+    técnico para evitar los guardrails del módulo de marmolería.
+
+    Args:
+        nombre_vehiculo: nombre del vehículo (ej: "Ford Raptor 2024")
+
+    Retorna:
+        dict con {"rendimiento_km_gal": float, "capacidad_max_kg": float}
+
+    Lanza:
+        ValueError si la IA no devuelve JSON válido con las llaves esperadas.
+        RuntimeError si el cliente de IA no está disponible.
+    """
+    import re as _re
+    client = get_client()
+    if client is None:
+        raise RuntimeError(
+            "IA no disponible. Configura ANTHROPIC_API_KEY en .streamlit/secrets.toml"
+        )
+    response = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=120,
+        system=_SYSTEM_VEHICULO,
+        messages=[{"role": "user", "content": nombre_vehiculo.strip()}],
+    )
+    raw = response.content[0].text.strip()
+    # Extracción robusta: ignora cualquier texto envolvente, extrae primer {...}
+    raw_clean = raw.replace("```json", "").replace("```", "").strip()
+    match = _re.search(r"\{.*?\}", raw_clean, _re.DOTALL)
+    if not match:
+        raise ValueError(f"La IA no devolvió JSON válido. Respuesta recibida: {raw!r}")
+    data = json.loads(match.group(0))
+    rend = data.get("rendimiento_km_gal")
+    cap  = data.get("capacidad_max_kg")
+    if rend is None or cap is None:
+        raise ValueError(
+            f"JSON incompleto — faltan llaves esperadas. Datos recibidos: {data}"
+        )
+    return {
+        "rendimiento_km_gal": float(rend),
+        "capacidad_max_kg":   float(cap),
+    }
