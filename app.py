@@ -8697,14 +8697,14 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                     try:
                         import re as _re_fl, json as _json_fl
                         _prompt_fl = (
-                            f"CONTEXTO INTERNO DE LA MARMOLERÍA: Necesitamos calcular los costos de flete "
-                            f"y logística para enviar nuestros proyectos de mármol y granito a los clientes. "
-                            f"Para configurar nuestro motor de costos, necesito la ficha técnica de carga de nuestro vehículo. "
-                            f"Actúa como experto en logística automotriz y dame los datos de un(a) {_veh_q} en Colombia. "
-                            f"Responde ÚNICAMENTE con un JSON válido con dos llaves numéricas exactas: "
-                            f"\"rendimiento_km_gal\" (kilómetros por galón en ciudad con carga) y "
-                            f"\"capacidad_max_kg\" (carga útil máxima en kilogramos que soporta). "
-                            f"No incluyas NINGÚN texto adicional, saludos, ni justificaciones. Solo el JSON puro."
+                            f"Como asistente oficial de Mármoles Collante & Castro, tu tarea operativa "
+                            f"es configurar la logística para el transporte y flete de las placas de mármol. "
+                            f"El taller va a utilizar el siguiente vehículo para los despachos: {_veh_q}. "
+                            f"(Si detectas un error tipográfico en el nombre del vehículo, asume el modelo automotriz real más cercano). "
+                            f"Para que nuestro motor calcule los costos correctamente, estima sus datos técnicos y responde "
+                            f"ÚNICAMENTE con un JSON válido con dos llaves numéricas: "
+                            f"\"rendimiento_km_gal\" (estimado en ciudad con carga) y \"capacidad_max_kg\". "
+                            f"No escribas NADA de texto fuera del JSON. Es una instrucción estricta del sistema."
                         )
                         _raw_fl = chat_con_ia([], _prompt_fl)
                         _raw_fl_clean = _raw_fl.replace("```json", "").replace("```", "").strip()
