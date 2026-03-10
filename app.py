@@ -8803,12 +8803,17 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                                    _nombre_ficha_g.lower().strip())[:30].strip("_")
                 if _slug in {"frontier", "cheyenne", "externo"}:
                     _slug = f"custom_{_slug}"
+                # Leer valores exactamente como los muestra el widget
+                _rend_final = float(st.session_state.get("flota_rend_edit",
+                                   st.session_state.flota_ficha["rendimiento_km_gal"]))
+                _cap_final  = float(st.session_state.get("flota_cap_edit",
+                                   st.session_state.flota_ficha["capacidad_max_kg"]))
                 _veh_nuevo = {
                     "nombre":             _nombre_ficha_g,
-                    "rendimiento_km_gal": float(st.session_state.get("flota_rend_edit",
-                                               st.session_state.flota_ficha["rendimiento_km_gal"])),
-                    "capacidad_max_kg":   float(st.session_state.get("flota_cap_edit",
-                                               st.session_state.flota_ficha["capacidad_max_kg"])),
+                    "tipo":               "propio",            # requerido por calcular_logistica
+                    "rendimiento_km_gal": _rend_final,
+                    "rend":               _rend_final,         # alias legacy para calculos.py
+                    "capacidad_max_kg":   _cap_final,
                     "desgaste":           int(st.session_state.get("flota_desg_edit", 120)),
                     "base":               int(st.session_state.get("flota_base_edit", 50_000)),
                     "costo_mantenimiento_por_km": 80,
