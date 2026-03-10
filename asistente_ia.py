@@ -546,7 +546,7 @@ def auditor_rentabilidad(datos_cotizacion: dict) -> dict:
         )
 
         response = client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model="claude-sonnet-4-6",
             max_tokens=2000,
             system=_SYSTEM_AUDITOR,
             messages=[{"role": "user", "content": prompt}],
@@ -578,4 +578,3 @@ def auditor_rentabilidad(datos_cotizacion: dict) -> dict:
         raise
     except Exception as e:
         raise ValueError(f"Fallo al analizar la respuesta del auditor IA: {e}") from e
-
