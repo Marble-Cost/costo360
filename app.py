@@ -1895,7 +1895,7 @@ def _sp_eliminar_pieza(idx: int):
     no recicle valores de la pieza eliminada en las filas desplazadas.
     """
     piezas = list(_sp().get("cdir_piezas", []))
-    if len(piezas) > 1 and 0 <= idx < len(piezas):
+    if 0 <= idx < len(piezas):
         piezas.pop(idx)
         _sp_set("cdir_piezas", piezas)
         st.session_state.piezas = piezas
@@ -3599,12 +3599,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             # Recuperar lista actual de piezas desde el store_permanente
                             _piezas_actuales = list(_sp().get("cdir_piezas", []))
 
-                            # Limpiar la lista si solo tiene la pieza de ejemplo por defecto
-                            if (
-                                len(_piezas_actuales) == 1
-                                and _piezas_actuales[0].get("nombre") in ("Mesón de cocina", "Pieza 1")
-                                and float(_piezas_actuales[0].get("ml", 0)) <= 2.0
-                            ):
+                            # Limpiar la lista si es el inicio de la cotización
+                            if len(_piezas_actuales) <= 1:
                                 _piezas_actuales = []
 
                             # Mapear el resultado de la IA a la estructura interna de la App
@@ -3644,10 +3640,13 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     st.warning("Escribe o pega un mensaje primero.")
         st.markdown("---")
 
-        if "piezas" not in st.session_state or not st.session_state.piezas:
-            st.session_state.piezas = pre.get("piezas", [
-                {"nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}
-            ])
+        if "piezas" not in st.session_state:
+            if "piezas" in pre:
+                st.session_state.piezas = pre["piezas"]
+            else:
+                st.session_state.piezas = [
+                    {"nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}
+                ]
 
         tipos_superficie = list(ANCHOS_ESTANDAR.keys())
         piezas_nuevas    = []
@@ -3656,258 +3655,269 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         # ── CARDS POR PIEZA — layout mobile-first ────────────────────
         # Se elimina la "falsa tabla" de encabezados que colapsaba en móviles.
         # Cada pieza es una Card independiente con máximo 2 columnas por fila.
-        for idx, pieza in enumerate(st.session_state.piezas):
-            with st.container(border=True):
-                # ── FILA 1: Descripción + Botón eliminar ─────────────
-                _col_nom, _col_del = st.columns([5, 1])
-                with _col_nom:
-                    nombre_p = st.text_input(
-                        "Descripción de la pieza",
-                        value=pieza.get("nombre", ""),
-                        key=f"pnom_{idx}",
-                        placeholder=f"Pieza {idx + 1} — ej: Mesón de cocina",
-                    )
-                with _col_del:
-                    # Spacer para alinear el botón con el input de la columna izquierda
-                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                    if st.button("🗑️", key=f"del_{idx}", help="Eliminar pieza",
-                                 use_container_width=True) and len(st.session_state.piezas) > 1:
-                        _sp_eliminar_pieza(idx)
-                        st.rerun()
-
-                # ── FILA 2: Tipo de elemento + Largo en ML + Cantidad ─
-                _col_tipo, _col_ml, _col_cant = st.columns([2, 1.5, 1])
-                with _col_tipo:
-                    tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
-                    ancho_tipo_p = st.selectbox(
-                        "Tipo de elemento",
-                        tipos_superficie,
-                        index=tipo_idx,
-                        key=f"ptip_{idx}",
-                        help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""),
-                    )
-                with _col_ml:
-                    ml_p = st.number_input(
-                        "Largo (ML)",
-                        value=float(pieza.get("ml", 1.0)),
-                        min_value=0.01,
-                        step=0.1,
-                        key=f"pml_{idx}",
-                        help="Metros lineales de esta pieza (una unidad)",
-                    )
-                with _col_cant:
-                    cantidad_p = st.number_input(
-                        "Cantidad",
-                        value=int(pieza.get("cantidad", 1)),
-                        min_value=1,
-                        max_value=100,
-                        step=1,
-                        key=f"pcant_{idx}",
-                        help="Número de piezas idénticas. El total ML = Largo × Cantidad",
-                    )
-
-                # ── CONDICIONAL: nombre extra si elige Personalizado ──
-                if ancho_tipo_p == "Personalizado":
-                    st.text_input(
-                        "Nombre personalizado (aparece en el PDF)",
-                        value=st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", "")),
-                        key=f"pcustom_{idx}",
-                        placeholder='Ej: "Mesón de lavamanos", "Pantry", "Cornisa"',
-                        help="Nombre descriptivo que aparecerá en la cotización PDF",
-                    )
-
-                # ── FILA 3: Ancho + m² calculados ────────────────────
-                _col_ancho, _col_m2 = st.columns(2)
-                with _col_ancho:
-                    ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
-                    ancho_p   = st.number_input(
-                        "Ancho (m)",
-                        value=float(ancho_def),
-                        min_value=0.01,
-                        step=0.01,
-                        key=f"panc_{idx}",
-                        help="Profundidad o alto de la pieza en metros",
-                    )
-
-                # ── AUDITOR DE MEDIDAS — Prevención de errores cm→m ──────────
-                # Umbrales: largo > 3.5 m supera cualquier placa estándar del mercado
-                # (máx. 3.20 m × 1.60 m). ancho > 2.2 m también es imposible en una
-                # sola pieza. Si el usuario ingresó, p.ej., 90 en vez de 0.90, aquí
-                # lo detectamos y mostramos una advertencia en tiempo real.
-                # La pieza se incluye en la lista pero el usuario ve el aviso de inmediato.
-                _auditor_largo = ml_p > 3.5
-                _auditor_ancho = ancho_p > 2.2
-                if _auditor_largo:
-                    st.warning(
-                        f"⚠️ **Medida inusual detectada.** Ingresaste **{ml_p:.2f} metros** de largo. "
-                        f"Si tu intención era **{ml_p:.0f} centímetros**, recuerda usar el "
-                        f"formato decimal: **0.{int(ml_p * 100):02d}** m  "
-                        f"*(ejemplo: 90 cm → 0.90 m)*.",
-                        icon="📏",
-                    )
-                if _auditor_ancho:
-                    st.warning(
-                        f"⚠️ **Medida inusual detectada.** Ingresaste **{ancho_p:.2f} metros** de ancho. "
-                        f"Si tu intención era **{ancho_p:.0f} centímetros**, recuerda usar el "
-                        f"formato decimal: **0.{int(ancho_p * 100):02d}** m  "
-                        f"*(ejemplo: 60 cm → 0.60 m)*.",
-                        icon="📏",
-                    )
-                ml_efectivo = ml_p * cantidad_p            # largo × cantidad
-                m2_p = ml_a_m2(ml_efectivo, ancho_p)       # m² totales de esta fila
-                total_m2_piezas += m2_p
-                with _col_m2:
-                    _m2_desc = f"{ml_p:.2f} ml × {ancho_p:.2f} m × {cantidad_p}" if cantidad_p > 1 else f"{ml_p:.2f} ml × {ancho_p:.2f} m"
-                    st.markdown(
-                        f"""<div style="background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.22);
-                        border-radius:10px;padding:10px 14px;margin-top:4px">
-                        <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
-                             letter-spacing:0.1em;color:#1B5FA8;opacity:0.8">m² calculados</div>
-                        <div style="font-size:1.45rem;font-weight:900;color:#1B5FA8;
-                             font-family:'Playfair Display',serif;line-height:1.2">{fmt_m2(m2_p)}</div>
-                        <div style="font-size:0.7rem;opacity:0.6;margin-top:2px">{_m2_desc}</div>
-                        </div>""",
-                        unsafe_allow_html=True,
-                    )
-
-                # ── Asignación de Pieza a Lote Físico de Placa ─────────────
-                # Sistema de etiquetado por Lotes: cada pieza se vincula al lote
-                # físico exacto del que se cortará, diferenciando placas del mismo
-                # material por sus dimensiones reales. Clave para el motor de nesting.
-                _mats_paso1 = st.session_state.get("materiales_proyecto", [])
-                if _mats_paso1:
-                    # format_func convierte el índice en etiqueta descriptiva del lote.
-                    # Incluye categoría, referencia, dimensiones reales y área.
-                    def _fmt_lote(i, _mats=_mats_paso1):
-                        _m      = _mats[i]
-                        _largo  = float(_m.get("placas_largo", _m.get("largo", 0.0)))
-                        _ancho  = float(_m.get("placas_ancho", _m.get("ancho", 0.0)))
-                        _cant   = int(_m.get("placas_cant", 1))
-                        _area   = float(_m.get("area_placa", _largo * _ancho * _cant))
-                        _ref    = _m.get("ref") or _m.get("cat", "")
-                        _cat    = _m.get("cat", "")
-                        _dims   = f"{_largo:.2f}m × {_ancho:.2f}m" if _largo > 0 and _ancho > 0 else "sin dimensiones"
-                        _suffix = f" ×{_cant}" if _cant > 1 else ""
-                        return f"[Lote #{i+1}] {_cat} — {_ref}{_suffix} ({_dims}) | {_area:.2f} m²"
-
-                    _lote_indices = list(range(len(_mats_paso1)))
-                    # Restaurar la selección previa del lote si existe
-                    _lote_prev    = int(pieza.get("id_lote_origen", 0))
-                    _lote_idx_def = _lote_prev if _lote_prev < len(_mats_paso1) else 0
-                    _sel_lote_idx = st.selectbox(
-                        "🪨 Asignar a la placa (Lote físico)",
-                        _lote_indices,
-                        index=_lote_idx_def,
-                        format_func=_fmt_lote,
-                        key=f"pmat_{idx}",
-                        help=(
-                            "Selecciona de qué lámina física se cortará esta pieza. "
-                            "Cada lote se diferencia por sus dimensiones reales para "
-                            "un nesting preciso y trazabilidad de material."
-                        ),
-                    )
-                    _mat_seleccionado = _mats_paso1[_sel_lote_idx]
-                    _cat_pieza        = _mat_seleccionado.get("cat", "Mármol")
-                else:
-                    # Fallback cuando no hay materiales en el Paso 1
-                    _sel_lote_idx     = None
-                    _mat_seleccionado = {}
-                    _cat_pieza = st.selectbox(
-                        "🪨 Material de la pieza",
-                        CATEGORIAS_MATERIAL,
-                        index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
-                              if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
-                        key=f"pmat_{idx}",
-                        help="Completa el Paso 1 para asignar piezas a lotes físicos de placa.",
-                    )
-
-                # ── Submódulo: Zócalo Geométrico por pieza ────────────────
-                # Calcula automáticamente los ML de zócalo según los lados
-                # seleccionados — elimina el campo global "Total ML de Zócalo".
-                with st.expander("📐 Zócalos para esta pieza", expanded=False):
-                    st.caption(
-                        f"Selecciona los lados de **'{nombre_p or f'Pieza {idx+1}'}'** "
-                        f"que llevan zócalo. La app sumará los metros automáticamente."
-                    )
-                    _zoc_c1, _zoc_c2, _zoc_c3 = st.columns(3)
-                    with _zoc_c1:
-                        _zoc_t = st.checkbox(
-                            f"Trasero ({ml_p:.2f} m)",
-                            value=bool(pieza.get("zoc_trasero", False)),
-                            key=f"zoc_t_{idx}",
-                            help=f"Lado trasero = largo de la pieza × cantidad ({ml_efectivo:.2f} ml total)",
+        if not st.session_state.piezas:
+            st.markdown(
+                '<div style="background:rgba(27,95,168,0.04);border:2px dashed rgba(27,95,168,0.3);'
+                'border-radius:12px;padding:40px 20px;text-align:center;margin-bottom:16px">'
+                '<div style="font-size:2.8rem;margin-bottom:12px">📭</div>'
+                '<div style="font-size:1.15rem;font-weight:800;color:#1B5FA8;margin-bottom:6px">No hay piezas en tu cotización</div>'
+                '<div style="font-size:0.85rem;opacity:0.75;max-width:400px;margin:0 auto;">'
+                'Usa el <strong>✨ Asistente Mágico</strong> de arriba pegando el mensaje de tu cliente, o agrega una pieza manualmente usando el botón de abajo.'
+                '</div></div>', unsafe_allow_html=True
+            )
+        else:
+            for idx, pieza in enumerate(st.session_state.piezas):
+                with st.container(border=True):
+                    # ── FILA 1: Descripción + Botón eliminar ─────────────
+                    _col_nom, _col_del = st.columns([5, 1])
+                    with _col_nom:
+                        nombre_p = st.text_input(
+                            "Descripción de la pieza",
+                            value=pieza.get("nombre", ""),
+                            key=f"pnom_{idx}",
+                            placeholder=f"Pieza {idx + 1} — ej: Mesón de cocina",
                         )
-                    with _zoc_c2:
-                        _zoc_i = st.checkbox(
-                            f"Lateral Izq. ({ancho_p:.2f} m)",
-                            value=bool(pieza.get("zoc_izq", False)),
-                            key=f"zoc_i_{idx}",
-                            help=f"Lateral izquierdo = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
+                    with _col_del:
+                        # Spacer para alinear el botón con el input de la columna izquierda
+                        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                        if st.button("🗑️", key=f"del_{idx}", help="Eliminar pieza",
+                                     use_container_width=True):
+                            _sp_eliminar_pieza(idx)
+                            st.rerun()
+    
+                    # ── FILA 2: Tipo de elemento + Largo en ML + Cantidad ─
+                    _col_tipo, _col_ml, _col_cant = st.columns([2, 1.5, 1])
+                    with _col_tipo:
+                        tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
+                        ancho_tipo_p = st.selectbox(
+                            "Tipo de elemento",
+                            tipos_superficie,
+                            index=tipo_idx,
+                            key=f"ptip_{idx}",
+                            help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""),
                         )
-                    with _zoc_c3:
-                        _zoc_d = st.checkbox(
-                            f"Lateral Der. ({ancho_p:.2f} m)",
-                            value=bool(pieza.get("zoc_der", False)),
-                            key=f"zoc_d_{idx}",
-                            help=f"Lateral derecho = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
+                    with _col_ml:
+                        ml_p = st.number_input(
+                            "Largo (ML)",
+                            value=float(pieza.get("ml", 1.0)),
+                            min_value=0.01,
+                            step=0.1,
+                            key=f"pml_{idx}",
+                            help="Metros lineales de esta pieza (una unidad)",
                         )
-                    # ── Altura del zócalo (visible SOLO cuando hay algún lado activo) ──
-                    _hay_zocalo = _zoc_t or _zoc_i or _zoc_d
-                    if _hay_zocalo:
-                        _altura_pre = float(pieza.get("altura_zocalo_cm", 7.0))
-                        _altura_zoc = st.number_input(
-                            "Altura del zócalo (cm)",
-                            min_value=1.0,
-                            max_value=50.0,
-                            value=_altura_pre,
-                            step=0.5,
-                            key=f"zoc_h_{idx}",
+                    with _col_cant:
+                        cantidad_p = st.number_input(
+                            "Cantidad",
+                            value=int(pieza.get("cantidad", 1)),
+                            min_value=1,
+                            max_value=100,
+                            step=1,
+                            key=f"pcant_{idx}",
+                            help="Número de piezas idénticas. El total ML = Largo × Cantidad",
+                        )
+    
+                    # ── CONDICIONAL: nombre extra si elige Personalizado ──
+                    if ancho_tipo_p == "Personalizado":
+                        st.text_input(
+                            "Nombre personalizado (aparece en el PDF)",
+                            value=st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", "")),
+                            key=f"pcustom_{idx}",
+                            placeholder='Ej: "Mesón de lavamanos", "Pantry", "Cornisa"',
+                            help="Nombre descriptivo que aparecerá en la cotización PDF",
+                        )
+    
+                    # ── FILA 3: Ancho + m² calculados ────────────────────
+                    _col_ancho, _col_m2 = st.columns(2)
+                    with _col_ancho:
+                        ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
+                        ancho_p   = st.number_input(
+                            "Ancho (m)",
+                            value=float(ancho_def),
+                            min_value=0.01,
+                            step=0.01,
+                            key=f"panc_{idx}",
+                            help="Profundidad o alto de la pieza en metros",
+                        )
+    
+                    # ── AUDITOR DE MEDIDAS — Prevención de errores cm→m ──────────
+                    # Umbrales: largo > 3.5 m supera cualquier placa estándar del mercado
+                    # (máx. 3.20 m × 1.60 m). ancho > 2.2 m también es imposible en una
+                    # sola pieza. Si el usuario ingresó, p.ej., 90 en vez de 0.90, aquí
+                    # lo detectamos y mostramos una advertencia en tiempo real.
+                    # La pieza se incluye en la lista pero el usuario ve el aviso de inmediato.
+                    _auditor_largo = ml_p > 3.5
+                    _auditor_ancho = ancho_p > 2.2
+                    if _auditor_largo:
+                        st.warning(
+                            f"⚠️ **Medida inusual detectada.** Ingresaste **{ml_p:.2f} metros** de largo. "
+                            f"Si tu intención era **{ml_p:.0f} centímetros**, recuerda usar el "
+                            f"formato decimal: **0.{int(ml_p * 100):02d}** m  "
+                            f"*(ejemplo: 90 cm → 0.90 m)*.",
+                            icon="📏",
+                        )
+                    if _auditor_ancho:
+                        st.warning(
+                            f"⚠️ **Medida inusual detectada.** Ingresaste **{ancho_p:.2f} metros** de ancho. "
+                            f"Si tu intención era **{ancho_p:.0f} centímetros**, recuerda usar el "
+                            f"formato decimal: **0.{int(ancho_p * 100):02d}** m  "
+                            f"*(ejemplo: 60 cm → 0.60 m)*.",
+                            icon="📏",
+                        )
+                    ml_efectivo = ml_p * cantidad_p            # largo × cantidad
+                    m2_p = ml_a_m2(ml_efectivo, ancho_p)       # m² totales de esta fila
+                    total_m2_piezas += m2_p
+                    with _col_m2:
+                        _m2_desc = f"{ml_p:.2f} ml × {ancho_p:.2f} m × {cantidad_p}" if cantidad_p > 1 else f"{ml_p:.2f} ml × {ancho_p:.2f} m"
+                        st.markdown(
+                            f"""<div style="background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.22);
+                            border-radius:10px;padding:10px 14px;margin-top:4px">
+                            <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
+                                 letter-spacing:0.1em;color:#1B5FA8;opacity:0.8">m² calculados</div>
+                            <div style="font-size:1.45rem;font-weight:900;color:#1B5FA8;
+                                 font-family:'Playfair Display',serif;line-height:1.2">{fmt_m2(m2_p)}</div>
+                            <div style="font-size:0.7rem;opacity:0.6;margin-top:2px">{_m2_desc}</div>
+                            </div>""",
+                            unsafe_allow_html=True,
+                        )
+    
+                    # ── Asignación de Pieza a Lote Físico de Placa ─────────────
+                    # Sistema de etiquetado por Lotes: cada pieza se vincula al lote
+                    # físico exacto del que se cortará, diferenciando placas del mismo
+                    # material por sus dimensiones reales. Clave para el motor de nesting.
+                    _mats_paso1 = st.session_state.get("materiales_proyecto", [])
+                    if _mats_paso1:
+                        # format_func convierte el índice en etiqueta descriptiva del lote.
+                        # Incluye categoría, referencia, dimensiones reales y área.
+                        def _fmt_lote(i, _mats=_mats_paso1):
+                            _m      = _mats[i]
+                            _largo  = float(_m.get("placas_largo", _m.get("largo", 0.0)))
+                            _ancho  = float(_m.get("placas_ancho", _m.get("ancho", 0.0)))
+                            _cant   = int(_m.get("placas_cant", 1))
+                            _area   = float(_m.get("area_placa", _largo * _ancho * _cant))
+                            _ref    = _m.get("ref") or _m.get("cat", "")
+                            _cat    = _m.get("cat", "")
+                            _dims   = f"{_largo:.2f}m × {_ancho:.2f}m" if _largo > 0 and _ancho > 0 else "sin dimensiones"
+                            _suffix = f" ×{_cant}" if _cant > 1 else ""
+                            return f"[Lote #{i+1}] {_cat} — {_ref}{_suffix} ({_dims}) | {_area:.2f} m²"
+    
+                        _lote_indices = list(range(len(_mats_paso1)))
+                        # Restaurar la selección previa del lote si existe
+                        _lote_prev    = int(pieza.get("id_lote_origen", 0))
+                        _lote_idx_def = _lote_prev if _lote_prev < len(_mats_paso1) else 0
+                        _sel_lote_idx = st.selectbox(
+                            "🪨 Asignar a la placa (Lote físico)",
+                            _lote_indices,
+                            index=_lote_idx_def,
+                            format_func=_fmt_lote,
+                            key=f"pmat_{idx}",
                             help=(
-                                "Franja de piedra que sube por la pared. "
-                                "Estándar residencial: 7 cm. Baños: 10–15 cm. "
-                                "La app calcula el m² de material extra automáticamente."
+                                "Selecciona de qué lámina física se cortará esta pieza. "
+                                "Cada lote se diferencia por sus dimensiones reales para "
+                                "un nesting preciso y trazabilidad de material."
                             ),
                         )
+                        _mat_seleccionado = _mats_paso1[_sel_lote_idx]
+                        _cat_pieza        = _mat_seleccionado.get("cat", "Mármol")
                     else:
-                        # Sin checkboxes activos → altura no aplica; tomamos el default
-                        # para no generar un widget sin contexto (Streamlit requiere
-                        # que los keys sean estables entre reruns).
-                        _altura_zoc = float(pieza.get("altura_zocalo_cm", 7.0))
-
-                    # Preview en tiempo real del aporte de esta pieza
-                    _ml_zoc_pieza = (
-                        (ml_p * cantidad_p if _zoc_t else 0.0) +
-                        (ancho_p * cantidad_p if _zoc_i else 0.0) +
-                        (ancho_p * cantidad_p if _zoc_d else 0.0)
-                    )
-                    if _ml_zoc_pieza > 0:
-                        _m2_zoc_pieza = _ml_zoc_pieza * (_altura_zoc / 100.0)
-                        st.caption(
-                            f"↳ Zócalo: **{_ml_zoc_pieza:.2f} ml** · "
-                            f"**{_m2_zoc_pieza:.4f} m²** de material "
-                            f"(altura {_altura_zoc:.1f} cm)"
+                        # Fallback cuando no hay materiales en el Paso 1
+                        _sel_lote_idx     = None
+                        _mat_seleccionado = {}
+                        _cat_pieza = st.selectbox(
+                            "🪨 Material de la pieza",
+                            CATEGORIAS_MATERIAL,
+                            index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
+                                  if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
+                            key=f"pmat_{idx}",
+                            help="Completa el Paso 1 para asignar piezas a lotes físicos de placa.",
                         )
-
-                # Guardar pieza con nombre_personalizado + checkboxes de zócalo + lote
-                _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
-                piezas_nuevas.append({
-                    "nombre":              nombre_p,
-                    "ml":                  ml_efectivo,     # largo × cantidad (total real)
-                    "ml_unitario":         ml_p,            # largo de una sola pieza
-                    "cantidad":            cantidad_p,
-                    "ancho_tipo":          ancho_tipo_p,
-                    "ancho_custom":        ancho_p,
-                    "nombre_personalizado": _nom_personalizado,
-                    # Trazabilidad de lote: categoría y vínculo al lote físico de origen
-                    "categoria":           _cat_pieza,
-                    "id_lote_origen":      _sel_lote_idx,   # índice en materiales_proyecto (None si fallback)
-                    # Checkboxes y configuración de zócalo geométrico
-                    "zoc_trasero":         _zoc_t,
-                    "zoc_izq":             _zoc_i,
-                    "zoc_der":             _zoc_d,
-                    "altura_zocalo_cm":    _altura_zoc,    # altura franja del zócalo
-                })
-
+    
+                    # ── Submódulo: Zócalo Geométrico por pieza ────────────────
+                    # Calcula automáticamente los ML de zócalo según los lados
+                    # seleccionados — elimina el campo global "Total ML de Zócalo".
+                    with st.expander("📐 Zócalos para esta pieza", expanded=False):
+                        st.caption(
+                            f"Selecciona los lados de **'{nombre_p or f'Pieza {idx+1}'}'** "
+                            f"que llevan zócalo. La app sumará los metros automáticamente."
+                        )
+                        _zoc_c1, _zoc_c2, _zoc_c3 = st.columns(3)
+                        with _zoc_c1:
+                            _zoc_t = st.checkbox(
+                                f"Trasero ({ml_p:.2f} m)",
+                                value=bool(pieza.get("zoc_trasero", False)),
+                                key=f"zoc_t_{idx}",
+                                help=f"Lado trasero = largo de la pieza × cantidad ({ml_efectivo:.2f} ml total)",
+                            )
+                        with _zoc_c2:
+                            _zoc_i = st.checkbox(
+                                f"Lateral Izq. ({ancho_p:.2f} m)",
+                                value=bool(pieza.get("zoc_izq", False)),
+                                key=f"zoc_i_{idx}",
+                                help=f"Lateral izquierdo = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
+                            )
+                        with _zoc_c3:
+                            _zoc_d = st.checkbox(
+                                f"Lateral Der. ({ancho_p:.2f} m)",
+                                value=bool(pieza.get("zoc_der", False)),
+                                key=f"zoc_d_{idx}",
+                                help=f"Lateral derecho = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
+                            )
+                        # ── Altura del zócalo (visible SOLO cuando hay algún lado activo) ──
+                        _hay_zocalo = _zoc_t or _zoc_i or _zoc_d
+                        if _hay_zocalo:
+                            _altura_pre = float(pieza.get("altura_zocalo_cm", 7.0))
+                            _altura_zoc = st.number_input(
+                                "Altura del zócalo (cm)",
+                                min_value=1.0,
+                                max_value=50.0,
+                                value=_altura_pre,
+                                step=0.5,
+                                key=f"zoc_h_{idx}",
+                                help=(
+                                    "Franja de piedra que sube por la pared. "
+                                    "Estándar residencial: 7 cm. Baños: 10–15 cm. "
+                                    "La app calcula el m² de material extra automáticamente."
+                                ),
+                            )
+                        else:
+                            # Sin checkboxes activos → altura no aplica; tomamos el default
+                            # para no generar un widget sin contexto (Streamlit requiere
+                            # que los keys sean estables entre reruns).
+                            _altura_zoc = float(pieza.get("altura_zocalo_cm", 7.0))
+    
+                        # Preview en tiempo real del aporte de esta pieza
+                        _ml_zoc_pieza = (
+                            (ml_p * cantidad_p if _zoc_t else 0.0) +
+                            (ancho_p * cantidad_p if _zoc_i else 0.0) +
+                            (ancho_p * cantidad_p if _zoc_d else 0.0)
+                        )
+                        if _ml_zoc_pieza > 0:
+                            _m2_zoc_pieza = _ml_zoc_pieza * (_altura_zoc / 100.0)
+                            st.caption(
+                                f"↳ Zócalo: **{_ml_zoc_pieza:.2f} ml** · "
+                                f"**{_m2_zoc_pieza:.4f} m²** de material "
+                                f"(altura {_altura_zoc:.1f} cm)"
+                            )
+    
+                    # Guardar pieza con nombre_personalizado + checkboxes de zócalo + lote
+                    _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
+                    piezas_nuevas.append({
+                        "nombre":              nombre_p,
+                        "ml":                  ml_efectivo,     # largo × cantidad (total real)
+                        "ml_unitario":         ml_p,            # largo de una sola pieza
+                        "cantidad":            cantidad_p,
+                        "ancho_tipo":          ancho_tipo_p,
+                        "ancho_custom":        ancho_p,
+                        "nombre_personalizado": _nom_personalizado,
+                        # Trazabilidad de lote: categoría y vínculo al lote físico de origen
+                        "categoria":           _cat_pieza,
+                        "id_lote_origen":      _sel_lote_idx,   # índice en materiales_proyecto (None si fallback)
+                        # Checkboxes y configuración de zócalo geométrico
+                        "zoc_trasero":         _zoc_t,
+                        "zoc_izq":             _zoc_i,
+                        "zoc_der":             _zoc_d,
+                        "altura_zocalo_cm":    _altura_zoc,    # altura franja del zócalo
+                    })
+    
         # Sync piezas to store_permanente (event-driven — persists across navigation)
         _sp_sync_piezas(piezas_nuevas)
         st.session_state.piezas = piezas_nuevas
