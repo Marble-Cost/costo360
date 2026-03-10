@@ -375,22 +375,25 @@ JSON a retornar:
         return None
 
 
-# ── Sistema de Investigación Automotriz (Gestor Inteligente de Flota) ──────────
-# Función aislada con su propio system prompt técnico, sin guardrails de marmolería.
+# ── Sistema de Investigación Automotriz con Web Search ───────────────────────
+# Función dedicada con system prompt técnico + herramienta web_search.
+# Aislada del asistente de marmolería — sin guardrails de cotización.
 # Retorna {"rendimiento_km_gal": float, "capacidad_max_kg": float} o lanza excepción.
 
 _SYSTEM_VEHICULO = """\
-Eres un sistema experto en especificaciones técnicas automotrices para flotas de carga en Colombia.
-Tu única función es devolver datos técnicos de vehículos de transporte.
+Eres un sistema experto en especificaciones técnicas automotrices para flotas de transporte en Colombia.
+Tu tarea es obtener datos reales y precisos de un vehículo específico.
 
-REGLAS ABSOLUTAS:
-1. Responde ÚNICAMENTE con un objeto JSON válido. Cero texto fuera del JSON.
-2. El JSON debe tener exactamente dos llaves numéricas:
-   - "rendimiento_km_gal": kilómetros por galón en uso urbano/mixto con carga típica (float)
-   - "capacidad_max_kg": carga útil máxima homologada en kilogramos (float)
-3. Si el nombre del vehículo tiene errores tipográficos, infiere el modelo real más cercano.
-4. Usa los valores típicos del mercado colombiano (altitud media, combustible corriente).
-5. NUNCA escribas explicaciones, saludos, advertencias ni markdown. Solo el JSON puro.
+PROCESO OBLIGATORIO:
+1. Usa web_search para buscar la ficha técnica oficial del vehículo.
+   Busca: "[marca] [modelo] [año] ficha técnica carga útil Colombia"
+   o en inglés: "[marca] [modelo] [año] payload capacity specifications"
+2. Extrae del fabricante o fuente técnica:
+   - rendimiento_km_gal: km por galón en uso urbano/mixto con carga típica
+     (si encuentras l/100km, convierte: 235.2 / litros_por_100km)
+   - capacidad_max_kg: carga útil máxima en kg según ficha del fabricante
+3. Responde ÚNICAMENTE con un objeto JSON válido con exactamente dos llaves numéricas.
+   Sin texto antes ni después del JSON. Sin markdown. Sin explicaciones.
 
 Ejemplo de respuesta correcta:
 {"rendimiento_km_gal": 9.5, "capacidad_max_kg": 850.0}
@@ -399,19 +402,20 @@ Ejemplo de respuesta correcta:
 
 def investigar_vehiculo(nombre_vehiculo: str) -> dict:
     """
-    Investiga la ficha técnica de carga de un vehículo usando IA automotriz.
+    Investiga la ficha técnica REAL de un vehículo usando IA con web_search.
 
-    Función aislada del asistente de cotización — usa su propio system prompt
-    técnico para evitar los guardrails del módulo de marmolería.
+    Usa el tool web_search de Anthropic para consultar fuentes técnicas reales
+    (fabricante, fichas técnicas, bases de datos automotrices) en lugar de
+    depender del conocimiento estático de entrenamiento.
 
     Args:
-        nombre_vehiculo: nombre del vehículo (ej: "Ford Raptor 2024")
+        nombre_vehiculo: nombre del vehículo (ej: "Ford Ranger 2024")
 
     Retorna:
         dict con {"rendimiento_km_gal": float, "capacidad_max_kg": float}
 
     Lanza:
-        ValueError si la IA no devuelve JSON válido con las llaves esperadas.
+        ValueError si la IA no devuelve JSON parseable con las llaves esperadas.
         RuntimeError si el cliente de IA no está disponible.
     """
     import re as _re
@@ -420,24 +424,54 @@ def investigar_vehiculo(nombre_vehiculo: str) -> dict:
         raise RuntimeError(
             "IA no disponible. Configura ANTHROPIC_API_KEY en .streamlit/secrets.toml"
         )
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=120,
-        system=_SYSTEM_VEHICULO,
-        messages=[{"role": "user", "content": nombre_vehiculo.strip()}],
-    )
-    raw = response.content[0].text.strip()
-    # Extracción robusta: ignora cualquier texto envolvente, extrae primer {...}
-    raw_clean = raw.replace("```json", "").replace("```", "").strip()
-    match = _re.search(r"\{.*?\}", raw_clean, _re.DOTALL)
+
+    # Intentar primero con web_search para datos reales
+    # Si falla (rate limit, etc.), intentar sin web_search como fallback
+    _query = nombre_vehiculo.strip()
+    _raw = ""
+
+    for _use_web in (True, False):
+        try:
+            _kwargs = dict(
+                model="claude-sonnet-4-6",
+                max_tokens=512,
+                system=_SYSTEM_VEHICULO,
+                messages=[{"role": "user", "content": _query}],
+            )
+            if _use_web:
+                _kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+            response = client.messages.create(**_kwargs)
+            # Extraer texto de todos los bloques content (puede haber tool_use + text)
+            _raw = " ".join(
+                b.text for b in response.content
+                if hasattr(b, "text") and b.text
+            ).strip()
+            if _raw:
+                break  # tenemos respuesta, salir del loop
+        except Exception as _e_web:
+            if not _use_web:
+                raise  # si falla sin web también, relanzar
+            # Si falla con web, intentar sin web_search
+            continue
+
+    if not _raw:
+        raise ValueError("La IA no devolvió respuesta para el vehículo solicitado.")
+
+    # Extracción robusta: greedy + DOTALL captura JSON aunque tenga saltos de línea
+    raw_clean = _raw.replace("```json", "").replace("```", "").strip()
+    match = _re.search(r"\{[^{}]*\}", raw_clean, _re.DOTALL)
     if not match:
-        raise ValueError(f"La IA no devolvió JSON válido. Respuesta recibida: {raw!r}")
+        # Intentar extracción más permisiva con nested braces
+        match = _re.search(r"\{.*\}", raw_clean, _re.DOTALL)
+    if not match:
+        raise ValueError(f"La IA no devolvió JSON válido. Respuesta: {_raw[:300]!r}")
+
     data = json.loads(match.group(0))
     rend = data.get("rendimiento_km_gal")
     cap  = data.get("capacidad_max_kg")
     if rend is None or cap is None:
         raise ValueError(
-            f"JSON incompleto — faltan llaves esperadas. Datos recibidos: {data}"
+            f"JSON incompleto — faltan llaves esperadas. Datos: {data}"
         )
     return {
         "rendimiento_km_gal": float(rend),
