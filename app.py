@@ -3030,6 +3030,40 @@ elif pagina == "Cotizacion Directa":
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
+        # ── Auditoría IA de Rentabilidad ─────────────────────────────
+        with st.container(border=True):
+            st.markdown("### 🤖 Auditor Predictivo de Rentabilidad")
+            st.caption("Deja que la IA analice tus costos y márgenes antes de enviar la cotización al cliente.")
+
+            if st.button("🔍 Auditar Cotización ahora", type="secondary", use_container_width=True):
+                with st.spinner("Analizando riesgos financieros y fugas de capital..."):
+                    try:
+                        from asistente_ia import auditor_rentabilidad
+                        _analisis_ia = auditor_rentabilidad(r)
+
+                        _color_estado = _analisis_ia.get("estado", "amarillo").lower()
+
+                        if _color_estado == "verde":
+                            st.success(f"**🟢 RENTABILIDAD SALUDABLE:** {_analisis_ia.get('margen_analisis', '')}")
+                        elif _color_estado == "rojo":
+                            st.error(f"**🔴 ALERTA DE PÉRDIDA:** {_analisis_ia.get('margen_analisis', '')}")
+                        else:
+                            st.warning(f"**🟡 RIESGO MODERADO:** {_analisis_ia.get('margen_analisis', '')}")
+
+                        _cols_auditor = st.columns(2)
+                        with _cols_auditor[0]:
+                            st.markdown("**⚠️ Alertas Detectadas:**")
+                            for alerta in _analisis_ia.get("alertas", []):
+                                st.markdown(f"- {alerta}")
+                        with _cols_auditor[1]:
+                            st.markdown("**💡 Sugerencias de Cobro:**")
+                            for sug in _analisis_ia.get("sugerencias", []):
+                                st.markdown(f"- {sug}")
+
+                    except Exception as e:
+                        st.error(f"No se pudo completar la auditoría: {e}")
+        st.markdown("---")
+
         # ── Exportar PDFs ────────────────────────────────────────────
         st.markdown("### 📄 Documentos para el cliente")
         from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
