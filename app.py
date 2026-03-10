@@ -29,7 +29,7 @@ from parametros import (
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
 )
-from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
+from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano, investigar_vehiculo
 import plotly.graph_objects as go
 from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_pdf, optimizar_corte_2d
 
@@ -8689,41 +8689,22 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
 
             if _btn_investigar and (_flota_input or "").strip():
                 _veh_q = _flota_input.strip()
-                with st.spinner(f"Consultando ficha técnica de **{_veh_q}**…"):
-                    # Llamada directa a anthropic (mismo patrón que _chat_parametros).
-                    # No usamos chat_con_ia porque su prompt está orientado a cotización,
-                    # no a datos técnicos de vehículos; y necesitamos JSON puro.
-                    _raw_fl = ""   # inicializar antes del try para que el except pueda mostrarlo
+                with st.spinner(f"🔬 Investigando ficha técnica de **{_veh_q}** con IA…"):
                     try:
-                        import re as _re_fl, json as _json_fl
-                        _prompt_fl = (
-                            f"Como asistente oficial de Mármoles Collante & Castro, tu tarea operativa "
-                            f"es configurar la logística para el transporte y flete de las placas de mármol. "
-                            f"El taller va a utilizar el siguiente vehículo para los despachos: {_veh_q}. "
-                            f"(Si detectas un error tipográfico en el nombre del vehículo, asume el modelo automotriz real más cercano). "
-                            f"Para que nuestro motor calcule los costos correctamente, estima sus datos técnicos y responde "
-                            f"ÚNICAMENTE con un JSON válido con dos llaves numéricas: "
-                            f"\"rendimiento_km_gal\" (estimado en ciudad con carga) y \"capacidad_max_kg\". "
-                            f"No escribas NADA de texto fuera del JSON. Es una instrucción estricta del sistema."
-                        )
-                        _raw_fl = chat_con_ia([], _prompt_fl)
-                        _raw_fl_clean = _raw_fl.replace("```json", "").replace("```", "").strip()
-                        _match_fl = _re_fl.search(r"\{.*\}", _raw_fl_clean, _re_fl.DOTALL)
-                        if not _match_fl:
-                            raise ValueError("No se encontró un objeto JSON en la respuesta")
-                        _ficha_ia = _json_fl.loads(_match_fl.group(0))
+                        # ── ARQUITECTURA LIMPIA: función dedicada en asistente_ia.py ──
+                        # investigar_vehiculo() usa su propio system prompt automotriz,
+                        # aislado de los guardrails del asistente de marmolería.
+                        _ficha_ia = investigar_vehiculo(_veh_q)
                         st.session_state.flota_ficha = {
-                            "rendimiento_km_gal": float(_ficha_ia.get("rendimiento_km_gal", 25.0)),
-                            "capacidad_max_kg":   float(_ficha_ia.get("capacidad_max_kg",  1_000.0)),
+                            "rendimiento_km_gal": _ficha_ia["rendimiento_km_gal"],
+                            "capacidad_max_kg":   _ficha_ia["capacidad_max_kg"],
                         }
                         st.session_state.flota_ficha_nombre = _veh_q
                     except Exception as _e_fl:
-                        # Mostrar la respuesta cruda para auditar la causa real del fallo
                         st.warning(
-                            f"⚠️ No se pudo parsear la ficha técnica "
+                            f"⚠️ No se pudo obtener la ficha técnica "
                             f"({type(_e_fl).__name__}: {_e_fl}).\n\n"
-                            f"**Respuesta de la IA:** `{_raw_fl or '(vacía — fallo antes de recibir respuesta)'}`\n\n"
-                            f"Se asignaron valores por defecto — revísalos antes de guardar.",
+                            f"Ingresa los valores manualmente o intenta de nuevo.",
                             icon="🔧",
                         )
                         st.session_state.flota_ficha = {
