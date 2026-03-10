@@ -29,7 +29,7 @@ from parametros import (
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
     ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
 )
-from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
+from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano, traductor_arquitectonico
 import plotly.graph_objects as go
 from motor_planos import generar_plano_svg, wrap_svg_streamlit, exportar_svg_a_pdf, optimizar_corte_2d
 
@@ -3577,6 +3577,70 @@ elif pagina == "Cotizacion Directa":
 
 Si el ancho es diferente, elige **Personalizado** y ajusta.
             """)
+
+        st.markdown("---")
+        with st.expander("✨ Asistente Mágico: Pegar texto del cliente (WhatsApp/Audio)", expanded=False):
+            st.caption("Pega el mensaje de tu cliente. La IA extraerá las piezas y las medidas automáticamente.")
+            _texto_magico = st.text_area(
+                "Mensaje del cliente:",
+                height=100,
+                placeholder="Ej: Cotízame un mesón en granito san gabriel de 2.50 x 0.60 y una isla de 1.80 x 0.90, ambos con zócalo...",
+                key="asistente_magico_texto",
+            )
+
+            if st.button("🪄 Traducir y Autocompletar Piezas", type="primary", key="asistente_magico_btn"):
+                if _texto_magico.strip():
+                    with st.spinner("🧠 Analizando dimensiones y materiales..."):
+                        try:
+                            _piezas_ia = traductor_arquitectonico(_texto_magico)
+
+                            # Recuperar lista actual de piezas desde el store_permanente
+                            _piezas_actuales = list(_sp().get("cdir_piezas", []))
+
+                            # Limpiar la lista si solo tiene la pieza de ejemplo por defecto
+                            if (
+                                len(_piezas_actuales) == 1
+                                and _piezas_actuales[0].get("nombre") in ("Mesón de cocina", "Pieza 1")
+                                and float(_piezas_actuales[0].get("ml", 0)) <= 2.0
+                            ):
+                                _piezas_actuales = []
+
+                            # Mapear el resultado de la IA a la estructura interna de la App
+                            for _idx_ia, p_ia in enumerate(_piezas_ia):
+                                _ancho_ia = float(p_ia.get("ancho", 0.60))
+                                # Intentar mapear a tipo estándar por ancho
+                                _tipo_ia = "Personalizado"
+                                for _tnombre, _tdata in ANCHOS_ESTANDAR.items():
+                                    if _tdata["ancho"] is not None and abs(_tdata["ancho"] - _ancho_ia) < 0.005:
+                                        _tipo_ia = _tnombre
+                                        break
+                                _nueva_pieza = {
+                                    "nombre":          str(p_ia.get("nombre", f"Pieza {_idx_ia + 1}")),
+                                    "ml":              float(p_ia.get("largo", 1.0)),
+                                    "ml_unitario":     float(p_ia.get("largo", 1.0)),
+                                    "cantidad":        int(p_ia.get("cantidad", 1)),
+                                    "ancho_tipo":      _tipo_ia,
+                                    "ancho_custom":    _ancho_ia,
+                                    "zoc_trasero":     bool(p_ia.get("zoc_trasero", False)),
+                                    "zoc_izq":         bool(p_ia.get("zoc_izq", False)),
+                                    "zoc_der":         bool(p_ia.get("zoc_der", False)),
+                                    "altura_zocalo_cm": float(p_ia.get("altura_zocalo_cm", 7.0)),
+                                }
+                                _piezas_actuales.append(_nueva_pieza)
+
+                            # Sincronizar al store_permanente, session_state y BD
+                            _sp_set("cdir_piezas", _piezas_actuales)
+                            st.session_state.piezas = _piezas_actuales
+                            _sp_commit_borrador()
+
+                            st.success(f"¡Se extrajeron {len(_piezas_ia)} piezas con éxito!")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"No pude procesar el texto. Asegúrate de incluir medidas claras. (Error: {e})")
+                else:
+                    st.warning("Escribe o pega un mensaje primero.")
+        st.markdown("---")
 
         if "piezas" not in st.session_state or not st.session_state.piezas:
             st.session_state.piezas = pre.get("piezas", [
