@@ -2102,9 +2102,9 @@ def get_vehiculos_config():
     Devuelve el mapa completo de vehículos fusionando tres capas (en orden de prioridad):
       1. VEHICULOS_CONFIG  — base de fábrica (Frontier, Cheyenne, Externo).
       2. vehiculos_custom  — overrides legacy de session_state (retro-compat).
-      3. flota_propia      — vehículos del Gestor Manual de Fletes.
-                             Tipo "flete_fijo": costo_viaje fijo por viaje, sin cálculo km.
-                             Tipo "propio" (legacy): motor termodinámico completo.
+      3. flota_propia      — vehículos añadidos por el usuario en el Gestor de Flota.
+                             Viven en logistica_custom["flota_propia"] y se proyectan
+                             con tipo="propio" para que calcular_logistica los procese.
     Esta función es el ÚNICO punto de verdad de vehículos; todos los selectores
     y llamadas a calcular_logistica deben pasar por aquí.
     """
@@ -2113,47 +2113,34 @@ def get_vehiculos_config():
     custom = st.session_state.get("vehiculos_custom") or {}
     for k, v in custom.items():
         base[k] = v
-    # ── Flota propia guardada en el Gestor Manual de Fletes ──────────────────
+    # ── Flota propia guardada en el Gestor de Flota ───────────────────────────
     _log_c = st.session_state.get("logistica_custom") or {}
     _flota = _log_c.get("flota_propia", {})
     for _slug, _vcfg in _flota.items():
         if _slug in base:          # nunca pisar Frontier / Cheyenne / Externo
             continue
-        _tipo = _vcfg.get("tipo", "flete_fijo")
-        if _tipo == "flete_fijo":
-            base[_slug] = {
-                "nombre":       _vcfg.get("nombre", _slug),
-                "tipo":         "flete_fijo",
-                "costo_viaje":  float(_vcfg.get("costo_viaje", 0.0)),
-                "descripcion":  _vcfg.get("descripcion", "Flete fijo manual"),
-            }
-        else:
-            # Legacy tipo="propio": motor termodinámico completo
-            base[_slug] = {
-                "nombre":                    _vcfg.get("nombre", _slug),
-                "tipo":                      "propio",
-                "rendimiento_km_gal":        float(_vcfg.get("rendimiento_km_gal", 25.0)),
-                "rend":                      float(_vcfg.get("rendimiento_km_gal", 25.0)),
-                "capacidad_max_kg":          float(_vcfg.get("capacidad_max_kg",  1_000.0)),
-                "desgaste":                  int(_vcfg.get("desgaste",   120)),
-                "base":                      int(_vcfg.get("base",    50_000)),
-                "costo_mantenimiento_por_km": int(_vcfg.get("costo_mantenimiento_por_km", 80)),
-                "descripcion":               _vcfg.get("descripcion", "Vehículo personalizado"),
-            }
+        base[_slug] = {
+            "nombre":                    _vcfg.get("nombre", _slug),
+            "tipo":                      _vcfg.get("tipo", "propio"),   # soporta "flete_fijo" y "propio"
+            "costo_viaje":               float(_vcfg.get("costo_viaje", 0)),
+            # rendimiento_km_gal es la base termodinámica (sin carga) para calculos.py v5
+            "rendimiento_km_gal":        float(_vcfg.get("rendimiento_km_gal", 25.0)),
+            "rend":                      float(_vcfg.get("rendimiento_km_gal", 25.0)),  # alias legacy
+            "capacidad_max_kg":          float(_vcfg.get("capacidad_max_kg",  1_000.0)),
+            "desgaste":                  int(_vcfg.get("desgaste",   120)),
+            "base":                      int(_vcfg.get("base",    50_000)),
+            "costo_mantenimiento_por_km": int(_vcfg.get("costo_mantenimiento_por_km", 80)),
+            "descripcion":               _vcfg.get("descripcion", "Vehículo personalizado"),
+        }
     return base
 
 def get_vehiculos_dict():
     """Label → slug. Usado por los selectores de vehículo en toda la app."""
     vc = get_vehiculos_config()
-    def _label(k, cfg):
-        t = cfg.get("tipo", "")
-        if t == "flete_fijo":
-            return f"{cfg.get('nombre', k)} (flete fijo)"
-        elif t == "propio":
-            return f"{cfg.get('nombre', k)} (propio)"
-        else:
-            return f"{cfg.get('nombre', k)} (flete externo)"
-    return {_label(k, cfg): k for k, cfg in vc.items()}
+    return {
+        f"{cfg.get('nombre', k)} ({'propio' if cfg.get('tipo') == 'propio' else 'flete externo'})": k
+        for k, cfg in vc.items()
+    }
 
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -8644,129 +8631,71 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
 
         # ══════════════════════════════════════════════════════════════════════
         # GESTOR MANUAL DE FLETES
-        # El usuario define un nombre y un costo fijo por viaje.
-        # Sin cálculos de km ni IA — tarifa directa y persistente.
         # ══════════════════════════════════════════════════════════════════════
-        st.markdown("### 🚚 Mis Vehículos y Fletes")
-        st.caption(
-            "Agrega tus propios vehículos o servicios de flete con un costo fijo por viaje. "
-            "Los registros guardados aparecen en el cotizador junto a los vehículos por defecto."
-        )
-
-        # ── Inicializar estado de guardado OK ─────────────────────────────────
-        if "flota_guardado_ok" not in st.session_state:
-            st.session_state.flota_guardado_ok = ""
-
-        if st.session_state.flota_guardado_ok:
-            st.success(
-                f"✅ **{st.session_state.flota_guardado_ok}** guardado y disponible en el cotizador.",
-                icon="🚛",
-            )
-            st.session_state.flota_guardado_ok = ""
-
-        # ── Listado de flota guardada ─────────────────────────────────────────
-        _log_c_now    = st.session_state.get("logistica_custom") or {}
+        st.markdown("### 🚚 Mi Flota y Fletes")
+        st.caption("Agrega manualmente vehículos propios o fletes externos fijos.")
+        _log_c_now = st.session_state.get("logistica_custom") or {}
         _flota_actual = _log_c_now.get("flota_propia", {})
 
         if _flota_actual:
-            st.markdown("**Vehículos/fletes registrados:**")
+            st.markdown("Vehículos/Fletes guardados:")
             for _fslug, _fvcfg in list(_flota_actual.items()):
                 with st.container(border=True):
-                    _fc1, _fc2, _fc4 = st.columns([3.5, 1.5, 0.5])
-                    _fc1.markdown(
-                        f"**{_fvcfg.get('nombre', _fslug)}**  \n"
-                        f"<span style='font-size:0.73rem;opacity:0.55'>"
-                        f"{_fvcfg.get('descripcion', 'Flete fijo manual')}</span>",
-                        unsafe_allow_html=True,
-                    )
-                    _fc2.metric(
-                        "Costo por viaje",
-                        f"${int(_fvcfg.get('costo_viaje', 0)):,}".replace(",", "."),
-                    )
-                    if _fc4.button("🗑️", key=f"flota_del_{_fslug}",
-                                   help=f"Eliminar {_fvcfg.get('nombre', _fslug)}"):
-                        _log_del   = dict(st.session_state.get("logistica_custom") or {})
+                    _fc1, _fc2, _fc3 = st.columns([3, 2, 0.5])
+                    _fc1.markdown(f"**{_fvcfg.get('nombre', _fslug)}**", unsafe_allow_html=True)
+                    if _fvcfg.get("tipo") == "flete_fijo":
+                        _fc2.markdown(f"Costo por viaje: ${_fvcfg.get('costo_viaje', 0):,.0f}".replace(",", "."))
+                    else:
+                        _fc2.markdown(f"Rendimiento: {_fvcfg.get('rendimiento_km_gal', 0)} km/gal")
+
+                    if _fc3.button("🗑️", key=f"flota_del_{_fslug}"):
+                        _log_del = dict(st.session_state.get("logistica_custom") or {})
                         _flota_del = dict(_log_del.get("flota_propia", {}))
-                        _nombre_del = _fvcfg.get("nombre", _fslug)
                         _flota_del.pop(_fslug, None)
                         _log_del["flota_propia"] = _flota_del
                         st.session_state.logistica_custom = _log_del
                         _sp()["params_logistica"] = _log_del
                         try:
                             _guardar_config("logistica_custom", _log_del)
-                            st.toast(f"🗑️ {_nombre_del} eliminado.", icon="🚛")
-                        except Exception as _e_del:
-                            st.toast(
-                                f"⚠️ Eliminado en sesión pero error en BD: {_e_del}",
-                                icon="⚠️",
-                            )
+                        except Exception:
+                            pass
                         st.rerun()
         else:
-            st.info(
-                "Aún no tienes vehículos o fletes registrados. "
-                "Usa el formulario de abajo para agregar el primero.",
-                icon="🚛",
-            )
+            st.info("No tienes vehículos manuales registrados.")
 
-        # ── Formulario ultra simple: nombre + costo fijo ──────────────────────
         with st.container(border=True):
-            st.markdown("**➕ Agregar vehículo o servicio de flete**")
-            _flota_nombre_nuevo = st.text_input(
-                "Nombre del Vehículo o Servicio (Ej: Mi Camioneta, Flete Externo Norte)",
-                key="flota_nombre_input",
-                placeholder="Ej: Mi Camioneta, Flete Externo Norte, Moto Mensajería",
-            )
-            _flota_costo_nuevo = st.number_input(
-                "Costo del flete por viaje ($ COP)",
-                min_value=0,
-                step=5_000,
-                format="%d",
-                key="flota_costo_input",
-                help="Precio total que pagas por cada viaje con este vehículo o servicio.",
-            )
-            _btn_guardar_flota = st.button(
-                "💾 Guardar Vehículo/Flete",
-                type="primary",
-                key="btn_flota_guardar",
-                use_container_width=True,
-                disabled=not (_flota_nombre_nuevo or "").strip(),
-            )
-            if _btn_guardar_flota and (_flota_nombre_nuevo or "").strip():
-                import re as _re_fl
-                _nombre_g = _flota_nombre_nuevo.strip()
-                _slug = _re_fl.sub(r"[^a-z0-9]+", "_",
-                                   _nombre_g.lower())[:30].strip("_")
-                if _slug in {"frontier", "cheyenne", "externo"}:
-                    _slug = f"custom_{_slug}"
-                _veh_nuevo = {
-                    "nombre":       _nombre_g,
-                    "tipo":         "flete_fijo",
-                    "costo_viaje":  float(_flota_costo_nuevo),
-                    "descripcion":  (
-                        f"Flete fijo — "
-                        f"${int(_flota_costo_nuevo):,}/viaje".replace(",", ".")
-                    ),
-                }
-                _log_save  = dict(st.session_state.get("logistica_custom") or {})
-                _flota_upd = dict(_log_save.get("flota_propia", {}))
-                _flota_upd[_slug] = _veh_nuevo
-                _log_save["flota_propia"] = _flota_upd
-                st.session_state.logistica_custom = _log_save
-                _sp()["params_logistica"] = _log_save
-                _save_err = None
-                try:
-                    _guardar_config("logistica_custom", _log_save)
-                except Exception as _e_save:
-                    _save_err = str(_e_save)
-                st.session_state.flota_guardado_ok = _nombre_g
-                for _fk in ["flota_nombre_input", "flota_costo_input"]:
-                    st.session_state.pop(_fk, None)
-                if _save_err:
-                    st.warning(
-                        f"⚠️ Guardado en sesión pero falló persistencia en BD: {_save_err}"
-                    )
-                st.rerun()
+            st.markdown("**➕ Agregar nuevo vehículo o flete fijo**")
+            _flota_col1, _flota_col2 = st.columns(2)
+            _flota_input = _flota_col1.text_input("Nombre (Ej: Camioneta Empresa, Flete Norte)", key="flota_nombre_input")
+            _flota_costo = _flota_col2.number_input("Costo del viaje ($ COP)", min_value=0, step=5000, value=70000, key="flota_costo_input")
 
+            if st.button("💾 Guardar Vehículo/Flete", type="primary", use_container_width=True):
+                if (_flota_input or "").strip():
+                    import re as _re_fl
+                    _slug = _re_fl.sub(r"[^a-z0-9]+", "_", _flota_input.lower().strip())[:30].strip("_")
+                    if _slug in {"frontier", "cheyenne", "externo"}:
+                        _slug = f"custom_{_slug}"
+
+                    _veh_nuevo = {
+                        "nombre":      _flota_input.strip(),
+                        "tipo":        "flete_fijo",
+                        "costo_viaje": _flota_costo,
+                    }
+
+                    _log_save  = dict(st.session_state.get("logistica_custom") or {})
+                    _flota_upd = dict(_log_save.get("flota_propia", {}))
+                    _flota_upd[_slug] = _veh_nuevo
+                    _log_save["flota_propia"] = _flota_upd
+
+                    st.session_state.logistica_custom = _log_save
+                    _sp()["params_logistica"] = _log_save
+                    try:
+                        _guardar_config("logistica_custom", _log_save)
+                    except Exception:
+                        pass
+                    st.session_state.pop("flota_nombre_input", None)
+                    st.session_state.pop("flota_costo_input", None)
+                    st.rerun()
 
         st.markdown("")
         _col_save_log, _col_reset_log = st.columns([3, 1])
