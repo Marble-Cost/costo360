@@ -3038,8 +3038,12 @@ elif pagina == "Cotizacion Directa":
             if st.button("🔍 Auditar Cotización ahora", type="secondary", use_container_width=True):
                 with st.spinner("Analizando riesgos financieros y fugas de capital..."):
                     try:
-                        from asistente_ia import auditor_rentabilidad
-                        _analisis_ia = auditor_rentabilidad(r)
+                        import importlib
+                        import asistente_ia
+                        importlib.reload(asistente_ia)  # Orden nuclear: ignora la RAM y lee el archivo físico nuevo
+
+                        # Llama a la función usando el prefijo del módulo
+                        _analisis_ia = asistente_ia.auditor_rentabilidad(r)
 
                         _color_estado = _analisis_ia.get("estado", "amarillo").lower()
 
