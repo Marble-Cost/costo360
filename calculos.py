@@ -161,71 +161,39 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
                        vehiculos_custom: dict = None,
                        peso_carga_kg: float = 0.0,
                        costo_peaje_unitario: float = 0.0) -> dict:
-    """
-    Calcula costo logístico completo desglosado.
-
-    Logística Predictiva de Flota (v5):
-    ─────────────────────────────────────────────────────────────────────────
-    REGLA DE BLOQUEO POR CAPACIDAD:
-      Si el vehículo propio seleccionado no puede cargar el peso del proyecto
-      (peso_carga_kg > capacidad_max_kg del vehículo), el sistema:
-        1. Invalida el uso del vehículo propio — costo_combustible = 0.
-        2. Activa automáticamente la tarifa de Flete Externo.
-        3. Añade la clave "bloqueo_capacidad": True al resultado.
-        4. Incluye nota legible en "nota_bloqueo" para la UI.
-      El flete de proveedor (agente externo) se suma igual al total.
-
-    REGLA TERMODINÁMICA (si el peso está dentro del límite):
-      Por cada 45 kg de carga, el rendimiento baja un 1.5%.
-      Fórmula: penalizacion = min(0.40, (peso_carga_kg / 45.0) * 0.015)
-      rendimiento_real = rendimiento_km_gal_base * (1 - penalizacion)
-      Se usa "rendimiento_km_gal" si está disponible; si no, "rend" (legacy).
-      Tope: máximo 40% de reducción.
-
-    Innovación 3 legacy (retro-compatible):
-      Si no hay "rendimiento_km_gal" en el vehículo, se usa "rend" con la
-      penalización antigua (peso_max_penalizacion_kg del material) para
-      no romper vehículos custom configurados antes de esta versión.
-
-    Innovación 7 — Peajes Exactos:
-      Si se pasa costo_peaje_unitario > 0, se usa num_peajes × costo_peaje_unitario.
-      Si no, se usa el peaje promedio del diccionario de logística (modo legacy).
-    """
+    
     p = logistica_override or LOGISTICA
 
     veh_cfg = (vehiculos_custom or {}).get(vehiculo) or VEHICULOS_CONFIG.get(vehiculo, VEHICULOS_CONFIG["externo"])
-
-    # ── FLETE FIJO MANUAL (Gestor Manual de Fletes) ───────────────────────────
-    # Tipo "flete_fijo": el usuario definió un costo fijo por viaje.
-    # Se bypasean todos los cálculos de gasolina, km, peso y termodinámica.
+    
+    # ── NUEVA REGLA: Flete Fijo Manual ────────────────────────────────────────
+    # Salta el motor termodinámico de IA y aplica el cobro plano del usuario
     if veh_cfg.get("tipo") == "flete_fijo":
-        _costo_viaje  = float(veh_cfg.get("costo_viaje", 0.0))
-        _nombre_veh   = veh_cfg.get("nombre", vehiculo)
-        _p            = logistica_override or LOGISTICA
+        costo_vehiculo = float(veh_cfg.get("costo_viaje", 0.0))
+        
         if costo_peaje_unitario > 0:
-            _costo_peajes = num_peajes * costo_peaje_unitario
+            costo_peajes = num_peajes * costo_peaje_unitario
         else:
-            _costo_peajes = num_peajes * _p.get("peaje", LOGISTICA["peaje"])
-        _costo_herram = _p.get("herram", LOGISTICA["herram"])
-        _costo_agente = _p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
-        _total        = _costo_viaje + _costo_peajes + _costo_herram + _costo_agente
+            costo_peajes = num_peajes * p.get("peaje", LOGISTICA["peaje"])
+            
+        costo_herram = p.get("herram", LOGISTICA["herram"])
+        costo_agente = p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
+        
+        costo_total = costo_vehiculo + costo_peajes + costo_herram + costo_agente
+        
         return {
-            "total":             _total,
-            "vehiculo":          _costo_viaje,
-            "base":              _costo_viaje,
-            "km_costo":          0.0,
-            "mantenimiento":     0.0,
-            "peajes":            _costo_peajes,
-            "herram":            _costo_herram,
-            "agente":            _costo_agente,
-            "peso_carga_kg":     peso_carga_kg,
-            "rend_efectivo":     0.0,
-            "bloqueo_capacidad": False,
-            "nota_bloqueo":      "",
-            "logistica_detalle": (
-                f"Flete fijo manual aplicado: {_nombre_veh} -> "
-                f"${int(_costo_viaje):,}"
-            ).replace(",", "."),
+            "total":              costo_total,
+            "vehiculo":           costo_vehiculo,
+            "base":               costo_vehiculo,
+            "km_costo":           0.0,
+            "mantenimiento":      0.0,
+            "peajes":             costo_peajes,
+            "herram":             costo_herram,
+            "agente":             costo_agente,
+            "peso_carga_kg":      peso_carga_kg,
+            "rend_efectivo":      0.0,
+            "bloqueo_capacidad":  False,
+            "nota_bloqueo":       f"Flete fijo manual aplicado: {veh_cfg.get('nombre', vehiculo)}",
         }
 
     es_externo = veh_cfg.get("tipo") == "externo"
