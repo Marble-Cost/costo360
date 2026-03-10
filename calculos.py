@@ -194,6 +194,40 @@ def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo
     p = logistica_override or LOGISTICA
 
     veh_cfg = (vehiculos_custom or {}).get(vehiculo) or VEHICULOS_CONFIG.get(vehiculo, VEHICULOS_CONFIG["externo"])
+
+    # ── FLETE FIJO MANUAL (Gestor Manual de Fletes) ───────────────────────────
+    # Tipo "flete_fijo": el usuario definió un costo fijo por viaje.
+    # Se bypasean todos los cálculos de gasolina, km, peso y termodinámica.
+    if veh_cfg.get("tipo") == "flete_fijo":
+        _costo_viaje  = float(veh_cfg.get("costo_viaje", 0.0))
+        _nombre_veh   = veh_cfg.get("nombre", vehiculo)
+        _p            = logistica_override or LOGISTICA
+        if costo_peaje_unitario > 0:
+            _costo_peajes = num_peajes * costo_peaje_unitario
+        else:
+            _costo_peajes = num_peajes * _p.get("peaje", LOGISTICA["peaje"])
+        _costo_herram = _p.get("herram", LOGISTICA["herram"])
+        _costo_agente = _p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
+        _total        = _costo_viaje + _costo_peajes + _costo_herram + _costo_agente
+        return {
+            "total":             _total,
+            "vehiculo":          _costo_viaje,
+            "base":              _costo_viaje,
+            "km_costo":          0.0,
+            "mantenimiento":     0.0,
+            "peajes":            _costo_peajes,
+            "herram":            _costo_herram,
+            "agente":            _costo_agente,
+            "peso_carga_kg":     peso_carga_kg,
+            "rend_efectivo":     0.0,
+            "bloqueo_capacidad": False,
+            "nota_bloqueo":      "",
+            "logistica_detalle": (
+                f"Flete fijo manual aplicado: {_nombre_veh} -> "
+                f"${int(_costo_viaje):,}"
+            ).replace(",", "."),
+        }
+
     es_externo = veh_cfg.get("tipo") == "externo"
 
     costo_mantenimiento = 0.0
