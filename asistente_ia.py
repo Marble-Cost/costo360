@@ -112,66 +112,6 @@ JSON a retornar:
 """
 
 
-# ── System prompt del Traductor Arquitectónico ────────────────────────────────
-_SYSTEM_TRADUCTOR = """Eres un Traductor Arquitectónico especializado en marmolería y piedra natural.
-Tu única tarea es convertir mensajes de clientes (recibidos por WhatsApp u otro medio) en un array JSON
-estructurado que el motor de cálculo de CostoMármol pueda procesar directamente.
-
-REGLAS ABSOLUTAS:
-1. Devuelve ÚNICAMENTE el array JSON. Sin texto antes, sin texto después, sin backticks, sin explicaciones.
-2. El array debe contener un objeto por cada pieza o sección de piedra mencionada.
-3. Si el cliente describe varias piezas, crea un objeto separado para cada una.
-4. Convierte todas las medidas a metros con punto decimal (ej: 60cm → 0.60, 2mt → 2.0).
-5. Si el ancho no se menciona, usa 0.60 como valor por defecto (ancho estándar de mesón colombiano).
-6. Si la cantidad no se menciona, usa 1.
-7. zoc_trasero es true si el cliente menciona zócalo, salpicadero, guardapolvo, media caña trasera
-   o cualquier pieza vertical pegada a la pared detrás del mesón. En caso contrario es false.
-8. Para categoria, clasifica según el material mencionado:
-   - "Granito" si dice granito
-   - "Mármol" si dice mármol o marble
-   - "Cuarzo" si dice cuarzo, quarztone, silestone, caesarstone o similar
-   - "Sinterizado" si dice sinterizado, neolith, dekton, laminam o similar
-   - "Cuarcita" si dice cuarcita o quarzita
-   - "Otro" si menciona un material que no encaja en las anteriores
-   - Si no menciona material pero el contexto es claro, infiere la categoría más probable
-9. Para nombre, usa etiquetas descriptivas y secuenciales: "Mesón 1", "Mesón 2", "Isla 1",
-   "Baño 1", "Pieza 1", etc., basándote en lo que el cliente llama a cada sección.
-10. cantidad debe ser un entero. Si el cliente dice "dos mesones iguales", crea un solo objeto con cantidad: 2.
-
-ESTRUCTURA DE CADA OBJETO DEL ARRAY:
-{
-  "nombre": "string descriptivo (ej: Mesón Principal, Isla de Cocina, Pieza 1)",
-  "categoria": "Granito|Mármol|Cuarzo|Sinterizado|Cuarcita|Otro",
-  "largo": número flotante en metros,
-  "ancho": número flotante en metros (default 0.60),
-  "cantidad": número entero (default 1),
-  "zoc_trasero": true o false
-}
-
-EJEMPLOS DE ENTRADA Y SALIDA ESPERADA:
-
-Entrada: "cotízame un mesón de granito de 2x0.60 y otro pedazo de 1.5x0.60 con zócalo"
-Salida:
-[
-  {"nombre": "Mesón 1", "categoria": "Granito", "largo": 2.0, "ancho": 0.60, "cantidad": 1, "zoc_trasero": false},
-  {"nombre": "Mesón 2", "categoria": "Granito", "largo": 1.5, "ancho": 0.60, "cantidad": 1, "zoc_trasero": true}
-]
-
-Entrada: "necesito cuatro piezas de mármol de 90x90 para un baño"
-Salida:
-[
-  {"nombre": "Piso Baño 1", "categoria": "Mármol", "largo": 0.90, "ancho": 0.90, "cantidad": 4, "zoc_trasero": false}
-]
-
-Entrada: "mesón en L: un tramo de 2.5 metros y uno de 1.20, ambos con salpicadero, en cuarzo blanco"
-Salida:
-[
-  {"nombre": "Mesón Tramo Largo", "categoria": "Cuarzo", "largo": 2.5, "ancho": 0.60, "cantidad": 1, "zoc_trasero": true},
-  {"nombre": "Mesón Tramo Corto", "categoria": "Cuarzo", "largo": 1.20, "ancho": 0.60, "cantidad": 1, "zoc_trasero": true}
-]
-"""
-
-
 def get_client():
     try:
         api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
@@ -295,8 +235,6 @@ Sé directo y usa formato de moneda colombiana ($1.000.000)."""
         return response.content[0].text
     except Exception:
         return ""
-
-
 # ── System prompt del Bot SOS ─────────────────────────────────────────────────
 _SYSTEM_SOS = """Eres el asistente de ayuda rapida del sistema de cotizacion de MARMOLES COLLANTE & CASTRO LTDA.
 
@@ -481,12 +419,15 @@ def investigar_vehiculo(nombre_vehiculo: str) -> dict:
         ValueError si la IA no devuelve JSON parseable con las llaves esperadas.
         RuntimeError si el cliente de IA no está disponible.
     """
+    import re as _re
     client = get_client()
     if client is None:
         raise RuntimeError(
             "IA no disponible. Configura ANTHROPIC_API_KEY en .streamlit/secrets.toml"
         )
 
+    # Intentar primero con web_search para datos reales
+    # Si falla (rate limit, etc.), intentar sin web_search como fallback
     _query = nombre_vehiculo.strip()
     _raw = ""
 
@@ -507,10 +448,11 @@ def investigar_vehiculo(nombre_vehiculo: str) -> dict:
                 if hasattr(b, "text") and b.text
             ).strip()
             if _raw:
-                break
+                break  # tenemos respuesta, salir del loop
         except Exception as _e_web:
             if not _use_web:
-                raise
+                raise  # si falla sin web también, relanzar
+            # Si falla con web, intentar sin web_search
             continue
 
     if not _raw:
@@ -518,58 +460,75 @@ def investigar_vehiculo(nombre_vehiculo: str) -> dict:
 
     # Extracción robusta: greedy + DOTALL captura JSON aunque tenga saltos de línea
     raw_clean = _raw.replace("```json", "").replace("```", "").strip()
-    match = re.search(r"\{[^{}]*\}", raw_clean, re.DOTALL)
+    match = _re.search(r"\{[^{}]*\}", raw_clean, _re.DOTALL)
     if not match:
         # Intentar extracción más permisiva con nested braces
-        match = re.search(r"\{.*\}", raw_clean, re.DOTALL)
+        match = _re.search(r"\{.*\}", raw_clean, _re.DOTALL)
     if not match:
+        raise ValueError(f"La IA no devolvió JSON válido. Respuesta: {_raw[:300]!r}")
+
+    data = json.loads(match.group(0))
+    rend = data.get("rendimiento_km_gal")
+    cap  = data.get("capacidad_max_kg")
+    if rend is None or cap is None:
         raise ValueError(
-            f"No se encontró JSON válido en la respuesta de la IA.\nRespuesta recibida: {_raw[:300]}"
+            f"JSON incompleto — faltan llaves esperadas. Datos: {data}"
         )
-
-    try:
-        datos = json.loads(match.group())
-    except json.JSONDecodeError as e:
-        raise ValueError(f"JSON malformado en respuesta de la IA: {e}\nFragmento: {match.group()[:200]}")
-
-    # Validar llaves esperadas
-    if "rendimiento_km_gal" not in datos or "capacidad_max_kg" not in datos:
-        raise ValueError(
-            f"El JSON no contiene las llaves esperadas. Recibido: {list(datos.keys())}"
-        )
-
     return {
-        "rendimiento_km_gal": float(datos["rendimiento_km_gal"]),
-        "capacidad_max_kg":   float(datos["capacidad_max_kg"]),
+        "rendimiento_km_gal": float(rend),
+        "capacidad_max_kg":   float(cap),
     }
 
 
-# ── Traductor Arquitectónico ──────────────────────────────────────────────────
-# Convierte mensajes de clientes en lenguaje natural (WhatsApp, verbal) a un
-# array JSON estructurado listo para el motor de cálculo de CostoMármol.
-# Cada elemento del array representa una pieza o sección de piedra independiente.
+# ── Auditor financiero de cotizaciones ─────────────────────────────────────────-
+_SYSTEM_AUDITOR = """Eres un AUDITOR FINANCIERO experto en marmolería
+para MARMOLES COLLANTE & CASTRO LTDA. en Barranquilla, Colombia.
 
-def traductor_arquitectonico(texto_cliente: str) -> list:
+Tu misión: revisar una cotización ANTES de enviarla al cliente y detectar:
+- márgenes peligrosamente bajos
+- olvidos de cobros lógicos (lavaplatos, perforaciones, desmontes, transporte, viáticos)
+- perfiles de desperdicio incoherentes (merma muy baja en sinterizado, cuarzo, quarzita)
+- cualquier fuga de dinero típica en talleres de mármol.
+
+REGLAS ESTRICTAS:
+1. Recibirás un JSON con todos los datos de la cotización (costos, precio, margen, material, tipo de proyecto, extras, logística, etc.).
+2. Debes analizarlo y RESPONDER ÚNICAMENTE con un JSON válido, SIN texto antes ni después, SIN backticks y SIN comentarios.
+3. Usa esta estructura EXACTA:
+{
+  "estado": "verde|amarillo|rojo",
+  "margen_analisis": "Breve comentario sobre si el margen % es saludable para el taller.",
+  "alertas": ["Alerta 1 (riesgos de pérdida de dinero)", "Alerta 2"],
+  "sugerencias": ["Sugerencia 1 (oportunidades para cobrar extras lógicos)", "Sugerencia 2"]
+}
+4. "estado":
+   - "verde": margen saludable (aprox. 30-45%), sin fugas evidentes.
+   - "amarillo": margen aceptable pero con riesgos moderados u olvidos probables.
+   - "rojo": pérdida de dinero, errores graves o margen <20%.
+5. Si el JSON de entrada no tiene algún dato, asume un valor conservador y menciona la incertidumbre en "alertas".
+6. No repitas literalmente todo el JSON de entrada en los mensajes; céntrate en el análisis financiero.
+7. Usa español colombiano claro, concreto y profesional. Nada de relleno.
+"""
+
+
+def auditor_rentabilidad(datos_cotizacion: dict) -> dict:
     """
-    Traduce un mensaje de cliente en lenguaje natural a una lista de piezas
-    estructuradas para el motor de cálculo.
+    Analiza la rentabilidad y riesgos de una cotización de marmolería.
 
     Args:
-        texto_cliente: texto libre del cliente describiendo su pedido
-                       (ej: "cotízame un mesón de granito de 2x0.60 con zócalo")
+        datos_cotizacion: dict con toda la información relevante de la cotización.
 
-    Retorna:
-        list de dicts, cada uno con las claves:
-            - nombre     (str):   etiqueta descriptiva de la pieza
-            - categoria  (str):   Granito | Mármol | Cuarzo | Sinterizado | Cuarcita | Otro
-            - largo      (float): longitud en metros
-            - ancho      (float): ancho en metros (default 0.60)
-            - cantidad   (int):   número de unidades iguales
-            - zoc_trasero (bool): True si el cliente pide zócalo o salpicadero
+    Returns:
+        dict con la estructura:
+        {
+          "estado": "verde|amarillo|rojo",
+          "margen_analisis": "texto",
+          "alertas": [...],
+          "sugerencias": [...]
+        }
 
     Lanza:
-        ValueError si la IA no devuelve un array JSON válido o parseable.
-        RuntimeError si el cliente de IA no está disponible.
+        RuntimeError si la IA no está disponible.
+        ValueError si la respuesta de la IA no es un JSON válido con la estructura esperada.
     """
     client = get_client()
     if client is None:
@@ -578,60 +537,45 @@ def traductor_arquitectonico(texto_cliente: str) -> list:
         )
 
     try:
+        payload_str = json.dumps(datos_cotizacion, ensure_ascii=False, indent=2)
+        prompt = (
+            "Revisa la siguiente cotización de marmolería y devuelve ÚNICAMENTE un JSON "
+            "con el análisis usando la estructura indicada en el system prompt.\n\n"
+            "COTIZACION:\n"
+            f"{payload_str}\n"
+        )
+
         response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            system=_SYSTEM_TRADUCTOR,
-            messages=[{"role": "user", "content": texto_cliente}],
+            model="claude-opus-4-6",
+            max_tokens=600,
+            system=_SYSTEM_AUDITOR,
+            messages=[{"role": "user", "content": prompt}],
         )
-        _raw = response.content[0].text.strip()
-    except anthropic.AuthenticationError:
-        raise RuntimeError("API key inválida. Verifica el archivo .streamlit/secrets.toml.")
-    except anthropic.RateLimitError:
-        raise RuntimeError("Límite de consultas alcanzado. Espera unos segundos e intenta de nuevo.")
+
+        raw = "".join(
+            getattr(b, "text", "") for b in response.content
+            if hasattr(b, "text") and b.text
+        ).strip()
+
+        # Extracción robusta del primer bloque JSON con regex
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not match:
+            raise ValueError("La IA no devolvió un JSON reconocible para la auditoría.")
+
+        json_str = match.group(0)
+        data = json.loads(json_str)
+
+        # Validación mínima de estructura
+        if not isinstance(data, dict):
+            raise ValueError("La IA no devolvió un objeto JSON de nivel raíz.")
+        for key in ("estado", "margen_analisis", "alertas", "sugerencias"):
+            if key not in data:
+                raise ValueError(f"Falta la clave obligatoria '{key}' en la respuesta de la IA.")
+
+        return data
+    except ValueError:
+        # Propagar ValueError tal cual, según requisito
+        raise
     except Exception as e:
-        raise RuntimeError(f"Error al consultar la IA: {type(e).__name__}: {e}")
+        raise ValueError(f"Fallo al analizar la respuesta del auditor IA: {e}") from e
 
-    # Limpieza de backticks por si el modelo los incluye de todas formas
-    _raw_clean = _raw.replace("```json", "").replace("```", "").strip()
-
-    # Extracción robusta del array JSON usando regex con DOTALL
-    # Captura desde el primer '[' hasta el último ']', tolerando saltos de línea
-    match = re.search(r'\[.*\]', _raw_clean, re.DOTALL)
-    if not match:
-        raise ValueError(
-            f"El Traductor Arquitectónico no devolvió un array JSON válido.\n"
-            f"Respuesta recibida:\n{_raw[:400]}"
-        )
-
-    try:
-        piezas = json.loads(match.group())
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"Array JSON malformado en respuesta del Traductor Arquitectónico: {e}\n"
-            f"Fragmento recibido: {match.group()[:300]}"
-        )
-
-    # Validación estructural básica: debe ser lista no vacía de dicts con llaves mínimas
-    if not isinstance(piezas, list) or len(piezas) == 0:
-        raise ValueError(
-            "El Traductor Arquitectónico devolvió una lista vacía o estructura inválida."
-        )
-
-    _llaves_requeridas = {"nombre", "categoria", "largo", "ancho", "cantidad", "zoc_trasero"}
-    for i, pieza in enumerate(piezas):
-        if not isinstance(pieza, dict):
-            raise ValueError(f"El elemento #{i + 1} del array no es un objeto JSON válido.")
-        _faltantes = _llaves_requeridas - pieza.keys()
-        if _faltantes:
-            raise ValueError(
-                f"El elemento #{i + 1} ('{pieza.get('nombre', '?')}') "
-                f"carece de las llaves: {sorted(_faltantes)}"
-            )
-        # Coerción de tipos para garantizar compatibilidad con el motor de cálculo
-        pieza["largo"]       = float(pieza["largo"])
-        pieza["ancho"]       = float(pieza["ancho"])
-        pieza["cantidad"]    = int(pieza["cantidad"])
-        pieza["zoc_trasero"] = bool(pieza["zoc_trasero"])
-
-    return piezas
