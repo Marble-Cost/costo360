@@ -1879,12 +1879,15 @@ def _cb_aiu_incluir_iva():
 def _sp_agregar_pieza():
     """Añade una pieza nueva y persiste en BD de inmediato."""
     piezas = list(_sp().get("cdir_piezas", []))
-    piezas.append({"nombre": f"Pieza {len(piezas)+1}",
-                   "ml": 1.0, "ml_unitario": 1.0, "cantidad": 1,
-                   "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60,
-                   # Zócalo geométrico — desactivado por defecto
-                   "zoc_trasero": False, "zoc_izq": False, "zoc_der": False,
-                   "altura_zocalo_cm": 7.0})
+    piezas.append({
+        "id": str(uuid.uuid4()),
+        "nombre": f"Pieza {len(piezas)+1}",
+        "ml": 1.0, "ml_unitario": 1.0, "cantidad": 1,
+        "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60,
+        # Zócalo geométrico — desactivado por defecto
+        "zoc_trasero": False, "zoc_izq": False, "zoc_der": False,
+        "altura_zocalo_cm": 7.0,
+    })
     _sp_set("cdir_piezas", piezas)
     st.session_state.piezas = piezas
     _sp_commit_borrador()
@@ -3656,6 +3659,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                                         _tipo_ia = _tnombre
                                         break
                                 _nueva_pieza = {
+                                    "id":             str(uuid.uuid4()),
                                     "nombre":          str(p_ia.get("nombre", f"Pieza {_idx_ia + 1}")),
                                     "ml":              float(p_ia.get("largo", 1.0)),
                                     "ml_unitario":     float(p_ia.get("largo", 1.0)),
@@ -3688,7 +3692,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 st.session_state.piezas = pre["piezas"]
             else:
                 st.session_state.piezas = [
-                    {"nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}
+                    {"id": str(uuid.uuid4()), "nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}
                 ]
 
         tipos_superficie = list(ANCHOS_ESTANDAR.keys())
@@ -3710,6 +3714,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             )
         else:
             for idx, pieza in enumerate(st.session_state.piezas):
+                if "id" not in pieza:
+                    pieza["id"] = str(uuid.uuid4())
+                _uid = pieza["id"]
                 with st.container(border=True):
                     # ── FILA 1: Descripción + Botón eliminar ─────────────
                     _col_nom, _col_del = st.columns([5, 1])
@@ -3717,15 +3724,16 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         nombre_p = st.text_input(
                             "Descripción de la pieza",
                             value=pieza.get("nombre", ""),
-                            key=f"pnom_{idx}",
+                            key=f"pnom_{_uid}",
                             placeholder=f"Pieza {idx + 1} — ej: Mesón de cocina",
                         )
                     with _col_del:
                         # Spacer para alinear el botón con el input de la columna izquierda
                         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                        if st.button("🗑️", key=f"del_{idx}", help="Eliminar pieza",
+                        if _col_del.button("🗑️", key=f"del_pz_{_uid}", help="Eliminar pieza",
                                      use_container_width=True):
-                            _sp_eliminar_pieza(idx)
+                            # Borrado seguro filtrando por UUID en lugar de índice
+                            st.session_state.piezas = [p for p in st.session_state.piezas if p.get("id") != _uid]
                             st.rerun()
     
                     # ── FILA 2: Tipo de elemento + Largo en ML + Cantidad ─
@@ -3736,7 +3744,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             "Tipo de elemento",
                             tipos_superficie,
                             index=tipo_idx,
-                            key=f"ptip_{idx}",
+                            key=f"ptip_{_uid}",
                             help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""),
                         )
                     with _col_ml:
@@ -3745,7 +3753,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             value=float(pieza.get("ml", 1.0)),
                             min_value=0.01,
                             step=0.1,
-                            key=f"pml_{idx}",
+                            key=f"pml_{_uid}",
                             help="Metros lineales de esta pieza (una unidad)",
                         )
                     with _col_cant:
@@ -3755,7 +3763,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             min_value=1,
                             max_value=100,
                             step=1,
-                            key=f"pcant_{idx}",
+                            key=f"pcant_{_uid}",
                             help="Número de piezas idénticas. El total ML = Largo × Cantidad",
                         )
     
@@ -3763,8 +3771,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     if ancho_tipo_p == "Personalizado":
                         st.text_input(
                             "Nombre personalizado (aparece en el PDF)",
-                            value=st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", "")),
-                            key=f"pcustom_{idx}",
+                            value=st.session_state.get(f"pcustom_{_uid}", pieza.get("nombre_personalizado", "")),
+                            key=f"pcustom_{_uid}",
                             placeholder='Ej: "Mesón de lavamanos", "Pantry", "Cornisa"',
                             help="Nombre descriptivo que aparecerá en la cotización PDF",
                         )
@@ -3778,7 +3786,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             value=float(ancho_def),
                             min_value=0.01,
                             step=0.01,
-                            key=f"panc_{idx}",
+                            key=f"panc_{_uid}",
                             help="Profundidad o alto de la pieza en metros",
                         )
     
@@ -3883,7 +3891,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             _lote_indices,
                             index=_lote_idx_def,
                             format_func=_fmt_lote,
-                            key=f"pmat_{idx}",
+                            key=f"pmat_{_uid}",
                             help=(
                                 "Selecciona de qué lámina física se cortará esta pieza. "
                                 "Cada lote se diferencia por sus dimensiones reales para "
@@ -3901,7 +3909,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             CATEGORIAS_MATERIAL,
                             index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
                                   if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
-                            key=f"pmat_{idx}",
+                            key=f"pmat_{_uid}",
                             help="Completa el Paso 1 para asignar piezas a lotes físicos de placa.",
                         )
     
@@ -3918,21 +3926,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             _zoc_t = st.checkbox(
                                 f"Trasero ({ml_p:.2f} m)",
                                 value=bool(pieza.get("zoc_trasero", False)),
-                                key=f"zoc_t_{idx}",
+                                key=f"zoc_t_{_uid}",
                                 help=f"Lado trasero = largo de la pieza × cantidad ({ml_efectivo:.2f} ml total)",
                             )
                         with _zoc_c2:
                             _zoc_i = st.checkbox(
                                 f"Lateral Izq. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_izq", False)),
-                                key=f"zoc_i_{idx}",
+                                key=f"zoc_i_{_uid}",
                                 help=f"Lateral izquierdo = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                             )
                         with _zoc_c3:
                             _zoc_d = st.checkbox(
                                 f"Lateral Der. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_der", False)),
-                                key=f"zoc_d_{idx}",
+                                key=f"zoc_d_{_uid}",
                                 help=f"Lateral derecho = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                             )
                         # ── Altura del zócalo (visible SOLO cuando hay algún lado activo) ──
@@ -3945,7 +3953,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                                 max_value=50.0,
                                 value=_altura_pre,
                                 step=0.5,
-                                key=f"zoc_h_{idx}",
+                                key=f"zoc_h_{_uid}",
                                 help=(
                                     "Franja de piedra que sube por la pared. "
                                     "Estándar residencial: 7 cm. Baños: 10–15 cm. "
@@ -3973,8 +3981,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             )
     
                     # Guardar pieza con nombre_personalizado + checkboxes de zócalo + lote
-                    _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
+                    _nom_personalizado = st.session_state.get(f"pcustom_{_uid}", pieza.get("nombre_personalizado", ""))
                     piezas_nuevas.append({
+                        "id":                 _uid,
                         "nombre":              nombre_p,
                         "ml":                  ml_efectivo,     # largo × cantidad (total real)
                         "ml_unitario":         ml_p,            # largo de una sola pieza
