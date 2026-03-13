@@ -2181,21 +2181,27 @@ with st.sidebar:
     )
 
     # Historial: redirección legacy si alguien tenía ruta guardada sin "Historial"
-    _paginas_validas = ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
-                        "Historial", "Dashboard", "Banco de Retales",
-                        "Parametros", "Asistente IA", "Planos de Taller (IA)",
-                        "Configuracion", "Gestion de Equipo"]
+    # Menú dinámico estricto por roles (Des-saturación Visual Beta 1.0)
+    _rol_nav = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
+
+    if _rol_nav == "Admin":
+        # El administrador ve el ERP completo
+        opciones_menu = [
+            "Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial",
+            "Dashboard", "Banco de Retales", "Parametros", "Asistente IA",
+            "Planos de Taller (IA)", "Configuracion", "Gestion de Equipo"
+        ]
+    else:
+        # El operario solo ve la vista hiper-simplificada para evitar errores
+        opciones_menu = [
+            "Inicio", "Cotizacion Directa", "Historial"
+        ]
+
+    # Validación de seguridad alineada con las opciones visibles por rol
+    _paginas_validas = opciones_menu.copy()
     if st.session_state.get("nav_radio") not in _paginas_validas:
         st.session_state.nav_radio = "Inicio"
         st.session_state.radio_ui = "Inicio"
-
-    # Menú dinámico: "Gestión de Equipo" solo visible para rol Admin
-    _rol_nav = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
-    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard",
-                     "Banco de Retales", "Parametros", "Asistente IA",
-                     "Planos de Taller (IA)", "Configuracion"]
-    if _rol_nav == "Admin":
-        opciones_menu.append("Gestion de Equipo")
 
     def update_nav():
         st.session_state.nav_radio = st.session_state.radio_ui
