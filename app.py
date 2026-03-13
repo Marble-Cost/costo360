@@ -1436,6 +1436,7 @@ _defaults = {
         {"desc": "Insumos (disco, adhesivo, silicona)", "und": "glb", "cant": 1.0, "punit": 150_000},
     ],
     "pre": {}, "piezas": [],
+    "conceptos_libres": [],
     "tarifas_custom": None, "logistica_custom": None, "viaticos_custom": None,
     "logo_bytes": None, "logo_mime": None,
     "empresa_info": {
@@ -2803,6 +2804,7 @@ elif pagina == "Cotizacion Directa":
     # ════════════════════════════════════════════════════════════════════
     if st.session_state.get("cdir_success") and st.session_state.cotizacion:
         r         = st.session_state.cotizacion
+        _costo_libres = sum(c.get("total", 0) for c in st.session_state.get("conceptos_libres", []))
         _num_g    = st.session_state.get("_cotiz_guardada_num", "")
         _iva_act  = r.get("incluir_iva", False)
         _iva_monto   = r["precio_sugerido"] * 0.19 if _iva_act else 0.0
@@ -2842,6 +2844,10 @@ elif pagina == "Cotizacion Directa":
                 ("Producción",  r["c2_mano_obra"]),
                 ("Zócalos",     r["c3_zocalos"]),  # ML: r.get("zocalo_ml_efectivo", 0)
                 ("Insumos",     r["c4_insumos"]),
+            ]
+            if _costo_libres > 0:
+                _items.append(("📝 Conceptos Libres", _costo_libres))
+            _items += [
                 ("Logística",   r["c5_logistica"]),
                 ("Viáticos",    r["c6_viaticos"]),
                 ("Adicionales", r["c7_adicionales"]),
@@ -3816,7 +3822,38 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             </div>""",
                             unsafe_allow_html=True,
                         )
-    
+        # ── MODO HÍBRIDO: Conceptos Libres de Cobro ─────────────────────────────
+        st.markdown("---")
+        _abrir_libres = st.session_state.get("usar_aiu_cd", False)
+        with st.expander("📝 Líneas de Cobro Libre (Otros productos/servicios)", expanded=_abrir_libres):
+            st.caption("Usa esta sección para cobrar elementos manuales que no requieren cálculo de piedra (ej. Demoliciones, Griferías, Suministros extra).")
+            
+            with st.form("form_concepto_libre", clear_on_submit=True):
+                _c1, _c2, _c3, _c4 = st.columns([4, 2, 2, 2])
+                _desc = _c1.text_input("Concepto / Descripción")
+                _und = _c2.selectbox("Unidad", ["UN", "GL", "ML", "M2", "M3", "HR", "DIA"])
+                _cant = _c3.number_input("Cantidad", min_value=0.1, value=1.0, step=0.5)
+                _vu = _c4.number_input("V. Unitario ($)", min_value=0, step=1000)
+                
+                if st.form_submit_button("➕ Añadir Concepto", use_container_width=True, type="secondary"):
+                    if _desc.strip() and _vu > 0:
+                        if "conceptos_libres" not in st.session_state:
+                            st.session_state.conceptos_libres = []
+                        st.session_state.conceptos_libres.append({
+                            "descripcion": _desc, "unidad": _und, 
+                            "cantidad": _cant, "v_unitario": _vu,
+                            "total": _cant * _vu
+                        })
+                        st.rerun()
+                        
+            # Mostrar lista de conceptos agregados
+            if st.session_state.get("conceptos_libres"):
+                for _idx, _cl in enumerate(st.session_state.conceptos_libres):
+                    _col_txt, _col_btn = st.columns([9, 1])
+                    _col_txt.markdown(f"🔹 **{_cl['descripcion']}** — {_cl['cantidad']} {_cl['unidad']} x ${int(_cl['v_unitario']):,} = **${int(_cl['total']):,}**".replace(",", "."))
+                    if _col_btn.button("🗑️", key=f"del_cl_{_idx}"):
+                        st.session_state.conceptos_libres.pop(_idx)
+                        st.rerun()
                     # ── Asignación de Pieza a Lote Físico de Placa ─────────────
                     # Sistema de etiquetado por Lotes: cada pieza se vincula al lote
                     # físico exacto del que se cortará, diferenciando placas del mismo
@@ -4760,12 +4797,22 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     # reflejen el precio FINAL al cliente (con IVA), no el subtotal.
                     incluir_iva=incluir_iva,
                 )
+                # ── Integración Modo Híbrido: Conceptos Libres ─────────────────
+                _costo_libres = sum(
+                    c.get("total", 0) for c in st.session_state.get("conceptos_libres", [])
+                )
+                # Engordar costos y PRECIO FINAL con conceptos libres
+                if _costo_libres > 0:
+                    resultado["costo_directo"] = resultado.get("costo_directo", 0) + _costo_libres
+                    resultado["costo_total"] = resultado.get("costo_total", 0) + _costo_libres
+                    resultado["precio_sugerido"] = resultado.get("precio_sugerido", 0) + _costo_libres
                 resultado["_estado_guardado"] = _pre_snapshot
                 resultado["incluir_iva"]      = incluir_iva
                 st.session_state.cotizacion   = resultado
                 st.session_state["_recalcular_paso4"] = False
 
         r         = st.session_state.cotizacion
+        _costo_libres = sum(c.get("total", 0) for c in st.session_state.get("conceptos_libres", []))
         _iva_act  = r.get("incluir_iva", incluir_iva)
         _iva_mont = r["precio_sugerido"] * 0.19 if _iva_act else 0.0
         _pf       = r["precio_sugerido"] + _iva_mont
@@ -4824,6 +4871,10 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 ("Producción",  r["c2_mano_obra"]),
                 ("Zócalos",     r["c3_zocalos"]),  # ML: r.get("zocalo_ml_efectivo", 0)
                 ("Insumos",     r["c4_insumos"]),
+            ]
+            if _costo_libres > 0:
+                _items_d.append(("📝 Conceptos Libres", _costo_libres))
+            _items_d += [
                 ("Logística",   r["c5_logistica"]),
                 ("Viáticos",    r["c6_viaticos"]),
                 ("Adicionales", r["c7_adicionales"]),
