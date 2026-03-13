@@ -4166,6 +4166,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             on_change=_cb_cdir_nombre_cliente,
         )
 
+        # Interruptor UX para preparar unificación de AIU (solo visual por ahora)
+        st.session_state.usar_aiu_cd = st.toggle(
+            "🏛️ Cotización para Obra Pública (Aplicar AIU)",
+            value=st.session_state.get("usar_aiu_cd", False),
+        )
+
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         # ── Días y personas — segmented controls ─────────────────────
@@ -10175,138 +10181,140 @@ elif pagina == "Planos de Taller (IA)":
 
     # ══════════════════════════════════════════════════════════════════════════
     # ZONA FULL-WIDTH — Botón optimizar + SVG + métricas
+    # (oculta por defecto dentro de un expander avanzado)
     # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-    st.divider()
+    with st.expander("📐 Generar Plano de Despiece (Avanzado)", expanded=False):
+        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+        st.divider()
 
-    _btn_space1, _btn_main, _btn_space2 = st.columns([1, 2, 1])
-    with _btn_main:
-        btn_optimizar = st.button(
-            "✂️ Optimizar Corte y Generar Plano",
-            use_container_width=True,
-            type="primary",
-            key="nesting_btn_optimizar",
-        )
-
-    if btn_optimizar:
-        st.session_state.nesting_error    = ""
-        st.session_state.nesting_svg      = None
-        st.session_state.nesting_metricas = None
-
-        _piezas_validas = [
-            {
-                "nombre":   str(p.get("nombre") or "Pieza"),
-                "largo":    float(p.get("largo") or 0),
-                "ancho":    float(p.get("ancho") or 0),
-                "cantidad": 1,
-            }
-            for p in st.session_state.nesting_piezas
-            if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
-        ]
-
-        if not _piezas_validas:
-            st.session_state.nesting_error = (
-                "Agrega al menos una pieza antes de optimizar."
-            )
-        else:
-            with st.spinner("🔢 Calculando disposición óptima de corte…"):
-                try:
-                    _svg, _metricas = optimizar_corte_2d(
-                        placa_largo, placa_ancho, _piezas_validas
-                    )
-                    st.session_state.nesting_svg      = _svg
-                    st.session_state.nesting_metricas = _metricas
-                except Exception as _e:
-                    st.session_state.nesting_error = f"Error en el cálculo: {_e}"
-
-    if st.session_state.get("nesting_error"):
-        st.markdown(
-            f'<div class="plano-error">⚠️ {st.session_state.nesting_error}</div>',
-            unsafe_allow_html=True,
-        )
-
-    # ── Resultado SVG + métricas ──────────────────────────────────────────────
-    _svg_act = st.session_state.get("nesting_svg")
-    _met     = st.session_state.get("nesting_metricas")
-
-    if _svg_act and _met:
-        # Métricas en 4 columnas
-        _area_retal = _met["area_placa"] - _met["area_utilizada"]
-        _mc1, _mc2, _mc3, _mc4 = st.columns(4)
-        _mc1.metric("Área Total Placa",  f'{_met["area_placa"]:.2f} m²')
-        _mc2.metric(
-            "Área Utilizada",
-            f'{_met["area_utilizada"]:.2f} m²',
-            delta=f'{100 - _met["porcentaje_desperdicio"]:.1f}% aprovechado',
-            delta_color="normal",
-        )
-        _mc3.metric(
-            "Retal Sobrante",
-            f'{_area_retal:.2f} m²',
-            delta=f'{_met["porcentaje_desperdicio"]:.1f}% de merma',
-            delta_color="inverse",
-        )
-        _mc4.metric("Piezas colocadas", _met["piezas_colocadas"])
-
-        # Aviso piezas que no caben
-        if _met.get("piezas_no_caben"):
-            _names = ", ".join(str(n) for n in _met["piezas_no_caben"])
-            st.warning(
-                f"⚠️ Las siguientes piezas **no caben** en la placa actual: **{_names}**. "
-                "Considera aumentar las dimensiones de la placa o dividir el proyecto.",
-                icon="📐",
-            )
-
-        # SVG a ancho completo
-        st.markdown(
-            wrap_svg_streamlit(_svg_act),
-            unsafe_allow_html=True,
-        )
-        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
-        # Descarga
-        _ba1, _ba2, _ba3 = st.columns([1, 1, 2])
-        with _ba1:
-            st.download_button(
-                label="⬇️ Descargar SVG",
-                data=_svg_act.encode("utf-8"),
-                file_name="nesting_corte.svg",
-                mime="image/svg+xml",
+        _btn_space1, _btn_main, _btn_space2 = st.columns([1, 2, 1])
+        with _btn_main:
+            btn_optimizar = st.button(
+                "✂️ Optimizar Corte y Generar Plano",
                 use_container_width=True,
-                key="nesting_dl_svg",
+                type="primary",
+                key="nesting_btn_optimizar",
             )
-        with _ba2:
-            try:
-                _pdf_bytes = exportar_svg_a_pdf(_svg_act)
-                st.download_button(
-                    label="📄 Descargar PDF",
-                    data=_pdf_bytes,
-                    file_name="Plano_Nesting_MCC.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    type="primary",
-                    key="nesting_dl_pdf",
+
+        if btn_optimizar:
+            st.session_state.nesting_error    = ""
+            st.session_state.nesting_svg      = None
+            st.session_state.nesting_metricas = None
+
+            _piezas_validas = [
+                {
+                    "nombre":   str(p.get("nombre") or "Pieza"),
+                    "largo":    float(p.get("largo") or 0),
+                    "ancho":    float(p.get("ancho") or 0),
+                    "cantidad": 1,
+                }
+                for p in st.session_state.nesting_piezas
+                if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
+            ]
+
+            if not _piezas_validas:
+                st.session_state.nesting_error = (
+                    "Agrega al menos una pieza antes de optimizar."
                 )
-            except Exception as _pdf_err:
+            else:
+                with st.spinner("🔢 Calculando disposición óptima de corte…"):
+                    try:
+                        _svg, _metricas = optimizar_corte_2d(
+                            placa_largo, placa_ancho, _piezas_validas
+                        )
+                        st.session_state.nesting_svg      = _svg
+                        st.session_state.nesting_metricas = _metricas
+                    except Exception as _e:
+                        st.session_state.nesting_error = f"Error en el cálculo: {_e}"
+
+        if st.session_state.get("nesting_error"):
+            st.markdown(
+                f'<div class="plano-error">⚠️ {st.session_state.nesting_error}</div>',
+                unsafe_allow_html=True,
+            )
+
+        # ── Resultado SVG + métricas ──────────────────────────────────────────
+        _svg_act = st.session_state.get("nesting_svg")
+        _met     = st.session_state.get("nesting_metricas")
+
+        if _svg_act and _met:
+            # Métricas en 4 columnas
+            _area_retal = _met["area_placa"] - _met["area_utilizada"]
+            _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+            _mc1.metric("Área Total Placa",  f'{_met["area_placa"]:.2f} m²')
+            _mc2.metric(
+                "Área Utilizada",
+                f'{_met["area_utilizada"]:.2f} m²',
+                delta=f'{100 - _met["porcentaje_desperdicio"]:.1f}% aprovechado',
+                delta_color="normal",
+            )
+            _mc3.metric(
+                "Retal Sobrante",
+                f'{_area_retal:.2f} m²',
+                delta=f'{_met["porcentaje_desperdicio"]:.1f}% de merma',
+                delta_color="inverse",
+            )
+            _mc4.metric("Piezas colocadas", _met["piezas_colocadas"])
+
+            # Aviso piezas que no caben
+            if _met.get("piezas_no_caben"):
+                _names = ", ".join(str(n) for n in _met["piezas_no_caben"])
                 st.warning(
-                    f"PDF no disponible. SVG descargable. (Detalle: {_pdf_err})",
-                    icon="⚠️",
+                    f"⚠️ Las siguientes piezas **no caben** en la placa actual: **{_names}**. "
+                    "Considera aumentar las dimensiones de la placa o dividir el proyecto.",
+                    icon="📐",
                 )
 
-    else:
-        st.markdown("""
-        <div style="
-            border: 2px dashed #C8D8E8; border-radius: 10px;
-            padding: 48px 24px; text-align: center;
-            background: #F8FAFD; color: #6B85A0;
-        ">
-            <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
-            <div style="font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
-                El plano de nesting aparecerá aquí
+            # SVG a ancho completo
+            st.markdown(
+                wrap_svg_streamlit(_svg_act),
+                unsafe_allow_html=True,
+            )
+            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+            # Descarga
+            _ba1, _ba2, _ba3 = st.columns([1, 1, 2])
+            with _ba1:
+                st.download_button(
+                    label="⬇️ Descargar SVG",
+                    data=_svg_act.encode("utf-8"),
+                    file_name="nesting_corte.svg",
+                    mime="image/svg+xml",
+                    use_container_width=True,
+                    key="nesting_dl_svg",
+                )
+            with _ba2:
+                try:
+                    _pdf_bytes = exportar_svg_a_pdf(_svg_act)
+                    st.download_button(
+                        label="📄 Descargar PDF",
+                        data=_pdf_bytes,
+                        file_name="Plano_Nesting_MCC.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        type="primary",
+                        key="nesting_dl_pdf",
+                    )
+                except Exception as _pdf_err:
+                    st.warning(
+                        f"PDF no disponible. SVG descargable. (Detalle: {_pdf_err})",
+                        icon="⚠️",
+                    )
+
+        else:
+            st.markdown("""
+            <div style="
+                border: 2px dashed #C8D8E8; border-radius: 10px;
+                padding: 48px 24px; text-align: center;
+                background: #F8FAFD; color: #6B85A0;
+            ">
+                <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
+                <div style="font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
+                    El plano de nesting aparecerá aquí
+                </div>
+                <div style="font-size: 0.82rem; line-height: 1.6">
+                    Agrega las piezas en el formulario de la izquierda,<br>
+                    luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.
+                </div>
             </div>
-            <div style="font-size: 0.82rem; line-height: 1.6">
-                Agrega las piezas en el formulario de la izquierda,<br>
-                luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
