@@ -1436,7 +1436,6 @@ _defaults = {
         {"desc": "Insumos (disco, adhesivo, silicona)", "und": "glb", "cant": 1.0, "punit": 150_000},
     ],
     "pre": {}, "piezas": [],
-    "conceptos_libres": [],
     "tarifas_custom": None, "logistica_custom": None, "viaticos_custom": None,
     "logo_bytes": None, "logo_mime": None,
     "empresa_info": {
@@ -1879,15 +1878,12 @@ def _cb_aiu_incluir_iva():
 def _sp_agregar_pieza():
     """Añade una pieza nueva y persiste en BD de inmediato."""
     piezas = list(_sp().get("cdir_piezas", []))
-    piezas.append({
-        "id": str(uuid.uuid4()),
-        "nombre": f"Pieza {len(piezas)+1}",
-        "ml": 1.0, "ml_unitario": 1.0, "cantidad": 1,
-        "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60,
-        # Zócalo geométrico — desactivado por defecto
-        "zoc_trasero": False, "zoc_izq": False, "zoc_der": False,
-        "altura_zocalo_cm": 7.0,
-    })
+    piezas.append({"nombre": f"Pieza {len(piezas)+1}",
+                   "ml": 1.0, "ml_unitario": 1.0, "cantidad": 1,
+                   "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60,
+                   # Zócalo geométrico — desactivado por defecto
+                   "zoc_trasero": False, "zoc_izq": False, "zoc_der": False,
+                   "altura_zocalo_cm": 7.0})
     _sp_set("cdir_piezas", piezas)
     st.session_state.piezas = piezas
     _sp_commit_borrador()
@@ -2185,27 +2181,21 @@ with st.sidebar:
     )
 
     # Historial: redirección legacy si alguien tenía ruta guardada sin "Historial"
-    # Menú dinámico estricto por roles (Des-saturación Visual Beta 1.0)
-    _rol_nav = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
-
-    if _rol_nav == "Admin":
-        # El administrador ve el ERP completo
-        opciones_menu = [
-            "Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial",
-            "Dashboard", "Banco de Retales", "Parametros", "Asistente IA",
-            "Planos de Taller (IA)", "Configuracion", "Gestion de Equipo"
-        ]
-    else:
-        # El operario solo ve la vista hiper-simplificada para evitar errores
-        opciones_menu = [
-            "Inicio", "Cotizacion Directa", "Historial"
-        ]
-
-    # Validación de seguridad alineada con las opciones visibles por rol
-    _paginas_validas = opciones_menu.copy()
+    _paginas_validas = ["Inicio", "Cotizacion Directa", "Cotizacion AIU",
+                        "Historial", "Dashboard", "Banco de Retales",
+                        "Parametros", "Asistente IA", "Planos de Taller (IA)",
+                        "Configuracion", "Gestion de Equipo"]
     if st.session_state.get("nav_radio") not in _paginas_validas:
         st.session_state.nav_radio = "Inicio"
         st.session_state.radio_ui = "Inicio"
+
+    # Menú dinámico: "Gestión de Equipo" solo visible para rol Admin
+    _rol_nav = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
+    opciones_menu = ["Inicio", "Cotizacion Directa", "Cotizacion AIU", "Historial", "Dashboard",
+                     "Banco de Retales", "Parametros", "Asistente IA",
+                     "Planos de Taller (IA)", "Configuracion"]
+    if _rol_nav == "Admin":
+        opciones_menu.append("Gestion de Equipo")
 
     def update_nav():
         st.session_state.nav_radio = st.session_state.radio_ui
@@ -2807,7 +2797,6 @@ elif pagina == "Cotizacion Directa":
     # ════════════════════════════════════════════════════════════════════
     if st.session_state.get("cdir_success") and st.session_state.cotizacion:
         r         = st.session_state.cotizacion
-        _costo_libres = sum(c.get("total", 0) for c in st.session_state.get("conceptos_libres", []))
         _num_g    = st.session_state.get("_cotiz_guardada_num", "")
         _iva_act  = r.get("incluir_iva", False)
         _iva_monto   = r["precio_sugerido"] * 0.19 if _iva_act else 0.0
@@ -2847,10 +2836,6 @@ elif pagina == "Cotizacion Directa":
                 ("Producción",  r["c2_mano_obra"]),
                 ("Zócalos",     r["c3_zocalos"]),  # ML: r.get("zocalo_ml_efectivo", 0)
                 ("Insumos",     r["c4_insumos"]),
-            ]
-            if _costo_libres > 0:
-                _items.append(("📝 Conceptos Libres", _costo_libres))
-            _items += [
                 ("Logística",   r["c5_logistica"]),
                 ("Viáticos",    r["c6_viaticos"]),
                 ("Adicionales", r["c7_adicionales"]),
@@ -3574,7 +3559,7 @@ elif pagina == "Cotizacion Directa":
         _sp_sync_materiales(mats_nuevos)
         st.session_state.materiales_proyecto = mats_nuevos
 
-        if st.button("＋ Agregar otro material", use_container_width=True, key="btn_add_material_master"):
+        if st.button("＋ Agregar otro material", use_container_width=True):
             _sp_agregar_material()
             st.rerun()
 
@@ -3639,21 +3624,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     with st.spinner("🧠 Analizando dimensiones y materiales..."):
                         try:
                             # IMPORTACIÓN LOCAL (A prueba de fallos circulares)
-                            from asistente_ia import interpretar_proyecto
-                            _resultado_ia = interpretar_proyecto(_texto_magico)
-                            # interpretar_proyecto devuelve un dict o None.
-                            # Normalizamos a lista para que el loop downstream
-                            # funcione con 1 o N piezas extraídas del texto.
-                            if isinstance(_resultado_ia, list):
-                                _piezas_ia = [p for p in _resultado_ia if isinstance(p, dict)]
-                            elif isinstance(_resultado_ia, dict):
-                                _piezas_ia = [_resultado_ia]
-                            else:
-                                _piezas_ia = []
-                            # Inyectar UUID a cada pieza antes de agregarlas
-                            for _p_ia in _piezas_ia:
-                                if "id" not in _p_ia:
-                                    _p_ia["id"] = str(uuid.uuid4())
+                            from asistente_ia import traductor_arquitectonico
+                            _piezas_ia = traductor_arquitectonico(_texto_magico)
 
                             # Recuperar lista actual de piezas desde el store_permanente
                             _piezas_actuales = list(_sp().get("cdir_piezas", []))
@@ -3672,7 +3644,6 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                                         _tipo_ia = _tnombre
                                         break
                                 _nueva_pieza = {
-                                    "id":             str(uuid.uuid4()),
                                     "nombre":          str(p_ia.get("nombre", f"Pieza {_idx_ia + 1}")),
                                     "ml":              float(p_ia.get("largo", 1.0)),
                                     "ml_unitario":     float(p_ia.get("largo", 1.0)),
@@ -3705,7 +3676,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 st.session_state.piezas = pre["piezas"]
             else:
                 st.session_state.piezas = [
-                    {"id": str(uuid.uuid4()), "nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}
+                    {"nombre": "Mesón de cocina", "ml": 2.0, "ancho_tipo": "Mesón de cocina", "ancho_custom": 0.60}
                 ]
 
         tipos_superficie = list(ANCHOS_ESTANDAR.keys())
@@ -3726,86 +3697,62 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 '</div></div>', unsafe_allow_html=True
             )
         else:
-            # ── SINCRONIZADOR MAESTRO PRE-RENDERIZADO (Anti-Amnesia) ──────────────
-            # Rescata los valores del caché de Streamlit ANTES de renderizar los
-            # widgets. Sin este bloque, value=_pz.get("clave") lee el dict no
-            # actualizado y sobreescribe la entrada fresca del usuario en cada rerun.
-            if "piezas" in st.session_state:
-                for _p_sync in st.session_state.piezas:
-                    _uid_s = _p_sync.get("id")
-                    if not _uid_s:
-                        continue
-                    if f"pnom_{_uid_s}"   in st.session_state: _p_sync["nombre"]           = st.session_state[f"pnom_{_uid_s}"]
-                    if f"ptip_{_uid_s}"   in st.session_state: _p_sync["ancho_tipo"]       = st.session_state[f"ptip_{_uid_s}"]
-                    if f"pml_{_uid_s}"    in st.session_state: _p_sync["ml_unitario"]      = st.session_state[f"pml_{_uid_s}"]
-                    if f"pcant_{_uid_s}"  in st.session_state: _p_sync["cantidad"]         = st.session_state[f"pcant_{_uid_s}"]
-                    if f"pcustom_{_uid_s}"in st.session_state: _p_sync["nombre_personalizado"] = st.session_state[f"pcustom_{_uid_s}"]
-                    if f"panc_{_uid_s}"   in st.session_state: _p_sync["ancho_custom"]     = st.session_state[f"panc_{_uid_s}"]
-                    if f"zoc_t_{_uid_s}"  in st.session_state: _p_sync["zoc_trasero"]      = st.session_state[f"zoc_t_{_uid_s}"]
-                    if f"zoc_i_{_uid_s}"  in st.session_state: _p_sync["zoc_izq"]          = st.session_state[f"zoc_i_{_uid_s}"]
-                    if f"zoc_d_{_uid_s}"  in st.session_state: _p_sync["zoc_der"]          = st.session_state[f"zoc_d_{_uid_s}"]
-                    if f"zoc_h_{_uid_s}"  in st.session_state: _p_sync["altura_zocalo_cm"] = st.session_state[f"zoc_h_{_uid_s}"]
-                    if f"pmat_{_uid_s}"   in st.session_state: _p_sync["categoria"]        = st.session_state[f"pmat_{_uid_s}"]
             for idx, pieza in enumerate(st.session_state.piezas):
-                if "id" not in pieza:
-                    pieza["id"] = str(uuid.uuid4())
-                _uid = pieza["id"]
                 with st.container(border=True):
                     # ── FILA 1: Descripción + Botón eliminar ─────────────
                     _col_nom, _col_del = st.columns([5, 1])
                     with _col_nom:
-                        pieza["nombre"] = nombre_p = st.text_input(
+                        nombre_p = st.text_input(
                             "Descripción de la pieza",
                             value=pieza.get("nombre", ""),
-                            key=f"pnom_{_uid}",
+                            key=f"pnom_{idx}",
                             placeholder=f"Pieza {idx + 1} — ej: Mesón de cocina",
                         )
                     with _col_del:
                         # Spacer para alinear el botón con el input de la columna izquierda
                         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                        if _col_del.button("🗑️", key=f"del_pz_{_uid}", help="Eliminar pieza",
+                        if st.button("🗑️", key=f"del_{idx}", help="Eliminar pieza",
                                      use_container_width=True):
-                            # Borrado seguro filtrando por UUID en lugar de índice
-                            st.session_state.piezas = [p for p in st.session_state.piezas if p.get("id") != _uid]
+                            _sp_eliminar_pieza(idx)
                             st.rerun()
     
                     # ── FILA 2: Tipo de elemento + Largo en ML + Cantidad ─
                     _col_tipo, _col_ml, _col_cant = st.columns([2, 1.5, 1])
                     with _col_tipo:
                         tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
-                        pieza["ancho_tipo"] = ancho_tipo_p = st.selectbox(
+                        ancho_tipo_p = st.selectbox(
                             "Tipo de elemento",
                             tipos_superficie,
                             index=tipo_idx,
-                            key=f"ptip_{_uid}",
+                            key=f"ptip_{idx}",
                             help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""),
                         )
                     with _col_ml:
-                        pieza["ml_unitario"] = ml_p = st.number_input(
+                        ml_p = st.number_input(
                             "Largo (ML)",
-                            value=float(pieza.get("ml_unitario", pieza.get("ml", 1.0))),
+                            value=float(pieza.get("ml", 1.0)),
                             min_value=0.01,
                             step=0.1,
-                            key=f"pml_{_uid}",
+                            key=f"pml_{idx}",
                             help="Metros lineales de esta pieza (una unidad)",
                         )
                     with _col_cant:
-                        pieza["cantidad"] = cantidad_p = st.number_input(
+                        cantidad_p = st.number_input(
                             "Cantidad",
                             value=int(pieza.get("cantidad", 1)),
                             min_value=1,
                             max_value=100,
                             step=1,
-                            key=f"pcant_{_uid}",
+                            key=f"pcant_{idx}",
                             help="Número de piezas idénticas. El total ML = Largo × Cantidad",
                         )
     
                     # ── CONDICIONAL: nombre extra si elige Personalizado ──
                     if ancho_tipo_p == "Personalizado":
-                        pieza["nombre_personalizado"] = st.text_input(
+                        st.text_input(
                             "Nombre personalizado (aparece en el PDF)",
-                            value=pieza.get("nombre_personalizado", ""),
-                            key=f"pcustom_{_uid}",
+                            value=st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", "")),
+                            key=f"pcustom_{idx}",
                             placeholder='Ej: "Mesón de lavamanos", "Pantry", "Cornisa"',
                             help="Nombre descriptivo que aparecerá en la cotización PDF",
                         )
@@ -3814,12 +3761,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     _col_ancho, _col_m2 = st.columns(2)
                     with _col_ancho:
                         ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
-                        pieza["ancho_custom"] = ancho_p = st.number_input(
+                        ancho_p   = st.number_input(
                             "Ancho (m)",
                             value=float(ancho_def),
                             min_value=0.01,
                             step=0.01,
-                            key=f"panc_{_uid}",
+                            key=f"panc_{idx}",
                             help="Profundidad o alto de la pieza en metros",
                         )
     
@@ -3863,38 +3810,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             </div>""",
                             unsafe_allow_html=True,
                         )
-        # ── MODO HÍBRIDO: Conceptos Libres de Cobro ─────────────────────────────
-        st.markdown("---")
-        _abrir_libres = st.session_state.get("usar_aiu_cd", False)
-        with st.expander("📝 Líneas de Cobro Libre (Otros productos/servicios)", expanded=_abrir_libres):
-            st.caption("Usa esta sección para cobrar elementos manuales que no requieren cálculo de piedra (ej. Demoliciones, Griferías, Suministros extra).")
-            
-            with st.form("form_concepto_libre", clear_on_submit=True):
-                _c1, _c2, _c3, _c4 = st.columns([4, 2, 2, 2])
-                _desc = _c1.text_input("Concepto / Descripción")
-                _und = _c2.selectbox("Unidad", ["UN", "GL", "ML", "M2", "M3", "HR", "DIA"])
-                _cant = _c3.number_input("Cantidad", min_value=0.1, value=1.0, step=0.5)
-                _vu = _c4.number_input("V. Unitario ($)", min_value=0, step=1000)
-                
-                if st.form_submit_button("➕ Añadir Concepto", use_container_width=True, type="secondary"):
-                    if _desc.strip() and _vu > 0:
-                        if "conceptos_libres" not in st.session_state:
-                            st.session_state.conceptos_libres = []
-                        st.session_state.conceptos_libres.append({
-                            "descripcion": _desc, "unidad": _und, 
-                            "cantidad": _cant, "v_unitario": _vu,
-                            "total": _cant * _vu
-                        })
-                        st.rerun()
-                        
-            # Mostrar lista de conceptos agregados
-            if st.session_state.get("conceptos_libres"):
-                for _idx, _cl in enumerate(st.session_state.conceptos_libres):
-                    _col_txt, _col_btn = st.columns([9, 1])
-                    _col_txt.markdown(f"🔹 **{_cl['descripcion']}** — {_cl['cantidad']} {_cl['unidad']} x ${int(_cl['v_unitario']):,} = **${int(_cl['total']):,}**".replace(",", "."))
-                    if _col_btn.button("🗑️", key=f"del_cl_{_idx}"):
-                        st.session_state.conceptos_libres.pop(_idx)
-                        st.rerun()
+    
                     # ── Asignación de Pieza a Lote Físico de Placa ─────────────
                     # Sistema de etiquetado por Lotes: cada pieza se vincula al lote
                     # físico exacto del que se cortará, diferenciando placas del mismo
@@ -3919,12 +3835,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         # Restaurar la selección previa del lote si existe
                         _lote_prev    = int(pieza.get("id_lote_origen", 0))
                         _lote_idx_def = _lote_prev if _lote_prev < len(_mats_paso1) else 0
-                        pieza["id_lote_origen"] = _sel_lote_idx = st.selectbox(
+                        _sel_lote_idx = st.selectbox(
                             "🪨 Asignar a la placa (Lote físico)",
                             _lote_indices,
                             index=_lote_idx_def,
                             format_func=_fmt_lote,
-                            key=f"pmat_{_uid}",
+                            key=f"pmat_{idx}",
                             help=(
                                 "Selecciona de qué lámina física se cortará esta pieza. "
                                 "Cada lote se diferencia por sus dimensiones reales para "
@@ -3937,12 +3853,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         # Fallback cuando no hay materiales en el Paso 1
                         _sel_lote_idx     = None
                         _mat_seleccionado = {}
-                        pieza["categoria"] = _cat_pieza = st.selectbox(
+                        _cat_pieza = st.selectbox(
                             "🪨 Material de la pieza",
                             CATEGORIAS_MATERIAL,
                             index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
                                   if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
-                            key=f"pmat_{_uid}",
+                            key=f"pmat_{idx}",
                             help="Completa el Paso 1 para asignar piezas a lotes físicos de placa.",
                         )
     
@@ -3956,37 +3872,37 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         )
                         _zoc_c1, _zoc_c2, _zoc_c3 = st.columns(3)
                         with _zoc_c1:
-                            pieza["zoc_trasero"] = _zoc_t = st.checkbox(
+                            _zoc_t = st.checkbox(
                                 f"Trasero ({ml_p:.2f} m)",
                                 value=bool(pieza.get("zoc_trasero", False)),
-                                key=f"zoc_t_{_uid}",
+                                key=f"zoc_t_{idx}",
                                 help=f"Lado trasero = largo de la pieza × cantidad ({ml_efectivo:.2f} ml total)",
                             )
                         with _zoc_c2:
-                            pieza["zoc_izq"] = _zoc_i = st.checkbox(
+                            _zoc_i = st.checkbox(
                                 f"Lateral Izq. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_izq", False)),
-                                key=f"zoc_i_{_uid}",
+                                key=f"zoc_i_{idx}",
                                 help=f"Lateral izquierdo = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                             )
                         with _zoc_c3:
-                            pieza["zoc_der"] = _zoc_d = st.checkbox(
+                            _zoc_d = st.checkbox(
                                 f"Lateral Der. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_der", False)),
-                                key=f"zoc_d_{_uid}",
+                                key=f"zoc_d_{idx}",
                                 help=f"Lateral derecho = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                             )
                         # ── Altura del zócalo (visible SOLO cuando hay algún lado activo) ──
                         _hay_zocalo = _zoc_t or _zoc_i or _zoc_d
                         if _hay_zocalo:
                             _altura_pre = float(pieza.get("altura_zocalo_cm", 7.0))
-                            pieza["altura_zocalo_cm"] = _altura_zoc = st.number_input(
+                            _altura_zoc = st.number_input(
                                 "Altura del zócalo (cm)",
                                 min_value=1.0,
                                 max_value=50.0,
                                 value=_altura_pre,
                                 step=0.5,
-                                key=f"zoc_h_{_uid}",
+                                key=f"zoc_h_{idx}",
                                 help=(
                                     "Franja de piedra que sube por la pared. "
                                     "Estándar residencial: 7 cm. Baños: 10–15 cm. "
@@ -4014,9 +3930,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             )
     
                     # Guardar pieza con nombre_personalizado + checkboxes de zócalo + lote
-                    _nom_personalizado = st.session_state.get(f"pcustom_{_uid}", pieza.get("nombre_personalizado", ""))
+                    _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
                     piezas_nuevas.append({
-                        "id":                 _uid,
                         "nombre":              nombre_p,
                         "ml":                  ml_efectivo,     # largo × cantidad (total real)
                         "ml_unitario":         ml_p,            # largo de una sola pieza
@@ -4056,7 +3971,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
 
         _col_add, _col_tot = st.columns([1, 2])
         with _col_add:
-            if st.button("＋ Agregar pieza", use_container_width=True, key="btn_add_pieza_master"):
+            if st.button("＋ Agregar pieza", use_container_width=True):
                 _sp_agregar_pieza()
                 st.rerun()
         with _col_tot:
@@ -4243,12 +4158,6 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             placeholder="Ej: Juan García / Constructora XYZ",
             key="cb_cdir_nombre_cliente",
             on_change=_cb_cdir_nombre_cliente,
-        )
-
-        # Interruptor UX para preparar unificación de AIU (solo visual por ahora)
-        st.session_state.usar_aiu_cd = st.toggle(
-            "🏛️ Cotización para Obra Pública (Aplicar AIU)",
-            value=st.session_state.get("usar_aiu_cd", False),
         )
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -4839,22 +4748,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     # reflejen el precio FINAL al cliente (con IVA), no el subtotal.
                     incluir_iva=incluir_iva,
                 )
-                # ── Integración Modo Híbrido: Conceptos Libres ─────────────────
-                _costo_libres = sum(
-                    c.get("total", 0) for c in st.session_state.get("conceptos_libres", [])
-                )
-                # Engordar costos y PRECIO FINAL con conceptos libres
-                if _costo_libres > 0:
-                    resultado["costo_directo"] = resultado.get("costo_directo", 0) + _costo_libres
-                    resultado["costo_total"] = resultado.get("costo_total", 0) + _costo_libres
-                    resultado["precio_sugerido"] = resultado.get("precio_sugerido", 0) + _costo_libres
                 resultado["_estado_guardado"] = _pre_snapshot
                 resultado["incluir_iva"]      = incluir_iva
                 st.session_state.cotizacion   = resultado
                 st.session_state["_recalcular_paso4"] = False
 
         r         = st.session_state.cotizacion
-        _costo_libres = sum(c.get("total", 0) for c in st.session_state.get("conceptos_libres", []))
         _iva_act  = r.get("incluir_iva", incluir_iva)
         _iva_mont = r["precio_sugerido"] * 0.19 if _iva_act else 0.0
         _pf       = r["precio_sugerido"] + _iva_mont
@@ -4913,10 +4812,6 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 ("Producción",  r["c2_mano_obra"]),
                 ("Zócalos",     r["c3_zocalos"]),  # ML: r.get("zocalo_ml_efectivo", 0)
                 ("Insumos",     r["c4_insumos"]),
-            ]
-            if _costo_libres > 0:
-                _items_d.append(("📝 Conceptos Libres", _costo_libres))
-            _items_d += [
                 ("Logística",   r["c5_logistica"]),
                 ("Viáticos",    r["c6_viaticos"]),
                 ("Adicionales", r["c7_adicionales"]),
@@ -10274,140 +10169,138 @@ elif pagina == "Planos de Taller (IA)":
 
     # ══════════════════════════════════════════════════════════════════════════
     # ZONA FULL-WIDTH — Botón optimizar + SVG + métricas
-    # (oculta por defecto dentro de un expander avanzado)
     # ══════════════════════════════════════════════════════════════════════════
-    with st.expander("📐 Generar Plano de Despiece (Avanzado)", expanded=False):
-        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
-        st.divider()
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+    st.divider()
 
-        _btn_space1, _btn_main, _btn_space2 = st.columns([1, 2, 1])
-        with _btn_main:
-            btn_optimizar = st.button(
-                "✂️ Optimizar Corte y Generar Plano",
-                use_container_width=True,
-                type="primary",
-                key="nesting_btn_optimizar",
+    _btn_space1, _btn_main, _btn_space2 = st.columns([1, 2, 1])
+    with _btn_main:
+        btn_optimizar = st.button(
+            "✂️ Optimizar Corte y Generar Plano",
+            use_container_width=True,
+            type="primary",
+            key="nesting_btn_optimizar",
+        )
+
+    if btn_optimizar:
+        st.session_state.nesting_error    = ""
+        st.session_state.nesting_svg      = None
+        st.session_state.nesting_metricas = None
+
+        _piezas_validas = [
+            {
+                "nombre":   str(p.get("nombre") or "Pieza"),
+                "largo":    float(p.get("largo") or 0),
+                "ancho":    float(p.get("ancho") or 0),
+                "cantidad": 1,
+            }
+            for p in st.session_state.nesting_piezas
+            if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
+        ]
+
+        if not _piezas_validas:
+            st.session_state.nesting_error = (
+                "Agrega al menos una pieza antes de optimizar."
             )
-
-        if btn_optimizar:
-            st.session_state.nesting_error    = ""
-            st.session_state.nesting_svg      = None
-            st.session_state.nesting_metricas = None
-
-            _piezas_validas = [
-                {
-                    "nombre":   str(p.get("nombre") or "Pieza"),
-                    "largo":    float(p.get("largo") or 0),
-                    "ancho":    float(p.get("ancho") or 0),
-                    "cantidad": 1,
-                }
-                for p in st.session_state.nesting_piezas
-                if float(p.get("largo") or 0) > 0 and float(p.get("ancho") or 0) > 0
-            ]
-
-            if not _piezas_validas:
-                st.session_state.nesting_error = (
-                    "Agrega al menos una pieza antes de optimizar."
-                )
-            else:
-                with st.spinner("🔢 Calculando disposición óptima de corte…"):
-                    try:
-                        _svg, _metricas = optimizar_corte_2d(
-                            placa_largo, placa_ancho, _piezas_validas
-                        )
-                        st.session_state.nesting_svg      = _svg
-                        st.session_state.nesting_metricas = _metricas
-                    except Exception as _e:
-                        st.session_state.nesting_error = f"Error en el cálculo: {_e}"
-
-        if st.session_state.get("nesting_error"):
-            st.markdown(
-                f'<div class="plano-error">⚠️ {st.session_state.nesting_error}</div>',
-                unsafe_allow_html=True,
-            )
-
-        # ── Resultado SVG + métricas ──────────────────────────────────────────
-        _svg_act = st.session_state.get("nesting_svg")
-        _met     = st.session_state.get("nesting_metricas")
-
-        if _svg_act and _met:
-            # Métricas en 4 columnas
-            _area_retal = _met["area_placa"] - _met["area_utilizada"]
-            _mc1, _mc2, _mc3, _mc4 = st.columns(4)
-            _mc1.metric("Área Total Placa",  f'{_met["area_placa"]:.2f} m²')
-            _mc2.metric(
-                "Área Utilizada",
-                f'{_met["area_utilizada"]:.2f} m²',
-                delta=f'{100 - _met["porcentaje_desperdicio"]:.1f}% aprovechado',
-                delta_color="normal",
-            )
-            _mc3.metric(
-                "Retal Sobrante",
-                f'{_area_retal:.2f} m²',
-                delta=f'{_met["porcentaje_desperdicio"]:.1f}% de merma',
-                delta_color="inverse",
-            )
-            _mc4.metric("Piezas colocadas", _met["piezas_colocadas"])
-
-            # Aviso piezas que no caben
-            if _met.get("piezas_no_caben"):
-                _names = ", ".join(str(n) for n in _met["piezas_no_caben"])
-                st.warning(
-                    f"⚠️ Las siguientes piezas **no caben** en la placa actual: **{_names}**. "
-                    "Considera aumentar las dimensiones de la placa o dividir el proyecto.",
-                    icon="📐",
-                )
-
-            # SVG a ancho completo
-            st.markdown(
-                wrap_svg_streamlit(_svg_act),
-                unsafe_allow_html=True,
-            )
-            st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
-            # Descarga
-            _ba1, _ba2, _ba3 = st.columns([1, 1, 2])
-            with _ba1:
-                st.download_button(
-                    label="⬇️ Descargar SVG",
-                    data=_svg_act.encode("utf-8"),
-                    file_name="nesting_corte.svg",
-                    mime="image/svg+xml",
-                    use_container_width=True,
-                    key="nesting_dl_svg",
-                )
-            with _ba2:
-                try:
-                    _pdf_bytes = exportar_svg_a_pdf(_svg_act)
-                    st.download_button(
-                        label="📄 Descargar PDF",
-                        data=_pdf_bytes,
-                        file_name="Plano_Nesting_MCC.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        type="primary",
-                        key="nesting_dl_pdf",
-                    )
-                except Exception as _pdf_err:
-                    st.warning(
-                        f"PDF no disponible. SVG descargable. (Detalle: {_pdf_err})",
-                        icon="⚠️",
-                    )
-
         else:
-            st.markdown("""
-            <div style="
-                border: 2px dashed #C8D8E8; border-radius: 10px;
-                padding: 48px 24px; text-align: center;
-                background: #F8FAFD; color: #6B85A0;
-            ">
-                <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
-                <div style="font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
-                    El plano de nesting aparecerá aquí
-                </div>
-                <div style="font-size: 0.82rem; line-height: 1.6">
-                    Agrega las piezas en el formulario de la izquierda,<br>
-                    luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.
-                </div>
+            with st.spinner("🔢 Calculando disposición óptima de corte…"):
+                try:
+                    _svg, _metricas = optimizar_corte_2d(
+                        placa_largo, placa_ancho, _piezas_validas
+                    )
+                    st.session_state.nesting_svg      = _svg
+                    st.session_state.nesting_metricas = _metricas
+                except Exception as _e:
+                    st.session_state.nesting_error = f"Error en el cálculo: {_e}"
+
+    if st.session_state.get("nesting_error"):
+        st.markdown(
+            f'<div class="plano-error">⚠️ {st.session_state.nesting_error}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Resultado SVG + métricas ──────────────────────────────────────────────
+    _svg_act = st.session_state.get("nesting_svg")
+    _met     = st.session_state.get("nesting_metricas")
+
+    if _svg_act and _met:
+        # Métricas en 4 columnas
+        _area_retal = _met["area_placa"] - _met["area_utilizada"]
+        _mc1, _mc2, _mc3, _mc4 = st.columns(4)
+        _mc1.metric("Área Total Placa",  f'{_met["area_placa"]:.2f} m²')
+        _mc2.metric(
+            "Área Utilizada",
+            f'{_met["area_utilizada"]:.2f} m²',
+            delta=f'{100 - _met["porcentaje_desperdicio"]:.1f}% aprovechado',
+            delta_color="normal",
+        )
+        _mc3.metric(
+            "Retal Sobrante",
+            f'{_area_retal:.2f} m²',
+            delta=f'{_met["porcentaje_desperdicio"]:.1f}% de merma',
+            delta_color="inverse",
+        )
+        _mc4.metric("Piezas colocadas", _met["piezas_colocadas"])
+
+        # Aviso piezas que no caben
+        if _met.get("piezas_no_caben"):
+            _names = ", ".join(str(n) for n in _met["piezas_no_caben"])
+            st.warning(
+                f"⚠️ Las siguientes piezas **no caben** en la placa actual: **{_names}**. "
+                "Considera aumentar las dimensiones de la placa o dividir el proyecto.",
+                icon="📐",
+            )
+
+        # SVG a ancho completo
+        st.markdown(
+            wrap_svg_streamlit(_svg_act),
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+        # Descarga
+        _ba1, _ba2, _ba3 = st.columns([1, 1, 2])
+        with _ba1:
+            st.download_button(
+                label="⬇️ Descargar SVG",
+                data=_svg_act.encode("utf-8"),
+                file_name="nesting_corte.svg",
+                mime="image/svg+xml",
+                use_container_width=True,
+                key="nesting_dl_svg",
+            )
+        with _ba2:
+            try:
+                _pdf_bytes = exportar_svg_a_pdf(_svg_act)
+                st.download_button(
+                    label="📄 Descargar PDF",
+                    data=_pdf_bytes,
+                    file_name="Plano_Nesting_MCC.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                    key="nesting_dl_pdf",
+                )
+            except Exception as _pdf_err:
+                st.warning(
+                    f"PDF no disponible. SVG descargable. (Detalle: {_pdf_err})",
+                    icon="⚠️",
+                )
+
+    else:
+        st.markdown("""
+        <div style="
+            border: 2px dashed #C8D8E8; border-radius: 10px;
+            padding: 48px 24px; text-align: center;
+            background: #F8FAFD; color: #6B85A0;
+        ">
+            <div style="font-size: 3rem; margin-bottom: 10px">📐</div>
+            <div style="font-size: 1.05rem; font-weight: 600; margin-bottom: 6px; color: #1C2B3A">
+                El plano de nesting aparecerá aquí
             </div>
-            """, unsafe_allow_html=True)
+            <div style="font-size: 0.82rem; line-height: 1.6">
+                Agrega las piezas en el formulario de la izquierda,<br>
+                luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
