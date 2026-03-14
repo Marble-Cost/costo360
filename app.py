@@ -3639,8 +3639,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     with st.spinner("🧠 Analizando dimensiones y materiales..."):
                         try:
                             # IMPORTACIÓN LOCAL (A prueba de fallos circulares)
-                            from asistente_ia import traductor_arquitectonico
-                            _piezas_ia = traductor_arquitectonico(_texto_magico)
+                            from asistente_ia import interpretar_proyecto
+                            _resultado_ia = interpretar_proyecto(_texto_magico)
+                            # interpretar_proyecto devuelve un dict o None.
+                            # Normalizamos a lista para que el loop downstream
+                            # funcione con 1 o N piezas extraídas del texto.
+                            if isinstance(_resultado_ia, list):
+                                _piezas_ia = [p for p in _resultado_ia if isinstance(p, dict)]
+                            elif isinstance(_resultado_ia, dict):
+                                _piezas_ia = [_resultado_ia]
+                            else:
+                                _piezas_ia = []
+                            # Inyectar UUID a cada pieza antes de agregarlas
+                            for _p_ia in _piezas_ia:
+                                if "id" not in _p_ia:
+                                    _p_ia["id"] = str(uuid.uuid4())
 
                             # Recuperar lista actual de piezas desde el store_permanente
                             _piezas_actuales = list(_sp().get("cdir_piezas", []))
@@ -3721,7 +3734,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     # ── FILA 1: Descripción + Botón eliminar ─────────────
                     _col_nom, _col_del = st.columns([5, 1])
                     with _col_nom:
-                        nombre_p = st.text_input(
+                        pieza["nombre"] = nombre_p = st.text_input(
                             "Descripción de la pieza",
                             value=pieza.get("nombre", ""),
                             key=f"pnom_{_uid}",
@@ -3740,7 +3753,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     _col_tipo, _col_ml, _col_cant = st.columns([2, 1.5, 1])
                     with _col_tipo:
                         tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
-                        ancho_tipo_p = st.selectbox(
+                        pieza["ancho_tipo"] = ancho_tipo_p = st.selectbox(
                             "Tipo de elemento",
                             tipos_superficie,
                             index=tipo_idx,
@@ -3748,7 +3761,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""),
                         )
                     with _col_ml:
-                        ml_p = st.number_input(
+                        pieza["ml_unitario"] = ml_p = st.number_input(
                             "Largo (ML)",
                             value=float(pieza.get("ml", 1.0)),
                             min_value=0.01,
@@ -3757,7 +3770,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             help="Metros lineales de esta pieza (una unidad)",
                         )
                     with _col_cant:
-                        cantidad_p = st.number_input(
+                        pieza["cantidad"] = cantidad_p = st.number_input(
                             "Cantidad",
                             value=int(pieza.get("cantidad", 1)),
                             min_value=1,
@@ -3769,9 +3782,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
     
                     # ── CONDICIONAL: nombre extra si elige Personalizado ──
                     if ancho_tipo_p == "Personalizado":
-                        st.text_input(
+                        pieza["nombre_personalizado"] = st.text_input(
                             "Nombre personalizado (aparece en el PDF)",
-                            value=st.session_state.get(f"pcustom_{_uid}", pieza.get("nombre_personalizado", "")),
+                            value=pieza.get("nombre_personalizado", ""),
                             key=f"pcustom_{_uid}",
                             placeholder='Ej: "Mesón de lavamanos", "Pantry", "Cornisa"',
                             help="Nombre descriptivo que aparecerá en la cotización PDF",
@@ -3781,7 +3794,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     _col_ancho, _col_m2 = st.columns(2)
                     with _col_ancho:
                         ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
-                        ancho_p   = st.number_input(
+                        pieza["ancho_custom"] = ancho_p = st.number_input(
                             "Ancho (m)",
                             value=float(ancho_def),
                             min_value=0.01,
@@ -3886,7 +3899,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         # Restaurar la selección previa del lote si existe
                         _lote_prev    = int(pieza.get("id_lote_origen", 0))
                         _lote_idx_def = _lote_prev if _lote_prev < len(_mats_paso1) else 0
-                        _sel_lote_idx = st.selectbox(
+                        pieza["id_lote_origen"] = _sel_lote_idx = st.selectbox(
                             "🪨 Asignar a la placa (Lote físico)",
                             _lote_indices,
                             index=_lote_idx_def,
@@ -3904,7 +3917,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         # Fallback cuando no hay materiales en el Paso 1
                         _sel_lote_idx     = None
                         _mat_seleccionado = {}
-                        _cat_pieza = st.selectbox(
+                        pieza["categoria"] = _cat_pieza = st.selectbox(
                             "🪨 Material de la pieza",
                             CATEGORIAS_MATERIAL,
                             index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
@@ -3923,21 +3936,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         )
                         _zoc_c1, _zoc_c2, _zoc_c3 = st.columns(3)
                         with _zoc_c1:
-                            _zoc_t = st.checkbox(
+                            pieza["zoc_trasero"] = _zoc_t = st.checkbox(
                                 f"Trasero ({ml_p:.2f} m)",
                                 value=bool(pieza.get("zoc_trasero", False)),
                                 key=f"zoc_t_{_uid}",
                                 help=f"Lado trasero = largo de la pieza × cantidad ({ml_efectivo:.2f} ml total)",
                             )
                         with _zoc_c2:
-                            _zoc_i = st.checkbox(
+                            pieza["zoc_izq"] = _zoc_i = st.checkbox(
                                 f"Lateral Izq. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_izq", False)),
                                 key=f"zoc_i_{_uid}",
                                 help=f"Lateral izquierdo = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                             )
                         with _zoc_c3:
-                            _zoc_d = st.checkbox(
+                            pieza["zoc_der"] = _zoc_d = st.checkbox(
                                 f"Lateral Der. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_der", False)),
                                 key=f"zoc_d_{_uid}",
@@ -3947,7 +3960,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         _hay_zocalo = _zoc_t or _zoc_i or _zoc_d
                         if _hay_zocalo:
                             _altura_pre = float(pieza.get("altura_zocalo_cm", 7.0))
-                            _altura_zoc = st.number_input(
+                            pieza["altura_zocalo_cm"] = _altura_zoc = st.number_input(
                                 "Altura del zócalo (cm)",
                                 min_value=1.0,
                                 max_value=50.0,
