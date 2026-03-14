@@ -3697,7 +3697,26 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 '</div></div>', unsafe_allow_html=True
             )
         else:
+            # ── SINCRONIZADOR MAESTRO ANTI-AMNESIA ──────────────────────────
+            # 1. Asegurar que toda pieza tenga un UUID único
+            for _p in st.session_state.piezas:
+                if "id" not in _p:
+                    _p["id"] = str(uuid.uuid4())
+
+            # 2. Rescatar valores del caché antes de renderizar
+            for _p_sync in st.session_state.piezas:
+                _uid_s = _p_sync["id"]
+                if f"pnom_{_uid_s}"  in st.session_state: _p_sync["nombre"]           = st.session_state[f"pnom_{_uid_s}"]
+                if f"ptip_{_uid_s}"  in st.session_state: _p_sync["ancho_tipo"]       = st.session_state[f"ptip_{_uid_s}"]
+                if f"panc_{_uid_s}"  in st.session_state: _p_sync["ancho_custom"]     = st.session_state[f"panc_{_uid_s}"]
+                if f"pml_{_uid_s}"   in st.session_state: _p_sync["ml"]               = st.session_state[f"pml_{_uid_s}"]
+                if f"pcant_{_uid_s}" in st.session_state: _p_sync["cantidad"]         = st.session_state[f"pcant_{_uid_s}"]
+                if f"zoc_t_{_uid_s}" in st.session_state: _p_sync["zoc_trasero"]      = st.session_state[f"zoc_t_{_uid_s}"]
+                if f"zoc_i_{_uid_s}" in st.session_state: _p_sync["zoc_izq"]          = st.session_state[f"zoc_i_{_uid_s}"]
+                if f"zoc_d_{_uid_s}" in st.session_state: _p_sync["zoc_der"]          = st.session_state[f"zoc_d_{_uid_s}"]
+                if f"zoc_h_{_uid_s}" in st.session_state: _p_sync["altura_zocalo_cm"] = st.session_state[f"zoc_h_{_uid_s}"]
             for idx, pieza in enumerate(st.session_state.piezas):
+                _uid = pieza["id"]
                 with st.container(border=True):
                     # ── FILA 1: Descripción + Botón eliminar ─────────────
                     _col_nom, _col_del = st.columns([5, 1])
@@ -3705,15 +3724,15 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         nombre_p = st.text_input(
                             "Descripción de la pieza",
                             value=pieza.get("nombre", ""),
-                            key=f"pnom_{idx}",
+                            key=f"pnom_{_uid}",
                             placeholder=f"Pieza {idx + 1} — ej: Mesón de cocina",
                         )
                     with _col_del:
                         # Spacer para alinear el botón con el input de la columna izquierda
                         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                        if st.button("🗑️", key=f"del_{idx}", help="Eliminar pieza",
+                        if st.button("🗑️", key=f"del_pz_{_uid}", help="Eliminar pieza",
                                      use_container_width=True):
-                            _sp_eliminar_pieza(idx)
+                            st.session_state.piezas = [p for p in st.session_state.piezas if p.get("id") != _uid]
                             st.rerun()
     
                     # ── FILA 2: Tipo de elemento + Largo en ML + Cantidad ─
@@ -3724,7 +3743,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             "Tipo de elemento",
                             tipos_superficie,
                             index=tipo_idx,
-                            key=f"ptip_{idx}",
+                            key=f"ptip_{_uid}",
                             help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""),
                         )
                     with _col_ml:
@@ -3733,7 +3752,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             value=float(pieza.get("ml", 1.0)),
                             min_value=0.01,
                             step=0.1,
-                            key=f"pml_{idx}",
+                            key=f"pml_{_uid}",
                             help="Metros lineales de esta pieza (una unidad)",
                         )
                     with _col_cant:
@@ -3743,7 +3762,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             min_value=1,
                             max_value=100,
                             step=1,
-                            key=f"pcant_{idx}",
+                            key=f"pcant_{_uid}",
                             help="Número de piezas idénticas. El total ML = Largo × Cantidad",
                         )
     
@@ -3751,8 +3770,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     if ancho_tipo_p == "Personalizado":
                         st.text_input(
                             "Nombre personalizado (aparece en el PDF)",
-                            value=st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", "")),
-                            key=f"pcustom_{idx}",
+                            value=st.session_state.get(f"pcustom_{_uid}", pieza.get("nombre_personalizado", "")),
+                            key=f"pcustom_{_uid}",
                             placeholder='Ej: "Mesón de lavamanos", "Pantry", "Cornisa"',
                             help="Nombre descriptivo que aparecerá en la cotización PDF",
                         )
@@ -3766,34 +3785,10 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             value=float(ancho_def),
                             min_value=0.01,
                             step=0.01,
-                            key=f"panc_{idx}",
+                            key=f"panc_{_uid}",
                             help="Profundidad o alto de la pieza en metros",
                         )
     
-                    # ── AUDITOR DE MEDIDAS — Prevención de errores cm→m ──────────
-                    # Umbrales: largo > 3.5 m supera cualquier placa estándar del mercado
-                    # (máx. 3.20 m × 1.60 m). ancho > 2.2 m también es imposible en una
-                    # sola pieza. Si el usuario ingresó, p.ej., 90 en vez de 0.90, aquí
-                    # lo detectamos y mostramos una advertencia en tiempo real.
-                    # La pieza se incluye en la lista pero el usuario ve el aviso de inmediato.
-                    _auditor_largo = ml_p > 3.5
-                    _auditor_ancho = ancho_p > 2.2
-                    if _auditor_largo:
-                        st.warning(
-                            f"⚠️ **Medida inusual detectada.** Ingresaste **{ml_p:.2f} metros** de largo. "
-                            f"Si tu intención era **{ml_p:.0f} centímetros**, recuerda usar el "
-                            f"formato decimal: **0.{int(ml_p * 100):02d}** m  "
-                            f"*(ejemplo: 90 cm → 0.90 m)*.",
-                            icon="📏",
-                        )
-                    if _auditor_ancho:
-                        st.warning(
-                            f"⚠️ **Medida inusual detectada.** Ingresaste **{ancho_p:.2f} metros** de ancho. "
-                            f"Si tu intención era **{ancho_p:.0f} centímetros**, recuerda usar el "
-                            f"formato decimal: **0.{int(ancho_p * 100):02d}** m  "
-                            f"*(ejemplo: 60 cm → 0.60 m)*.",
-                            icon="📏",
-                        )
                     ml_efectivo = ml_p * cantidad_p            # largo × cantidad
                     m2_p = ml_a_m2(ml_efectivo, ancho_p)       # m² totales de esta fila
                     total_m2_piezas += m2_p
@@ -3840,7 +3835,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             _lote_indices,
                             index=_lote_idx_def,
                             format_func=_fmt_lote,
-                            key=f"pmat_{idx}",
+                            key=f"pmat_{_uid}",
                             help=(
                                 "Selecciona de qué lámina física se cortará esta pieza. "
                                 "Cada lote se diferencia por sus dimensiones reales para "
@@ -3858,7 +3853,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             CATEGORIAS_MATERIAL,
                             index=CATEGORIAS_MATERIAL.index(pieza.get("categoria", CATEGORIAS_MATERIAL[0]))
                                   if pieza.get("categoria") in CATEGORIAS_MATERIAL else 0,
-                            key=f"pmat_{idx}",
+                            key=f"pmat_{_uid}",
                             help="Completa el Paso 1 para asignar piezas a lotes físicos de placa.",
                         )
     
@@ -3875,21 +3870,21 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             _zoc_t = st.checkbox(
                                 f"Trasero ({ml_p:.2f} m)",
                                 value=bool(pieza.get("zoc_trasero", False)),
-                                key=f"zoc_t_{idx}",
+                                key=f"zoc_t_{_uid}",
                                 help=f"Lado trasero = largo de la pieza × cantidad ({ml_efectivo:.2f} ml total)",
                             )
                         with _zoc_c2:
                             _zoc_i = st.checkbox(
                                 f"Lateral Izq. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_izq", False)),
-                                key=f"zoc_i_{idx}",
+                                key=f"zoc_i_{_uid}",
                                 help=f"Lateral izquierdo = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                             )
                         with _zoc_c3:
                             _zoc_d = st.checkbox(
                                 f"Lateral Der. ({ancho_p:.2f} m)",
                                 value=bool(pieza.get("zoc_der", False)),
-                                key=f"zoc_d_{idx}",
+                                key=f"zoc_d_{_uid}",
                                 help=f"Lateral derecho = ancho × cantidad ({ancho_p * cantidad_p:.2f} ml total)",
                             )
                         # ── Altura del zócalo (visible SOLO cuando hay algún lado activo) ──
@@ -3902,7 +3897,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                                 max_value=50.0,
                                 value=_altura_pre,
                                 step=0.5,
-                                key=f"zoc_h_{idx}",
+                                key=f"zoc_h_{_uid}",
                                 help=(
                                     "Franja de piedra que sube por la pared. "
                                     "Estándar residencial: 7 cm. Baños: 10–15 cm. "
@@ -3930,8 +3925,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             )
     
                     # Guardar pieza con nombre_personalizado + checkboxes de zócalo + lote
-                    _nom_personalizado = st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado", ""))
+                    _nom_personalizado = st.session_state.get(f"pcustom_{_uid}", pieza.get("nombre_personalizado", ""))
                     piezas_nuevas.append({
+                        "id":                  _uid,
                         "nombre":              nombre_p,
                         "ml":                  ml_efectivo,     # largo × cantidad (total real)
                         "ml_unitario":         ml_p,            # largo de una sola pieza
