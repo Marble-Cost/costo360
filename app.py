@@ -3726,6 +3726,26 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 '</div></div>', unsafe_allow_html=True
             )
         else:
+            # ── SINCRONIZADOR MAESTRO PRE-RENDERIZADO (Anti-Amnesia) ──────────────
+            # Rescata los valores del caché de Streamlit ANTES de renderizar los
+            # widgets. Sin este bloque, value=_pz.get("clave") lee el dict no
+            # actualizado y sobreescribe la entrada fresca del usuario en cada rerun.
+            if "piezas" in st.session_state:
+                for _p_sync in st.session_state.piezas:
+                    _uid_s = _p_sync.get("id")
+                    if not _uid_s:
+                        continue
+                    if f"pnom_{_uid_s}"   in st.session_state: _p_sync["nombre"]           = st.session_state[f"pnom_{_uid_s}"]
+                    if f"ptip_{_uid_s}"   in st.session_state: _p_sync["ancho_tipo"]       = st.session_state[f"ptip_{_uid_s}"]
+                    if f"pml_{_uid_s}"    in st.session_state: _p_sync["ml_unitario"]      = st.session_state[f"pml_{_uid_s}"]
+                    if f"pcant_{_uid_s}"  in st.session_state: _p_sync["cantidad"]         = st.session_state[f"pcant_{_uid_s}"]
+                    if f"pcustom_{_uid_s}"in st.session_state: _p_sync["nombre_personalizado"] = st.session_state[f"pcustom_{_uid_s}"]
+                    if f"panc_{_uid_s}"   in st.session_state: _p_sync["ancho_custom"]     = st.session_state[f"panc_{_uid_s}"]
+                    if f"zoc_t_{_uid_s}"  in st.session_state: _p_sync["zoc_trasero"]      = st.session_state[f"zoc_t_{_uid_s}"]
+                    if f"zoc_i_{_uid_s}"  in st.session_state: _p_sync["zoc_izq"]          = st.session_state[f"zoc_i_{_uid_s}"]
+                    if f"zoc_d_{_uid_s}"  in st.session_state: _p_sync["zoc_der"]          = st.session_state[f"zoc_d_{_uid_s}"]
+                    if f"zoc_h_{_uid_s}"  in st.session_state: _p_sync["altura_zocalo_cm"] = st.session_state[f"zoc_h_{_uid_s}"]
+                    if f"pmat_{_uid_s}"   in st.session_state: _p_sync["categoria"]        = st.session_state[f"pmat_{_uid_s}"]
             for idx, pieza in enumerate(st.session_state.piezas):
                 if "id" not in pieza:
                     pieza["id"] = str(uuid.uuid4())
