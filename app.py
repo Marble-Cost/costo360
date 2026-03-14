@@ -3574,7 +3574,7 @@ elif pagina == "Cotizacion Directa":
         _sp_sync_materiales(mats_nuevos)
         st.session_state.materiales_proyecto = mats_nuevos
 
-        if st.button("＋ Agregar otro material", use_container_width=True):
+        if st.button("＋ Agregar otro material", use_container_width=True, key="btn_add_material_master"):
             _sp_agregar_material()
             st.rerun()
 
@@ -3783,7 +3783,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     with _col_ml:
                         pieza["ml_unitario"] = ml_p = st.number_input(
                             "Largo (ML)",
-                            value=float(pieza.get("ml", 1.0)),
+                            value=float(pieza.get("ml_unitario", pieza.get("ml", 1.0))),
                             min_value=0.01,
                             step=0.1,
                             key=f"pml_{_uid}",
@@ -4056,7 +4056,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
 
         _col_add, _col_tot = st.columns([1, 2])
         with _col_add:
-            if st.button("＋ Agregar pieza", use_container_width=True):
+            if st.button("＋ Agregar pieza", use_container_width=True, key="btn_add_pieza_master"):
                 _sp_agregar_pieza()
                 st.rerun()
         with _col_tot:
