@@ -189,7 +189,6 @@ def _init_db():
 
 from contextlib import contextmanager
 
-@contextmanager
 @st.cache_resource
 def _get_engine():
     """
@@ -206,21 +205,54 @@ def _get_engine():
     )
 
 
+class AutoCloseConnection:
+    """
+    Wrapper sobre raw_connection() de SQLAlchemy que garantiza la devolución
+    de la conexión al pool aunque el código llamante no invoque .close().
+
+    — __getattr__: delega transparentemente todos los métodos y atributos
+      (.cursor(), .commit(), .rollback(), etc.) a la conexión original,
+      por lo que es 100% compatible con psycopg2 sin cambiar ninguna consulta.
+    — __del__: el recolector de basura de Python lo invoca automáticamente
+      cuando la variable sale del scope al finalizar cada ejecución del
+      script de Streamlit, devolviendo la conexión al pool de SQLAlchemy.
+    """
+    __slots__ = ("_conn", "_closed")
+
+    def __init__(self, conn):
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_closed", False)
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_conn"), name)
+
+    def close(self):
+        """Devuelve la conexión al pool y marca el wrapper como cerrado."""
+        if not object.__getattribute__(self, "_closed"):
+            object.__getattribute__(self, "_conn").close()
+            object.__setattr__(self, "_closed", True)
+
+    def __del__(self):
+        """Garantía final: si nadie llamó .close(), el GC lo hace aquí."""
+        self.close()
+
+
 @contextlib.contextmanager
 def _db_conn():
     """
-    Context manager compatible con psycopg2. Pide una conexión al pool
-    de SQLAlchemy y la devuelve al terminar — sin cerrarla realmente.
+    Context manager compatible con psycopg2. Entrega un AutoCloseConnection
+    del pool de SQLAlchemy. La conexión se devuelve al pool al salir del bloque
+    with, y como garantía adicional también al ser destruida por el GC.
     El resto del código (cursor, commit, rollback) funciona igual que antes.
     """
-    conn = _get_engine().raw_connection()
+    conn = AutoCloseConnection(_get_engine().raw_connection())
     try:
         yield conn
     except Exception:
         conn.rollback()
         raise
     finally:
-        conn.close()  # devuelve la conexión al pool, no la destruye
+        conn.close()  # devuelve al pool; __del__ es el paracaídas de respaldo
 
 
 
