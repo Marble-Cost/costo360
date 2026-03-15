@@ -1178,7 +1178,7 @@ def _crear_usuario(username: str, password: str, pin: str,
                 cur.execute(
                     "INSERT INTO usuarios (username, password_hash, pin_recuperacion, rol, nombre_completo) "
                     "VALUES (%s, %s, %s, %s, %s)",
-                    (username.strip().lower(), _hash_password(password), pin.strip(), rol, nombre_completo)
+                    (username.strip().lower(), _hash_password(password), _hash_password(pin.strip()), rol, nombre_completo)
                 )
             conn.commit()
         return True
@@ -1346,7 +1346,7 @@ def _pantalla_login() -> None:
                     st.error("Completa usuario y PIN.", icon="⚠️")
                 else:
                     _usr_rec = _buscar_usuario_por_username(_rec_user)
-                    if _usr_rec and _usr_rec["pin_recuperacion"] == _rec_pin.strip():
+                    if _usr_rec and _verificar_password(_rec_pin.strip(), _usr_rec["pin_recuperacion"]):
                         st.session_state["_pin_verificado_user"] = _rec_user.strip().lower()
                         st.success("PIN correcto. Ahora ingresa tu nueva contraseña.")
                     else:
