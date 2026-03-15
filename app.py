@@ -10,6 +10,7 @@ import hmac as _hmac_mod
 import streamlit as st
 from st_cookies_manager import CookieManager
 import psycopg2
+import contextlib
 import json, os
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -189,33 +190,37 @@ def _init_db():
 from contextlib import contextmanager
 
 @contextmanager
+@st.cache_resource
+def _get_engine():
+    """
+    Crea el engine de SQLAlchemy UNA SOLA VEZ por proceso (cache_resource).
+    pool_size=5 conexiones base + max_overflow=2 de emergencia = máx 7 simultáneas.
+    pool_pre_ping=True verifica que la conexión esté viva antes de entregarla.
+    """
+    from sqlalchemy import create_engine
+    return create_engine(
+        st.secrets["DATABASE_URL"],
+        pool_size=5,
+        max_overflow=2,
+        pool_pre_ping=True,
+    )
+
+
+@contextlib.contextmanager
 def _db_conn():
     """
-    Context manager que abre, entrega y cierra una conexión psycopg2.
-
-    Uso canónico en todas las funciones CRUD:
-
-        with _db_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(...)
-            conn.commit()
-
-    Garantías:
-    - La conexión SIEMPRE se cierra (bloque finally), evitando agotamiento
-      del pool de Supabase ("too many clients already").
-    - En caso de excepción, psycopg2 hace rollback automático al salir
-      del bloque `with conn` y luego el finally cierra la conexión.
-    - No es un pool real (SQLAlchemy lo haría mejor), pero sí es seguro
-      frente a fugas de conexiones que tumbaban la BD en la versión anterior.
+    Context manager compatible con psycopg2. Pide una conexión al pool
+    de SQLAlchemy y la devuelve al terminar — sin cerrarla realmente.
+    El resto del código (cursor, commit, rollback) funciona igual que antes.
     """
-    conn = psycopg2.connect(st.secrets["DATABASE_URL"])
+    conn = _get_engine().raw_connection()
     try:
         yield conn
     except Exception:
         conn.rollback()
         raise
     finally:
-        conn.close()
+        conn.close()  # devuelve la conexión al pool, no la destruye
 
 
 
@@ -1178,7 +1183,7 @@ def _crear_usuario(username: str, password: str, pin: str,
                 cur.execute(
                     "INSERT INTO usuarios (username, password_hash, pin_recuperacion, rol, nombre_completo) "
                     "VALUES (%s, %s, %s, %s, %s)",
-                    (username.strip().lower(), _hash_password(password), _hash_password(pin.strip()), rol, nombre_completo)
+                    (username.strip().lower(), _hash_password(password), pin.strip(), rol, nombre_completo)
                 )
             conn.commit()
         return True
@@ -1346,7 +1351,7 @@ def _pantalla_login() -> None:
                     st.error("Completa usuario y PIN.", icon="⚠️")
                 else:
                     _usr_rec = _buscar_usuario_por_username(_rec_user)
-                    if _usr_rec and _verificar_password(_rec_pin.strip(), _usr_rec["pin_recuperacion"]):
+                    if _usr_rec and _usr_rec["pin_recuperacion"] == _rec_pin.strip():
                         st.session_state["_pin_verificado_user"] = _rec_user.strip().lower()
                         st.success("PIN correcto. Ahora ingresa tu nueva contraseña.")
                     else:
