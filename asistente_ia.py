@@ -227,7 +227,7 @@ Sé directo y usa formato de moneda colombiana ($1.000.000)."""
 
     try:
         response = client.messages.create(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=500,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
