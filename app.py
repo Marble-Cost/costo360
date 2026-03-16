@@ -3243,21 +3243,20 @@ elif pagina == "Cotizacion Directa":
     if "modo_express" not in st.session_state:
         st.session_state.modo_express = False
 
-    # ── Toggle de modo con diseño unívoco ────────────────────────────────────
-    _tab_express, _tab_completo = st.tabs(["⚡ Modo Express — 30 segundos", "⚙️ Modo Completo — Wizard detallado"])
+    _modo_sel = st.radio(
+        "Modo de cotización",
+        ["⚡ Express — resultado inmediato", "⚙️ Completo — wizard detallado"],
+        index=0 if st.session_state.modo_express else 1,
+        horizontal=True,
+        key="radio_modo_cotizacion",
+        label_visibility="collapsed",
+    )
+    _nuevo_modo_express = (_modo_sel == "⚡ Express — resultado inmediato")
+    if _nuevo_modo_express != st.session_state.modo_express:
+        st.session_state.modo_express = _nuevo_modo_express
+        st.rerun()
 
-    with _tab_completo:
-        # Activar modo completo al hacer clic en la tab
-        if st.session_state.get("modo_express"):
-            st.session_state.modo_express = False
-            st.rerun()
-        st.caption("El wizard completo con logística, viáticos, zócalos y adicionales sigue abajo.")
-
-    with _tab_express:
-        if not st.session_state.get("modo_express"):
-            st.session_state.modo_express = True
-            st.session_state.pop("ex_resultado", None)
-            st.rerun()
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     # ════════════════════════════════════════════════════════════════════
     # MODO EXPRESS — Cotización reactiva sin botón de cálculo
