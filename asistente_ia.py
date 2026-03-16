@@ -53,7 +53,7 @@ Barranquilla, Colombia. Ayudas a marmoleros a calcular el costo real de sus proy
 
 DATOS DEL MERCADO (Feb 2026, Barranquilla):
 - Gasolina: $15.800/galón
-- Frontier NP300: 7.2 km/gal ciudad, desgaste $148/km, flete base $65.000
+- Frontier NP300: 7.2 km/gal ciudad, গঠন$148/km, flete base $65.000
 - Cheyenne V8: 4.1 km/gal ciudad, desgaste $340/km, flete base $85.000
 - Externo/Tercero: flete fijo $165.000 | Peaje: $19.500 | Flete agente: $85.000
 - Viáticos pueblo: $145.000/noche/persona | Ciudad: $178.000/noche/persona
@@ -227,7 +227,7 @@ Sé directo y usa formato de moneda colombiana ($1.000.000)."""
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-6",
             max_tokens=500,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
