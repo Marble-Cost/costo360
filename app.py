@@ -5109,32 +5109,54 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     st.rerun()
 
         with _nav_mid:
-            _r_actual = st.session_state.get("cotizacion")
-            if _r_actual:
-                if st.button(
-                    "💾 Guardar Borrador",
-                    use_container_width=True,
-                    key="btn_guardar_borrador_wizard",
-                    help="Guarda el progreso. Puedes retomarlo desde el Historial.",
-                ):
-                    try:
-                        _bid     = st.session_state.get("borrador_actual_id")
-                        _bid_new = _guardar_borrador_cotizacion(_r_actual, _bid)
-                        st.session_state["borrador_actual_id"] = _bid_new
-                        if _bid:
-                            st.success(f"✅ Borrador actualizado (ID {_bid_new})", icon="💾")
-                        else:
-                            st.success(f"✅ Borrador guardado (ID {_bid_new})", icon="💾")
-                    except Exception as _eb:
-                        st.error(f"No se pudo guardar el borrador: {_eb}")
-            else:
-                st.button(
-                    "💾 Guardar Borrador",
-                    use_container_width=True,
-                    key="btn_guardar_borrador_wizard",
-                    disabled=True,
-                    help="Llega al paso de Resultado para habilitar el guardado.",
-                )
+            # El borrador se habilita desde el paso 0 si hay al menos un material
+            # o una pieza. No exige resultado calculado.
+            _mats_bor  = st.session_state.get("materiales_proyecto", [])
+            _piezas_bor = st.session_state.get("piezas", [])
+            _hay_datos  = bool(_mats_bor or _piezas_bor)
+
+            if st.button(
+                "💾 Guardar Borrador",
+                use_container_width=True,
+                key="btn_guardar_borrador_wizard",
+                disabled=not _hay_datos,
+                help=(
+                    "Guarda el progreso actual. Puedes retomarlo desde el Historial."
+                    if _hay_datos
+                    else "Agrega al menos un material para habilitar el guardado."
+                ),
+            ):
+                try:
+                    # Construir payload mínimo con lo que haya disponible
+                    _r_calc = st.session_state.get("cotizacion") or {}
+                    _pre_bor = st.session_state.get("pre", {})
+                    _mat0    = _mats_bor[0] if _mats_bor else {}
+                    _payload_bor = {
+                        "categoria":      _mat0.get("cat", _pre_bor.get("categoria", "Sin material")),
+                        "referencia":     _mat0.get("ref", _pre_bor.get("referencia", "")),
+                        "tipo_proyecto":  _pre_bor.get("tipo_proyecto", ""),
+                        "nombre_cliente": _pre_bor.get("nombre_cliente", ""),
+                        "m2_real":        _r_calc.get("m2_real", 0),
+                        "ml_proyecto":    _r_calc.get("ml_proyecto", 0),
+                        "costo_total":    _r_calc.get("costo_total", 0),
+                        "precio_sugerido":_r_calc.get("precio_sugerido", 0),
+                        "margen_pct":     _r_calc.get("margen_pct", _pre_bor.get("margen_pct", 0)),
+                        # Preservar datos completos del formulario para restauración
+                        "materiales_proyecto": _mats_bor,
+                        "piezas":              _piezas_bor,
+                        "pre_snapshot":        _pre_bor,
+                        "cdir_paso":           paso,
+                    }
+                    _bid     = st.session_state.get("borrador_actual_id")
+                    _bid_new = _guardar_borrador_cotizacion(_payload_bor, _bid)
+                    st.session_state["borrador_actual_id"] = _bid_new
+                    if _bid:
+                        st.success(f"✅ Borrador actualizado", icon="💾")
+                    else:
+                        st.success(f"✅ Borrador guardado", icon="💾")
+                except Exception as _eb:
+                    st.error(f"No se pudo guardar el borrador: {_eb}")
+
 
         with _nav_r:
             if not _puede_continuar:
