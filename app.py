@@ -3237,6 +3237,253 @@ elif pagina == "Cotizacion Directa":
         st.stop()
 
     # ════════════════════════════════════════════════════════════════════
+    # SELECTOR DE MODO — Express vs Completo
+    # ════════════════════════════════════════════════════════════════════
+    if "modo_express" not in st.session_state:
+        st.session_state.modo_express = False
+
+    _mcol1, _mcol2 = st.columns(2)
+    with _mcol1:
+        if st.button(
+            "⚡ Modo Express" + (" ✓" if st.session_state.modo_express else ""),
+            type="primary" if st.session_state.modo_express else "secondary",
+            use_container_width=True,
+            key="btn_activar_express",
+            help="Cotización en 30 segundos: 5 campos, resultado inmediato. Sin logística ni extras.",
+        ):
+            st.session_state.modo_express = True
+            st.session_state.pop("ex_resultado", None)
+            st.rerun()
+    with _mcol2:
+        if st.button(
+            "⚙️ Modo Completo" + (" ✓" if not st.session_state.modo_express else ""),
+            type="secondary" if st.session_state.modo_express else "primary",
+            use_container_width=True,
+            key="btn_activar_completo",
+            help="Wizard completo con logística, viáticos, zócalos y adicionales.",
+        ):
+            st.session_state.modo_express = False
+            st.rerun()
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════════
+    # MODO EXPRESS — Cotización en 30 segundos
+    # ════════════════════════════════════════════════════════════════════
+    if st.session_state.get("modo_express"):
+
+        st.markdown(
+            '<div style="background:linear-gradient(135deg,#1B5FA8,#0B2432);border-radius:14px;'
+            'padding:18px 24px;margin-bottom:20px">'
+            '<div style="font-size:0.67rem;font-weight:800;letter-spacing:0.13em;'
+            'color:rgba(255,255,255,0.55);text-transform:uppercase;margin-bottom:4px">Modo Express</div>'
+            '<div style="font-size:1.2rem;font-weight:800;color:white;margin-bottom:3px">'
+            '⚡ Cotización rápida — 5 campos, resultado inmediato</div>'
+            '<div style="font-size:0.79rem;color:rgba(255,255,255,0.62);">'
+            'Sin logística avanzada ni extras. Ideal para proyectos estándar del día a día.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        with st.container(border=True):
+            _ex_c1, _ex_c2 = st.columns(2)
+            with _ex_c1:
+                _ex_cat = st.selectbox(
+                    "🪨 Tipo de material",
+                    CATEGORIAS_MATERIAL,
+                    key="ex_categoria",
+                )
+                _ex_pm2 = st.number_input(
+                    "💰 Precio material ($/m²)",
+                    min_value=0, step=10_000, value=220_000,
+                    key="ex_precio_m2",
+                    help="Lo que te cobró el proveedor por m² de lámina.",
+                )
+                _ex_ml = st.number_input(
+                    "📏 Metros lineales del proyecto",
+                    min_value=0.1, step=0.1, value=3.0, format="%.2f",
+                    key="ex_ml",
+                    help="Suma total del largo de todas las piezas.",
+                )
+            with _ex_c2:
+                _ex_ancho_opts = {
+                    "Mesón de cocina (0.60 m)":  0.60,
+                    "Mesón de baño (0.50 m)":    0.50,
+                    "Isla de cocina (0.90 m)":   0.90,
+                    "Escalera (0.30 m)":         0.30,
+                    "Personalizado":             None,
+                }
+                _ex_ancho_lbl = st.selectbox(
+                    "📐 Ancho estándar",
+                    list(_ex_ancho_opts.keys()),
+                    key="ex_ancho_tipo",
+                )
+                _ex_ancho = _ex_ancho_opts[_ex_ancho_lbl]
+                if _ex_ancho is None:
+                    _ex_ancho = st.number_input(
+                        "Ancho personalizado (m)",
+                        min_value=0.10, max_value=3.0, value=0.60,
+                        step=0.05, format="%.2f",
+                        key="ex_ancho_custom",
+                    )
+                _ex_margen = st.slider(
+                    "📈 Margen de utilidad (%)",
+                    min_value=10, max_value=70, value=40, step=1,
+                    key="ex_margen",
+                )
+                _ex_cliente = st.text_input(
+                    "👤 Cliente (opcional)",
+                    placeholder="Ej: Constructora Ducal",
+                    key="ex_cliente",
+                )
+
+        if st.button(
+            "⚡ Calcular ahora",
+            type="primary",
+            use_container_width=True,
+            key="btn_express_calcular",
+        ):
+            _ex_m2_calc   = round(_ex_ml * _ex_ancho, 4)
+            _ex_area_placa = round(_ex_m2_calc * 1.10, 4)
+            _add_ex        = get_adicionales()
+            _cant_add_ex   = [0] * len(_add_ex)
+            with st.spinner("Calculando…"):
+                try:
+                    _res_ex = calcular_cotizacion_directa(
+                        categoria=_ex_cat,
+                        referencia="",
+                        precio_m2=float(_ex_pm2),
+                        area_placa_comprada=_ex_area_placa,
+                        m2_real=_ex_m2_calc,
+                        m2_cortados=0.0,
+                        m2_usados=_ex_m2_calc,
+                        margen_pct=float(_ex_margen),
+                        dias=1,
+                        personas=2,
+                        zocalo_activo=False,
+                        zocalo_ml=0.0,
+                        agente_externo_taller=False,
+                        vehiculo_entrega="frontier",
+                        km=5.0,
+                        num_peajes=0,
+                        foraneo_activo=False,
+                        viaticos_activos=False,
+                        tipo_aloj="pueblo",
+                        noches=0,
+                        adicionales_activos=False,
+                        cantidades_add=_cant_add_ex,
+                        etapa="terminada",
+                        adicionales_lista=_add_ex,
+                        tipo_proyecto="Mesón",
+                        nombre_cliente=_ex_cliente or "Sin nombre",
+                        piezas=[{
+                            "nombre":       "Proyecto Express",
+                            "ml":           _ex_ml,
+                            "ml_unitario":  _ex_ml,
+                            "cantidad":     1,
+                            "ancho":        _ex_ancho,
+                            "ancho_custom": _ex_ancho,
+                            "unidad_venta": "ml",
+                        }],
+                        tarifas_override=st.session_state.get("tarifas_custom"),
+                        logistica_override=st.session_state.get("logistica_custom"),
+                        vehiculos_custom=get_vehiculos_config(),
+                        incluir_iva=False,
+                    )
+                    st.session_state["ex_resultado"] = _res_ex
+                except Exception as _e_ex:
+                    st.error(f"Error en el cálculo: {_e_ex}")
+
+        _ex_res = st.session_state.get("ex_resultado")
+        if _ex_res:
+            _ex_pml = _ex_res.get("precio_por_ml", 0)
+            st.markdown(
+                f'<div style="background:linear-gradient(135deg,#1B5FA8,#0B2432);'
+                f'border-radius:14px;padding:22px 26px;margin:16px 0;color:white">'
+                f'<div style="font-size:0.67rem;font-weight:800;letter-spacing:0.13em;'
+                f'color:rgba(255,255,255,0.55);text-transform:uppercase;margin-bottom:6px">'
+                f'Resultado Express</div>'
+                f'<div style="font-size:clamp(1.8rem,5vw,3.2rem);font-weight:900;'
+                f'font-family:Playfair Display,serif;margin-bottom:8px">'
+                f'{cop(_ex_res["precio_sugerido"])}</div>'
+                f'<div style="opacity:0.75;font-size:0.88rem">'
+                f'Margen {_ex_margen}% &nbsp;·&nbsp; '
+                f'Utilidad {cop(_ex_res["utilidad"])} &nbsp;·&nbsp; '
+                f'{cop(_ex_pml)}/ml</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            _ex_m1, _ex_m2c, _ex_m3 = st.columns(3)
+            _ex_m1.metric("Costo total",  cop(_ex_res["costo_total"]))
+            _ex_m2c.metric("Material",    cop(_ex_res["c1_material"]))
+            _ex_m3.metric("Mano de obra", cop(_ex_res["c2_mano_obra"]))
+
+            st.info(
+                "⚡ **Precio de referencia rápido.** No incluye logística real, viáticos ni extras. "
+                "Usa **Modo Completo** para una cotización con todos los costos.",
+                icon="💡",
+            )
+
+            _ex_b1, _ex_b2 = st.columns(2)
+            with _ex_b1:
+                if st.button(
+                    "⚙️ Refinar en Modo Completo",
+                    use_container_width=True,
+                    type="secondary",
+                    key="ex_btn_a_completo",
+                ):
+                    _ex_ancho_final = (
+                        st.session_state.get("ex_ancho_custom", 0.60)
+                        if _ex_ancho_lbl == "Personalizado"
+                        else _ex_ancho_opts[_ex_ancho_lbl]
+                    )
+                    _ex_area_completo = round(_ex_ml * _ex_ancho_final * 1.10, 4)
+                    st.session_state.pre = {
+                        "categoria":           _ex_cat,
+                        "referencia":          "",
+                        "precio_m2":           float(_ex_pm2),
+                        "area_placa_comprada": _ex_area_completo,
+                        "margen_pct":          float(_ex_margen),
+                        "nombre_cliente":      _ex_cliente or "",
+                        "tipo_proyecto":       "Mesón",
+                        "piezas": [{
+                            "nombre":       "Proyecto Express",
+                            "ml":           _ex_ml,
+                            "ml_unitario":  _ex_ml,
+                            "cantidad":     1,
+                            "ancho_custom": _ex_ancho_final,
+                            "ancho_tipo":   _ex_ancho_lbl,
+                            "unidad_venta": "ml",
+                        }],
+                        "materiales_proyecto": [{
+                            "cat":        _ex_cat,
+                            "ref":        "",
+                            "precio_m2":  float(_ex_pm2),
+                            "area_placa": _ex_area_completo,
+                        }],
+                    }
+                    st.session_state.materiales_proyecto = st.session_state.pre["materiales_proyecto"]
+                    st.session_state.piezas              = st.session_state.pre["piezas"]
+                    st.session_state.modo_express        = False
+                    st.session_state.cdir_paso           = 0
+                    st.session_state.pop("ex_resultado", None)
+                    st.rerun()
+            with _ex_b2:
+                if st.button(
+                    "🗑️ Nueva cotización express",
+                    use_container_width=True,
+                    key="ex_btn_nueva",
+                ):
+                    st.session_state.pop("ex_resultado", None)
+                    for _ek in [k for k in list(st.session_state.keys())
+                                if k.startswith("ex_")]:
+                        st.session_state.pop(_ek, None)
+                    st.rerun()
+
+        st.stop()   # No renderizar el wizard completo en modo express
+
+    # ════════════════════════════════════════════════════════════════════
     # WIZARD — Barra de progreso + navegación
     # ════════════════════════════════════════════════════════════════════
     paso = st.session_state.cdir_paso
@@ -3688,9 +3935,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     with st.spinner("🧠 Analizando dimensiones y materiales..."):
                         try:
                             # IMPORTACIÓN LOCAL (A prueba de fallos circulares)
-                            from asistente_ia import extraer_coordenadas_plano
-                            _resultado_ia = extraer_coordenadas_plano(_texto_magico)
-                            _piezas_ia = _resultado_ia.get("piezas", []) if _resultado_ia else []
+                            from asistente_ia import traductor_arquitectonico
+                            _piezas_ia = traductor_arquitectonico(_texto_magico)
 
                             # Recuperar lista actual de piezas desde el store_permanente
                             _piezas_actuales = list(_sp().get("cdir_piezas", []))
