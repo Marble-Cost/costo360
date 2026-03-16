@@ -3689,8 +3689,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     with st.spinner("🧠 Analizando dimensiones y materiales..."):
                         try:
                             # IMPORTACIÓN LOCAL (A prueba de fallos circulares)
-                            from asistente_ia import traductor_arquitectonico
-                            _piezas_ia = traductor_arquitectonico(_texto_magico)
+                            from asistente_ia import extraer_coordenadas_plano as _trad_ia
+                            _resultado_trad = _trad_ia(_texto_magico)
+                            _piezas_ia = _resultado_trad.get("piezas", []) if _resultado_trad else []
 
                             # Recuperar lista actual de piezas desde el store_permanente
                             _piezas_actuales = list(_sp().get("cdir_piezas", []))
