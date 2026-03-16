@@ -2592,21 +2592,51 @@ def _cargar_en_calculadora(rid, rnum, rjson):
 
     eg = datos.get("_estado_guardado", datos)
 
-    # Limpiar claves residuales del formulario anterior para evitar contaminación
+    # ── 1. Limpiar TODO el estado anterior del wizard ─────────────────────────
     _CLAVES_FORMULARIO = [
         "piezas", "materiales_proyecto", "aiu_items",
         "zocalo_activo", "adicionales_activos", "foraneo_activo",
         "viaticos_activos", "resultado_calculo", "resumen_ia",
         "pre", "editando_id", "cotizacion",
+        "_cantidades_add_restauradas", "_sp_borrador_hash",
+        "last_pre_hash", "_cotiz_guardada", "_cotiz_guardada_num",
+        "_cotiz_formalizada", "_cotiz_formalizada_num", "borrador_actual_id",
     ]
     for _k in _CLAVES_FORMULARIO:
         st.session_state.pop(_k, None)
 
-    # Marcar modo edición con ID y número del registro
+    # ── 2. Limpiar store_permanente de cdir_* para que no pise los datos cargados
+    _sp_limpia = st.session_state.get("store_permanente", {})
+    for _sk in [k for k in list(_sp_limpia.keys()) if k.startswith("cdir_")]:
+        del _sp_limpia[_sk]
+
+    # ── 3. Marcar _borrador_restaurado para bloquear la restauración automática
+    st.session_state["_borrador_restaurado"] = True
+
+    # ── 4. Marcar modo edición ────────────────────────────────────────────────
     st.session_state.editando_id  = rid
     st.session_state.editando_num = rnum
-    eg["_origen"] = "historial"   # Para mostrar alerta de carga en el formulario
-    st.session_state.pre          = eg
+    eg["_origen"] = "historial"
+    st.session_state.pre = eg
+
+    # ── 5. Hidratar listas dinámicas directamente en session_state ───────────
+    # El wizard las lee de session_state, no solo de pre
+    _piezas_cargadas = eg.get("piezas", [])
+    if _piezas_cargadas:
+        st.session_state.piezas = _piezas_cargadas
+
+    _mats_cargados = eg.get("materiales_proyecto", [])
+    if _mats_cargados:
+        st.session_state.materiales_proyecto = _mats_cargados
+
+    # cantidades_add necesita su propia clave para el widget de adicionales
+    if eg.get("cantidades_add"):
+        st.session_state["_cantidades_add_restauradas"] = eg["cantidades_add"]
+
+    # Restaurar retal_id por material (retal_id_0, retal_id_1…)
+    for _rk, _rv in eg.items():
+        if _rk.startswith("retal_id_") and _rv:
+            st.session_state[_rk] = _rv
 
     if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
             or eg.get("tipo_proyecto") == "Licitación AIU":
@@ -2615,14 +2645,11 @@ def _cargar_en_calculadora(rid, rnum, rjson):
     else:
         destino = "Cotizacion Directa"
 
-    # Resetear punteros del wizard para que el usuario empiece desde Paso 0
-    # al cargar una cotización del historial — evita UX confusa en pasos intermedios.
-    st.session_state.cdir_paso   = 0
-    st.session_state.aiu_paso    = 0
+    # ── 6. Resetear wizard a paso 0 ───────────────────────────────────────────
+    st.session_state.cdir_paso    = 0
+    st.session_state.aiu_paso     = 0
     st.session_state.cdir_success = False
 
-    # Actualizar navegación — la sincronización al inicio del rerun (línea ~49)
-    # garantiza que radio_ui quede alineado con nav_radio y el menú se vea correcto.
     st.session_state.nav_radio = destino
     st.query_params["pagina"]  = destino
     st.rerun()
