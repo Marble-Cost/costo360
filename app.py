@@ -665,6 +665,57 @@ def _guardar_cotizacion(numero, cliente, resultado):
     _listar_cotizaciones.clear()
     _stats_db.clear()
 
+def _guardar_borrador_cotizacion(resultado: dict, borrador_id: int = None) -> int:
+    """
+    Guarda o actualiza un borrador en la tabla cotizaciones con estado='Borrador'.
+    - Si borrador_id es None → INSERT y retorna el nuevo ID.
+    - Si borrador_id tiene valor → UPDATE de ese registro y retorna el mismo ID.
+    """
+    _uid   = st.session_state.get("usuario_actual", {}).get("id")
+    _fecha = _hoy().isoformat()
+    _num   = f"BOR-{_fecha}-{(resultado.get('categoria','??'))[:3].upper()}"
+    _cli   = resultado.get("nombre_cliente", "") or "Borrador sin nombre"
+
+    if borrador_id:
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE cotizaciones SET fecha=%s, cliente=%s, material=%s, tipo=%s, "
+                    "m2=%s, ml=%s, costo=%s, precio=%s, margen=%s, datos_json=%s "
+                    "WHERE id=%s AND estado='Borrador'",
+                    (_fecha, _cli,
+                     resultado.get("categoria", ""), resultado.get("tipo_proyecto", ""),
+                     resultado.get("m2_real", 0), resultado.get("ml_proyecto", 0),
+                     resultado.get("costo_total", 0), resultado.get("precio_sugerido", 0),
+                     resultado.get("margen_pct", 0),
+                     json.dumps(resultado, ensure_ascii=False, default=str),
+                     borrador_id)
+                )
+            conn.commit()
+        _listar_cotizaciones.clear()
+        _stats_db.clear()
+        return borrador_id
+    else:
+        with _db_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO cotizaciones "
+                    "(numero,fecha,cliente,material,tipo,m2,ml,costo,precio,margen,estado,datos_json,usuario_id) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                    (_num, _fecha, _cli,
+                     resultado.get("categoria", ""), resultado.get("tipo_proyecto", ""),
+                     resultado.get("m2_real", 0), resultado.get("ml_proyecto", 0),
+                     resultado.get("costo_total", 0), resultado.get("precio_sugerido", 0),
+                     resultado.get("margen_pct", 0), "Borrador",
+                     json.dumps(resultado, ensure_ascii=False, default=str), _uid)
+                )
+                _new_id = cur.fetchone()[0]
+            conn.commit()
+        _listar_cotizaciones.clear()
+        _stats_db.clear()
+        return _new_id
+
+
 def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: dict):
     """
     Actualiza una cotización existente en la BD (modo edición).
@@ -3196,6 +3247,7 @@ elif pagina == "Cotizacion Directa":
                     "_borrador_restaurado", "_sp_borrador_hash",
                     "_cantidades_add_restauradas",
                     "_cotiz_formalizada", "_cotiz_formalizada_num",
+                    "borrador_actual_id",
                 ]
                 for k in _DATA_KEYS_NUEVA:
                     st.session_state.pop(k, None)
@@ -3267,6 +3319,7 @@ elif pagina == "Cotizacion Directa":
                     "_borrador_restaurado", "_sp_borrador_hash",
                     "_cantidades_add_restauradas",
                     "_cotiz_formalizada", "_cotiz_formalizada_num",
+                    "borrador_actual_id",
                 ]
                 for k in _DATA_KEYS:
                     st.session_state.pop(k, None)
@@ -5019,11 +5072,11 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             st.rerun()
 
     # ════════════════════════════════════════════════════════════════════
-    # NAVEGACIÓN — botones Atrás / Siguiente (solo pasos 0-3)
+    # NAVEGACIÓN — botones Atrás / Guardar Borrador / Siguiente (pasos 0-3)
     # ════════════════════════════════════════════════════════════════════
     if not st.session_state.get("cdir_success") and paso < N_PASOS - 1:
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-        _nav_l, _nav_r = st.columns([1, 1])
+        _nav_l, _nav_mid, _nav_r = st.columns([1, 1, 1])
 
         # Validaciones mínimas por paso
         _puede_continuar = True
@@ -5045,24 +5098,43 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         with _nav_l:
             if paso > 0:
                 if st.button("← Atrás", use_container_width=True, key="btn_wizard_back"):
-                    # ── Innovación 8: bugfix navegación ──────────────────────
-                    # Al retroceder desde Resultados (paso 4) hacia cualquier paso anterior,
-                    # hay que destruir la vista de resultados explícitamente.
-                    # Sin estos dos flags el widget de resultados queda en pantalla
-                    # aunque el paso haya cambiado, porque cotizacion persiste en session.
                     st.session_state.cdir_paso -= 1
                     if st.session_state.cdir_paso < 4:
-                        # Invalidar resultado calculado para forzar recálculo en el paso 4
-                        st.session_state["cotizacion"]            = None
-                        st.session_state["_recalcular_paso4"]     = True
-                        st.session_state["_cotiz_guardada"]       = False
-                        # cdir_success = False garantiza que el wizard se muestre,
-                        # no la pantalla de éxito post-guardado
-                        st.session_state["cdir_success"]          = False
-                    # ── store_permanente: persistir paso (sobrevive nav) ──────
+                        st.session_state["cotizacion"]        = None
+                        st.session_state["_recalcular_paso4"] = True
+                        st.session_state["_cotiz_guardada"]   = False
+                        st.session_state["cdir_success"]      = False
                     _sp_set("cdir_paso", st.session_state.cdir_paso)
                     _sp_commit_borrador()
                     st.rerun()
+
+        with _nav_mid:
+            _r_actual = st.session_state.get("cotizacion")
+            if _r_actual:
+                if st.button(
+                    "💾 Guardar Borrador",
+                    use_container_width=True,
+                    key="btn_guardar_borrador_wizard",
+                    help="Guarda el progreso. Puedes retomarlo desde el Historial.",
+                ):
+                    try:
+                        _bid     = st.session_state.get("borrador_actual_id")
+                        _bid_new = _guardar_borrador_cotizacion(_r_actual, _bid)
+                        st.session_state["borrador_actual_id"] = _bid_new
+                        if _bid:
+                            st.success(f"✅ Borrador actualizado (ID {_bid_new})", icon="💾")
+                        else:
+                            st.success(f"✅ Borrador guardado (ID {_bid_new})", icon="💾")
+                    except Exception as _eb:
+                        st.error(f"No se pudo guardar el borrador: {_eb}")
+            else:
+                st.button(
+                    "💾 Guardar Borrador",
+                    use_container_width=True,
+                    key="btn_guardar_borrador_wizard",
+                    disabled=True,
+                    help="Llega al paso de Resultado para habilitar el guardado.",
+                )
 
         with _nav_r:
             if not _puede_continuar:
@@ -5071,11 +5143,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _lbl_sig = "Calcular cotización →" if paso == N_PASOS - 2 else "Siguiente →"
                 if st.button(_lbl_sig, type="primary", use_container_width=True, key="btn_wizard_next"):
                     st.session_state.cdir_paso += 1
-                    # ── store_permanente: persistir paso (sobrevive nav) ──────
                     _sp_set("cdir_paso", st.session_state.cdir_paso)
                     _sp_commit_borrador()
                     if st.session_state.cdir_paso == N_PASOS - 1:
-                        # Forzar recálculo al llegar al paso de resultado
                         st.session_state["_recalcular_paso4"] = True
                     st.rerun()
 
