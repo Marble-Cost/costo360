@@ -530,6 +530,21 @@ Criterios de estado:
 - "rojo": margen_pct < 20%, o hay fuga de dinero grave (flete $0 en foráneo, instalación $0).
 
 Si alertas o sugerencias están vacías, devuelve listas vacías []. No inventes problemas que no existen.
+
+REGLA 6 — LENGUAJE COMERCIAL HUMANO (OBLIGATORIA):
+Está ESTRICTAMENTE PROHIBIDO mencionar nombres de variables internas, claves del JSON o términos de código en tus respuestas.
+PROHIBIDO escribir: c3_zocalos, c4_riesgo, c5_logistica, c6_viaticos, c7_adicionales, margen_pct, foraneo_activo, zocalo_activo, viaticos_activos, agente_externo, km, num_peajes, m2_real, ml_proyecto, datos_json, ni ninguna clave técnica.
+OBLIGATORIO traducir todo hallazgo a lenguaje de negocios natural comprensible para un vendedor:
+- c3_zocalos → "costo de zócalos"
+- c4_riesgo → "provisión de riesgo por rotura"
+- c5_logistica → "costo de transporte y entrega"
+- c6_viaticos → "viáticos del equipo de instalación"
+- c7_adicionales → "costos adicionales de obra"
+- margen_pct → "margen de ganancia"
+- foraneo_activo → "proyecto fuera de la ciudad"
+- m2_real → "metros cuadrados del proyecto"
+- ml_proyecto → "metros lineales del proyecto"
+Si no sabes cómo traducir un término técnico, descríbelo por su función comercial, nunca por su nombre en código.
 """
 
 
