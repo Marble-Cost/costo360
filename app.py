@@ -2877,8 +2877,6 @@ def _ui_cotizacion_express():
                 incluir_iva=_ex_iva,
             )
             st.session_state["ex2_resultado"] = _res_ex
-            st.session_state["ex2_iva"]       = _ex_iva
-            st.session_state["ex2_margen"]    = _ex_margen
         except Exception as _e_ex2:
             st.session_state["ex2_resultado"] = None
             st.error(f"Error en el cálculo: {_e_ex2}")
