@@ -2964,16 +2964,14 @@ def _ui_cotizacion_express():
             # Acciones
             _ba1, _ba2 = st.columns(2)
             with _ba1:
-                if st.button(
-                    "🚀 Refinar en Modo Completo",
-                    use_container_width=True,
-                    type="secondary",
-                    key="ex2_btn_completo",
-                    help="Pre-carga todos estos datos en el wizard para agregar logística, viáticos y más.",
-                ):
+                def _pasar_a_completo():
                     _ancho_ref = st.session_state.get("ex2_ancho", 0.60)
                     _ml_ref    = st.session_state.get("ex2_ml", st.session_state.get("ex2_m2", 3.0))
-                    _area_ref  = round(_ex_area_placa, 4)
+                    _placa_l   = float(st.session_state.get("ex2_placa_largo", 3.20))
+                    _placa_a   = float(st.session_state.get("ex2_placa_ancho", 1.80))
+                    _area_ref  = round(_placa_l * _placa_a, 4)
+                    _tipo_ref  = st.session_state.get("ex2_tipo", "Mesón")
+                    _ex_tipos_ml_cb = ["Mesón", "Cocina", "Baño", "Escalera", "Encimera"]
                     st.session_state.pre = {
                         "categoria":           st.session_state.get("ex2_categoria", "Mármol"),
                         "referencia":          st.session_state.get("ex2_ref_custom", "")
@@ -2982,24 +2980,24 @@ def _ui_cotizacion_express():
                         "area_placa_comprada": _area_ref,
                         "margen_pct":          float(st.session_state.get("ex2_margen", 40)),
                         "nombre_cliente":      st.session_state.get("ex2_cliente", ""),
-                        "tipo_proyecto":       st.session_state.get("ex2_tipo", "Mesón"),
+                        "tipo_proyecto":       _tipo_ref,
                         "incluir_iva":         st.session_state.get("ex2_iva", False),
                         "piezas": [{
-                            "nombre":       st.session_state.get("ex2_tipo", "Mesón"),
+                            "nombre":       _tipo_ref,
                             "ml":           _ml_ref,
                             "ml_unitario":  _ml_ref,
                             "cantidad":     1,
                             "ancho_custom": _ancho_ref,
-                            "unidad_venta": "ml" if st.session_state.get("ex2_tipo", "Mesón") in _EX_TIPOS_ML else "m2",
+                            "unidad_venta": "ml" if _tipo_ref in _ex_tipos_ml_cb else "m2",
                         }],
                         "materiales_proyecto": [{
-                            "cat":        st.session_state.get("ex2_categoria", "Mármol"),
-                            "ref":        st.session_state.get("ex2_ref_custom", "")
-                                          or st.session_state.get("ex2_ref_sel", ""),
-                            "precio_m2":  float(st.session_state.get("ex2_pm2", 220_000)),
-                            "area_placa": _area_ref,
-                            "placas_largo": float(st.session_state.get("ex2_placa_largo", 3.20)),
-                            "placas_ancho": float(st.session_state.get("ex2_placa_ancho", 1.80)),
+                            "cat":          st.session_state.get("ex2_categoria", "Mármol"),
+                            "ref":          st.session_state.get("ex2_ref_custom", "")
+                                            or st.session_state.get("ex2_ref_sel", ""),
+                            "precio_m2":    float(st.session_state.get("ex2_pm2", 220_000)),
+                            "area_placa":   _area_ref,
+                            "placas_largo": _placa_l,
+                            "placas_ancho": _placa_a,
                             "placas_cant":  1,
                         }],
                     }
@@ -3007,9 +3005,16 @@ def _ui_cotizacion_express():
                     st.session_state.piezas              = st.session_state.pre["piezas"]
                     st.session_state.cdir_paso           = 0
                     st.session_state.nav_radio           = "Cotizacion Directa"
-                    st.session_state.radio_ui            = "Cotizacion Directa"
                     st.query_params["pagina"]            = "Cotizacion Directa"
-                    st.rerun()
+
+                st.button(
+                    "🚀 Refinar en Modo Completo",
+                    on_click=_pasar_a_completo,
+                    type="primary",
+                    use_container_width=True,
+                    key="ex2_btn_completo",
+                    help="Pre-carga todos estos datos en el wizard para agregar logística, viáticos y más.",
+                )
             with _ba2:
                 if st.button(
                     "🗑️ Limpiar",
