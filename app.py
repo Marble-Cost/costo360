@@ -7951,3 +7951,4 @@ elif pagina == "Planos de Taller (IA)":
                 luego presiona <strong>✂️ Optimizar Corte y Generar Plano</strong>.
             </div>
         </div>
+        """, unsafe_allow_html=True)
