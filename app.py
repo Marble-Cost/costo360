@@ -3597,27 +3597,77 @@ elif pagina == "Cotizacion Directa":
                         # Llama a la función usando el prefijo del módulo
                         _analisis_ia = asistente_ia.auditor_rentabilidad(r)
 
-                        _color_estado = _analisis_ia.get("estado", "amarillo").lower()
-
-                        if _color_estado == "verde":
-                            st.success(f"**🟢 RENTABILIDAD SALUDABLE:** {_analisis_ia.get('margen_analisis', '')}")
-                        elif _color_estado == "rojo":
-                            st.error(f"**🔴 ALERTA DE PÉRDIDA:** {_analisis_ia.get('margen_analisis', '')}")
-                        else:
-                            st.warning(f"**🟡 RIESGO MODERADO:** {_analisis_ia.get('margen_analisis', '')}")
-
-                        _cols_auditor = st.columns(2)
-                        with _cols_auditor[0]:
-                            st.markdown("**⚠️ Alertas Detectadas:**")
-                            for alerta in _analisis_ia.get("alertas", []):
-                                st.markdown(f"- {alerta}")
-                        with _cols_auditor[1]:
-                            st.markdown("**💡 Sugerencias de Cobro:**")
-                            for sug in _analisis_ia.get("sugerencias", []):
-                                st.markdown(f"- {sug}")
+                        st.session_state["_auditoria_resultado"] = _analisis_ia
 
                     except Exception as e:
+                        st.session_state["_auditoria_resultado"] = None
                         st.error(f"No se pudo completar la auditoría: {e}")
+
+            # ── Panel de resultados del auditor (persiste entre reruns) ──────
+            _audit = st.session_state.get("_auditoria_resultado")
+            if _audit:
+                _color_estado = _audit.get("estado", "amarillo").lower()
+                _margen_txt   = _audit.get("margen_analisis", "")
+                _alertas      = _audit.get("alertas", [])
+                _sugerencias  = _audit.get("sugerencias", [])
+
+                # ── Barra de estado principal ─────────────────────────────────
+                with st.container(border=True):
+                    if _color_estado == "verde":
+                        st.success(f"🟢 **RENTABILIDAD SALUDABLE** — {_margen_txt}", icon="✅")
+                    elif _color_estado == "rojo":
+                        st.error(f"🔴 **ALERTA DE PÉRDIDA** — {_margen_txt}", icon="🚨")
+                    else:
+                        st.warning(f"🟡 **RIESGO MODERADO** — {_margen_txt}", icon="⚠️")
+
+                    # ── Dos columnas: alertas | sugerencias ───────────────────
+                    _col_alertas, _col_sugs = st.columns(2)
+
+                    with _col_alertas:
+                        st.markdown(
+                            '<div style="font-size:0.78rem;font-weight:800;'
+                            'text-transform:uppercase;letter-spacing:0.08em;'
+                            'color:#dc2626;margin-bottom:8px">⚠️ Alertas Críticas</div>',
+                            unsafe_allow_html=True,
+                        )
+                        if _alertas:
+                            for _a in _alertas:
+                                st.markdown(
+                                    f'<div style="background:rgba(220,38,38,0.07);'
+                                    f'border-left:3px solid #dc2626;border-radius:0 6px 6px 0;'
+                                    f'padding:6px 10px;margin-bottom:6px;font-size:0.83rem;'
+                                    f'line-height:1.4">{_a}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                        else:
+                            st.markdown(
+                                '<div style="font-size:0.82rem;opacity:0.5;font-style:italic">'
+                                'Sin alertas detectadas.</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                    with _col_sugs:
+                        st.markdown(
+                            '<div style="font-size:0.78rem;font-weight:800;'
+                            'text-transform:uppercase;letter-spacing:0.08em;'
+                            'color:#1B5FA8;margin-bottom:8px">💡 Oportunidades</div>',
+                            unsafe_allow_html=True,
+                        )
+                        if _sugerencias:
+                            for _s in _sugerencias:
+                                st.markdown(
+                                    f'<div style="background:rgba(27,95,168,0.07);'
+                                    f'border-left:3px solid #1B5FA8;border-radius:0 6px 6px 0;'
+                                    f'padding:6px 10px;margin-bottom:6px;font-size:0.83rem;'
+                                    f'line-height:1.4">{_s}</div>',
+                                    unsafe_allow_html=True,
+                                )
+                        else:
+                            st.markdown(
+                                '<div style="font-size:0.82rem;opacity:0.5;font-style:italic">'
+                                'Sin oportunidades adicionales.</div>',
+                                unsafe_allow_html=True,
+                            )
         st.markdown("---")
 
         # ── Seguro de Desactualización ────────────────────────────────
