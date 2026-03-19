@@ -367,6 +367,38 @@ def _clave_borrador_aiu() -> str:
     return f"borrador_cotizacion_aiu_{_uid()}"
 
 
+def _generar_snapshot_datos() -> str:
+    """
+    Captura un fingerprint de los datos críticos del cotizador en el momento actual.
+    Se usa para detectar si el usuario modificó algo después de calcular.
+    Retorna un string JSON ordenado — si cambia cualquier campo, el string cambia.
+    """
+    _snap = {
+        "materiales": json.dumps(
+            st.session_state.get("materiales_proyecto", []),
+            sort_keys=True, default=str
+        ),
+        "piezas": json.dumps(
+            [
+                {k: v for k, v in p.items()
+                 if k in ("nombre", "ml", "ml_unitario", "cantidad", "ancho_custom",
+                          "unidad_venta", "categoria")}
+                for p in st.session_state.get("piezas", [])
+            ],
+            sort_keys=True, default=str
+        ),
+        "margen_pct":    str(st.session_state.get("pre", {}).get("margen_pct", "")),
+        "vehiculo":      str(st.session_state.get("pre", {}).get("vehiculo_entrega", "")),
+        "km":            str(st.session_state.get("pre", {}).get("km", "")),
+        "peajes":        str(st.session_state.get("pre", {}).get("peajes", "")),
+        "foraneo":       str(st.session_state.get("pre", {}).get("foraneo_activo", "")),
+        "incluir_iva":   str(st.session_state.get("pre", {}).get("incluir_iva", "")),
+        "zocalo_activo": str(st.session_state.get("pre", {}).get("zocalo_activo", "")),
+        "zocalo_ml":     str(st.session_state.get("pre", {}).get("zocalo_ml", "")),
+    }
+    return json.dumps(_snap, sort_keys=True)
+
+
 # ── Helper Base64 para logo (FIX-3 Serialización) ─────────────────────────
 
 import base64 as _base64
@@ -3588,6 +3620,20 @@ elif pagina == "Cotizacion Directa":
                         st.error(f"No se pudo completar la auditoría: {e}")
         st.markdown("---")
 
+        # ── Seguro de Desactualización ────────────────────────────────
+        # Compara el estado actual de los datos con el snapshot guardado
+        # en el momento del último cálculo. Si difieren, el usuario modificó
+        # algo sin recalcular y el PDF podría no reflejar los valores reales.
+        _snap_actual = _generar_snapshot_datos()
+        _snap_calculo = st.session_state.get("_snapshot_calculo", "")
+        if _snap_calculo and _snap_actual != _snap_calculo:
+            st.warning(
+                "⚠️ **Aviso:** Detectamos que modificaste medidas, materiales o márgenes "
+                "después de calcular. Te recomendamos volver al paso anterior y presionar "
+                "**'Calcular'** nuevamente para actualizar los valores del PDF.",
+                icon="⚠️",
+            )
+
         # ── Exportar PDFs ────────────────────────────────────────────
         st.markdown("### 📄 Documentos para el cliente")
         from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
@@ -5273,8 +5319,11 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 )
                 resultado["_estado_guardado"] = _pre_snapshot
                 resultado["incluir_iva"]      = incluir_iva
-                st.session_state.cotizacion   = resultado
+                st.session_state.cotizacion        = resultado
                 st.session_state["_recalcular_paso4"] = False
+                # Snapshot de datos al momento del cálculo — usado por el
+                # "Seguro de Desactualización" para detectar cambios posteriores.
+                st.session_state["_snapshot_calculo"] = _generar_snapshot_datos()
 
         r         = st.session_state.cotizacion
         _iva_act  = r.get("incluir_iva", incluir_iva)
