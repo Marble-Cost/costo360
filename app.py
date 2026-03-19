@@ -254,15 +254,31 @@ def _db_conn():
     del pool de SQLAlchemy. La conexión se devuelve al pool al salir del bloque
     with, y como garantía adicional también al ser destruida por el GC.
     El resto del código (cursor, commit, rollback) funciona igual que antes.
+
+    INYECCIÓN RLS: declara app.usuario_id con FALSE (persiste en la conexión
+    pero NO en la transacción) para que las políticas Row Level Security de
+    Supabase puedan aislar datos por taller. Se limpia obligatoriamente en
+    finally para evitar fugas en el pool de conexiones de SQLAlchemy.
     """
     conn = AutoCloseConnection(_get_engine().raw_connection())
     try:
+        # ── INYECCIÓN RLS: Declarar el usuario activo para toda la sesión de conexión ──
+        uid = st.session_state.get("usuario_actual", {}).get("id")
+        if uid:
+            with conn.cursor() as _cur:
+                _cur.execute("SELECT set_config('app.usuario_id', %s, FALSE)", (str(uid),))
         yield conn
     except Exception:
         conn.rollback()
         raise
     finally:
-        conn.close()  # devuelve al pool; __del__ es el paracaídas de respaldo
+        # ── LIMPIEZA OBLIGATORIA: Prevenir fugas de datos en el pool de conexiones ──
+        try:
+            with conn.cursor() as _cur:
+                _cur.execute("SELECT set_config('app.usuario_id', '', FALSE)")
+        except Exception:
+            pass
+        conn.close()  # devuelve al pool; __del__ es el paracaidas de respaldo
 
 
 
