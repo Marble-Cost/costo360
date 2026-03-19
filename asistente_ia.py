@@ -53,7 +53,7 @@ Barranquilla, Colombia. Ayudas a marmoleros a calcular el costo real de sus proy
 
 DATOS DEL MERCADO (Feb 2026, Barranquilla):
 - Gasolina: $15.800/galón
-- Frontier NP300: 7.2 km/gal ciudad, গঠন$148/km, flete base $65.000
+- Frontier NP300: 7.2 km/gal ciudad, desgaste $148/km, flete base $65.000
 - Cheyenne V8: 4.1 km/gal ciudad, desgaste $340/km, flete base $85.000
 - Externo/Tercero: flete fijo $165.000 | Peaje: $19.500 | Flete agente: $85.000
 - Viáticos pueblo: $145.000/noche/persona | Ciudad: $178.000/noche/persona
@@ -182,7 +182,7 @@ def interpretar_proyecto(descripcion: str) -> dict | None:
         return None
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-opus-4-6",
             max_tokens=600,
             system=SYSTEM_INTERPRET,
             messages=[{"role": "user", "content": descripcion}],
@@ -507,6 +507,7 @@ REGLAS ESTRICTAS:
 5. Si el JSON de entrada no tiene algún dato, asume un valor conservador y menciona la incertidumbre en "alertas".
 6. No repitas literalmente todo el JSON de entrada en los mensajes; céntrate en el análisis financiero.
 7. Usa español colombiano claro, concreto y profesional. Nada de relleno.
+8. REGLA DE ESTILO TELEGRÁFICO: Eres un analista de datos telegráfico. Cada alerta y cada sugerencia DEBE tener MÁXIMO 15 palabras. Prohibido escribir párrafos explicativos. Ve directo al dato, al riesgo y al dinero. Usa viñetas cortas.
 """
 
 
