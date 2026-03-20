@@ -13,7 +13,7 @@
 #   Mano de obra siempre se paga en ML (operario cobra por ml cortado e instalado),
 #   EXCEPTO pisos y revestimientos donde se paga por m² (menos cortes).
 
-from parametros import LOGISTICA, VIATICOS, TARIFAS, VEHICULOS_CONFIG, PROPIEDADES_MATERIAL
+from parametros import LOGISTICA, VIATICOS, TARIFAS, PROPIEDADES_MATERIAL
 
 
 # ── Conversor ML → m² ────────────────────────────────────────────────────────
@@ -155,133 +155,74 @@ def calcular_totales_piezas(piezas: list) -> dict:
     }
 
 
-def calcular_logistica(vehiculo: str, km: float, num_peajes: int, agente_externo: bool,
-                       personas: int = 2, categoria: str = "Mármol",
+def calcular_logistica(vehiculo: str = "externo",
+                       km: float = 0.0,
+                       num_peajes: int = 0,
+                       agente_externo: bool = False,
+                       personas: int = 2,
+                       categoria: str = "Mármol",
                        logistica_override: dict = None,
                        vehiculos_custom: dict = None,
                        peso_carga_kg: float = 0.0,
                        costo_peaje_unitario: float = 0.0) -> dict:
-    
+    """
+    Calcula el costo logístico del viaje al cliente.
+
+    Modelo simplificado v6 (sin flota propia):
+      • Si agente_externo=True  → se usa flete_externo del diccionario de logística.
+      • Si agente_externo=False → se estima el costo de combustible por km usando
+        precio_gasolina y un rendimiento estándar de 10 km/galón (vehículo propio
+        genérico), más un costo base de salida fijo de $30.000.
+
+    El costo total de peajes de la ruta llega ya calculado en `costo_peaje_unitario`
+    (el campo "Costo Total de Peajes de la Ruta" de la UI). No se usa num_peajes.
+
+    Los parámetros vehiculo, vehiculos_custom y peso_carga_kg se aceptan por
+    compatibilidad con llamadas heredadas y se ignoran sin efecto.
+    """
     p = logistica_override or LOGISTICA
 
-    veh_cfg = (vehiculos_custom or {}).get(vehiculo) or VEHICULOS_CONFIG.get(vehiculo, VEHICULOS_CONFIG["externo"])
-    
-    # ── NUEVA REGLA: Flete Fijo Manual ────────────────────────────────────────
-    # Salta el motor termodinámico de IA y aplica el cobro plano del usuario
-    if veh_cfg.get("tipo") == "flete_fijo":
-        costo_vehiculo = float(veh_cfg.get("costo_viaje", 0.0))
-        
-        if costo_peaje_unitario > 0:
-            costo_peajes = num_peajes * costo_peaje_unitario
-        else:
-            costo_peajes = num_peajes * p.get("peaje", LOGISTICA["peaje"])
-            
-        costo_herram = p.get("herram", LOGISTICA["herram"])
-        costo_agente = p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
-        
-        costo_total = costo_vehiculo + costo_peajes + costo_herram + costo_agente
-        
-        return {
-            "total":              costo_total,
-            "vehiculo":           costo_vehiculo,
-            "base":               costo_vehiculo,
-            "km_costo":           0.0,
-            "mantenimiento":      0.0,
-            "peajes":             costo_peajes,
-            "herram":             costo_herram,
-            "agente":             costo_agente,
-            "peso_carga_kg":      peso_carga_kg,
-            "rend_efectivo":      0.0,
-            "bloqueo_capacidad":  False,
-            "nota_bloqueo":       f"Flete fijo manual aplicado: {veh_cfg.get('nombre', vehiculo)}",
-        }
+    # ── Flete externo (agente trae el material al taller) ────────────────────
+    # Lee primero la nueva llave "flete_externo" y cae en legados si no existe.
+    _flete_ext = p.get("flete_externo",
+                    p.get("externo", {}).get("flete", 165_000)
+                    if isinstance(p.get("externo"), dict)
+                    else p.get("externo", 165_000)
+                )
+    costo_agente = float(_flete_ext) if agente_externo else 0.0
 
-    es_externo = veh_cfg.get("tipo") == "externo"
-
-    costo_mantenimiento = 0.0
-    rend_efectivo       = 0.0
-    bloqueo_capacidad   = False
-    nota_bloqueo        = ""
-
-    if es_externo:
-        _ext_src = p.get("externo", {})
-        _ext_flete_default = _ext_src.get("flete", 165_000) if isinstance(_ext_src, dict) else int(_ext_src)
-        flete_ext      = veh_cfg.get("flete", _ext_flete_default)
-        costo_vehiculo = flete_ext
+    # ── Costo de desplazamiento al cliente ───────────────────────────────────
+    # Usa precio_gasolina con rendimiento genérico 10 km/gal.
+    # Aplica ida y vuelta (× 2). Si km = 0 no se cobra nada.
+    _gasolina    = p.get("precio_gasolina", p.get("gasolina", 16_000))
+    _rend_std    = 10.0          # km/galón — vehículo propio estándar sin especificar
+    _base_salida = 30_000.0      # costo mínimo fijo por salir al terreno
+    if km > 0:
+        costo_km       = (_gasolina / _rend_std) * km * 2   # ida y vuelta
+        costo_vehiculo = _base_salida + costo_km
+    else:
         costo_km       = 0.0
-        costo_base     = 0.0
-    else:
-        gasolina    = p.get("gasolina", LOGISTICA["gasolina"])
-        desg        = veh_cfg.get("desgaste", 148)
-        costo_base  = veh_cfg.get("base", 65_000)
-        mant_por_km = veh_cfg.get("costo_mantenimiento_por_km", 0)
+        costo_vehiculo = 0.0
 
-        # ── REGLA DE BLOQUEO POR CAPACIDAD ────────────────────────────────────
-        capacidad_max = veh_cfg.get("capacidad_max_kg", float("inf"))
-        if peso_carga_kg > 0 and peso_carga_kg > capacidad_max:
-            # Vehículo excedido: redirigir a flete externo automáticamente
-            bloqueo_capacidad = True
-            nota_bloqueo = (
-                f"Vehículo excedido en capacidad. "
-                f"El proyecto pesa {peso_carga_kg:,.1f} kg y la capacidad máxima "
-                f"del {veh_cfg.get('nombre', vehiculo)} es {capacidad_max:,.0f} kg. "
-                f"Flete externo activado automáticamente."
-            )
-            _ext_cfg    = VEHICULOS_CONFIG.get("externo", {})
-            _p_ext      = p.get("externo", {})
-            _flete_ext  = _ext_cfg.get("flete", _p_ext.get("flete", 165_000) if isinstance(_p_ext, dict) else 165_000)
-            costo_vehiculo = _flete_ext
-            costo_km       = 0.0
-            costo_base     = 0.0
-            rend_efectivo  = 0.0
-        else:
-            # ── REGLA TERMODINÁMICA ────────────────────────────────────────────
-            # Nueva fórmula v5: usa rendimiento_km_gal (sin carga) como base.
-            # Fallback a "rend" (legacy con carga típica) si el vehículo es antiguo.
-            rend_base_sin_carga = veh_cfg.get("rendimiento_km_gal") or veh_cfg.get("rend", 7.2)
+    # ── Peajes ───────────────────────────────────────────────────────────────
+    # costo_peaje_unitario ya contiene el total exacto de la ruta (nueva UI).
+    costo_peajes = float(costo_peaje_unitario)
 
-            if peso_carga_kg > 0:
-                # Por cada 45 kg de peso → 1.5% menos de rendimiento. Tope: 40%.
-                factor_pen    = min(0.40, (peso_carga_kg / 45.0) * 0.015)
-            else:
-                # Sin peso declarado: fallback a penalización legacy (retro-compat)
-                props_mat    = PROPIEDADES_MATERIAL.get(categoria, {})
-                peso_max_ref = props_mat.get("peso_max_penalizacion_kg", 300) * 2
-                factor_pen   = min(0.30, peso_carga_kg / peso_max_ref) if peso_max_ref > 0 else 0.0
-
-            rend_efectivo  = rend_base_sin_carga * (1.0 - factor_pen)
-
-            costo_por_km   = (gasolina / rend_efectivo) + desg
-            costo_km       = costo_por_km * km * 2           # ida y vuelta
-            # Fondo de rodamiento: llantas, aceite, filtros
-            costo_mantenimiento = mant_por_km * km * 2
-            costo_vehiculo = costo_base + costo_km + costo_mantenimiento
-
-    # ── Peajes exactos ────────────────────────────────────────────────────────
-    if costo_peaje_unitario > 0:
-        costo_peajes = num_peajes * costo_peaje_unitario
-    else:
-        costo_peajes = num_peajes * p.get("peaje", LOGISTICA["peaje"])
-
-    costo_herram = p.get("herram", LOGISTICA["herram"])
-    # Flete de proveedor (agente externo taller → origen): se suma siempre al total
-    costo_agente = p.get("agente", LOGISTICA["agente"]) if agente_externo else 0.0
-
-    costo_total = costo_vehiculo + costo_peajes + costo_herram + costo_agente
+    costo_total = costo_vehiculo + costo_peajes + costo_agente
 
     return {
-        "total":              costo_total,
-        "vehiculo":           costo_vehiculo,
-        "base":               costo_base if not es_externo and not bloqueo_capacidad else 0,
-        "km_costo":           costo_km,
-        "mantenimiento":      costo_mantenimiento,
-        "peajes":             costo_peajes,
-        "herram":             costo_herram,
-        "agente":             costo_agente,
-        "peso_carga_kg":      peso_carga_kg,
-        "rend_efectivo":      rend_efectivo,
-        "bloqueo_capacidad":  bloqueo_capacidad,
-        "nota_bloqueo":       nota_bloqueo,
+        "total":             costo_total,
+        "vehiculo":          costo_vehiculo,
+        "base":              _base_salida if km > 0 else 0.0,
+        "km_costo":          costo_km,
+        "mantenimiento":     0.0,
+        "peajes":            costo_peajes,
+        "herram":            0.0,
+        "agente":            costo_agente,
+        "peso_carga_kg":     peso_carga_kg,
+        "rend_efectivo":     _rend_std,
+        "bloqueo_capacidad": False,
+        "nota_bloqueo":      "",
     }
 
 
@@ -688,7 +629,6 @@ def calcular_cotizacion_directa(
         vehiculo=vehiculo_entrega, km=km, num_peajes=num_peajes,
         agente_externo=agente_externo_taller, personas=personas, categoria=categoria,
         logistica_override=kwargs.get("logistica_override"),
-        vehiculos_custom=kwargs.get("vehiculos_custom"),
         peso_carga_kg=peso_carga_kg,
         costo_peaje_unitario=kwargs.get("costo_peaje_unitario", 0.0),
     )
@@ -819,7 +759,7 @@ def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
                  incluir_iva: bool = True,
                  logistica_override: dict = None,
                  viaticos_override: dict = None,
-                 vehiculos_custom: dict = None,
+                 vehiculos_custom: dict = None,   # aceptado por compatibilidad, ignorado
                  costo_peaje_unitario: float = 0.0):
     """
     Cálculo AIU normativo colombiano.
@@ -846,9 +786,9 @@ def calcular_aiu(cd, pct_a, pct_i, pct_u, vehiculo, km, num_peajes,
 
     # Pasar overrides para que AIU use las tarifas personalizadas del usuario
     log_dict = calcular_logistica(
-        vehiculo, km, num_peajes, agente_externo,
+        vehiculo=vehiculo, km=km, num_peajes=num_peajes,
+        agente_externo=agente_externo,
         logistica_override=logistica_override,
-        vehiculos_custom=vehiculos_custom,
         costo_peaje_unitario=costo_peaje_unitario,
     )
     logistica = log_dict["total"]
