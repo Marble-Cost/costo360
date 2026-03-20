@@ -15,10 +15,9 @@
 #   fn_leer_config, fn_clave_borrador_cdir,
 #   fn_consultar_retal, fn_marcar_retal_usado,
 #   fn_get_tarifas, fn_get_logistica, fn_get_viaticos, fn_get_adicionales,
-#   fn_get_vehiculos_config, fn_get_vehiculos_dict,
 #   fn_generar_snapshot_datos,
 #   fn_cb_cdir_nombre_cliente, fn_cb_cdir_tipos_proyecto, fn_cb_cdir_etapa,
-#   fn_cb_cdir_agente_externo, fn_cb_cdir_vehiculo_km, fn_cb_cdir_km_rango,
+#   fn_cb_cdir_agente_externo, fn_cb_cdir_km_rango,
 #   fn_cb_cdir_foraneo, fn_cb_cdir_viaticos_activos, fn_cb_cdir_tipo_aloj,
 #   fn_cb_cdir_noches, fn_cb_cdir_perfil_desperdicio,
 #   fn_cb_cdir_adicionales_activos, fn_cb_cdir_incluir_iva,
@@ -37,7 +36,7 @@ from calculos import (
     calcular_zocalo_geometrico,
 )
 from parametros import (
-    CATEGORIAS_MATERIAL, ETAPAS_OBRA, VEHICULOS, ALOJAMIENTO,
+    CATEGORIAS_MATERIAL, ETAPAS_OBRA, ALOJAMIENTO,
     MATERIALES_CATALOGO, ANCHOS_ESTANDAR, CROSS_SELLING_MAP,
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, TARIFAS,
 )
@@ -109,14 +108,11 @@ def _ui_cotizacion_directa(
     fn_get_logistica,
     fn_get_viaticos,
     fn_get_adicionales,
-    fn_get_vehiculos_config,
-    fn_get_vehiculos_dict,
     fn_generar_snapshot_datos,
     fn_cb_cdir_nombre_cliente,
     fn_cb_cdir_tipos_proyecto,
     fn_cb_cdir_etapa,
     fn_cb_cdir_agente_externo,
-    fn_cb_cdir_vehiculo_km,
     fn_cb_cdir_km_rango,
     fn_cb_cdir_foraneo,
     fn_cb_cdir_viaticos_activos,
@@ -145,7 +141,6 @@ def _ui_cotizacion_directa(
             "zocalo_activo":       _sp_entry.get("cdir_zocalo_activo", False),
             "zocalo_ml":           _sp_entry.get("cdir_zocalo_ml", 0.0),
             "agente_externo_taller": _sp_entry.get("cdir_agente_externo", False),
-            "vehiculo_entrega":    _sp_entry.get("cdir_vehiculo", "frontier"),
             "km":                  _sp_entry.get("cdir_km", 5.0),
             "peajes":              _sp_entry.get("cdir_peajes", 0),
             "foraneo_activo":      _sp_entry.get("cdir_foraneo", False),
@@ -277,9 +272,9 @@ def _ui_cotizacion_directa(
                             zocalo_activo=bool(_pre_sb.get("zocalo_activo", False)),
                             zocalo_ml=float(_pre_sb.get("zocalo_ml", 0)),
                             agente_externo_taller=bool(_pre_sb.get("agente_externo_taller", False)),
-                            vehiculo_entrega=_pre_sb.get("vehiculo_entrega", "frontier"),
+                            vehiculo_entrega="externo",
                             km=float(_pre_sb.get("km", 10)),
-                            num_peajes=int(_pre_sb.get("peajes", 0)),
+                            num_peajes=0,
                             foraneo_activo=bool(_pre_sb.get("foraneo_activo", False)),
                             viaticos_activos=bool(_pre_sb.get("viaticos_activos", True)),
                             tipo_aloj=_pre_sb.get("tipo_aloj", "pueblo"),
@@ -293,8 +288,8 @@ def _ui_cotizacion_directa(
                             piezas=_pre_sb.get("piezas", []),
                             ml_proyecto=float(_pre_sb.get("ml_proyecto", 0)),
                             logistica_override=st.session_state.get("logistica_custom"),
-                            vehiculos_custom=fn_get_vehiculos_config(),
                             tarifas_override=st.session_state.get("tarifas_custom"),
+                            costo_peaje_unitario=float(_pre_sb.get("costo_peaje_total", 0.0)),
                             incluir_iva=_pre_sb.get("incluir_iva", False),
                         )
                         _r_atajo["_estado_guardado"] = _pre_sb
@@ -1395,18 +1390,12 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             _lag1, _lag2 = st.columns(2)
             with _lag1:
                 agente_ext_taller = st.toggle("Agente externo trajo el material al taller", value=bool(fn_sp().get("cdir_agente_externo", pre.get("agente_externo_taller",False))), key="cb_cdir_agente_externo", on_change=fn_cb_cdir_agente_externo)
-            with _lag2:
-                _veh_dict = fn_get_vehiculos_dict()
-                _veh_keys = list(_veh_dict.keys())
-                _v_idx    = 0
-                if pre.get("vehiculo_entrega") in list(_veh_dict.values()):
-                    _v_idx = list(_veh_dict.values()).index(pre.get("vehiculo_entrega"))
-                _veh_sel = st.pills("Vehículo de entrega", _veh_keys, default=_veh_keys[_v_idx], key="p3_veh_pills")
-                veh_lbl  = _veh_sel if _veh_sel else _veh_keys[0]
-                vehiculo = _veh_dict[veh_lbl]
+                if agente_ext_taller:
+                    _log_now_p3 = fn_get_logistica()
+                    _flete_ref  = int(_log_now_p3.get("flete_externo", _log_now_p3.get("externo", {}).get("flete", 165_000) if isinstance(_log_now_p3.get("externo"), dict) else 165_000))
+                    st.caption(f"Flete base activo: **{_numero_completo(_flete_ref)}**")
 
-            _lk1, _lk2 = st.columns(2)
-            with _lk1:
+            with _lag2:
                 _km_opts         = ["0-5 km","5-15 km","15-30 km","30-60 km","60+ km"]
                 _km_pre          = float(pre.get("km",5.0))
                 _km_rango_stored = fn_sp().get("cdir_km_rango", None)
@@ -1415,14 +1404,20 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _km_rango        = _km_rango if _km_rango else _km_pre_s
                 _km_defaults     = {"0-5 km":3,"5-15 km":10,"15-30 km":22,"30-60 km":45,"60+ km":80}
                 _km_val_init     = float(fn_sp().get("cdir_km", _km_defaults.get(_km_rango, _km_pre)))
-                km               = st.number_input("Km exactos (un trayecto)", min_value=0.0, value=_km_val_init, step=1.0, key="cb_cdir_km", on_change=fn_cb_cdir_vehiculo_km)
-            with _lk2:
-                _pj_pre           = int(pre.get("peajes",0))
-                _cpu_pre          = float(pre.get("costo_peaje_unitario",0.0))
-                peajes            = st.number_input("Cantidad de peajes (ida y vuelta)", min_value=0, value=_pj_pre, step=1, key="p3_peajes_cantidad")
-                costo_peaje_unitario = st.number_input("Costo por peaje ($COP)", min_value=0, value=int(_cpu_pre), step=500, key="p3_costo_peaje_unit")
-                if peajes > 0 and costo_peaje_unitario > 0:
-                    st.caption(f"💰 Total peajes: **${peajes * costo_peaje_unitario:,.0f}** ({peajes} × ${costo_peaje_unitario:,.0f})".replace(",","."))
+                km               = st.number_input("Km exactos (un trayecto)", min_value=0.0, value=_km_val_init, step=1.0, key="cb_cdir_km", on_change=fn_cb_cdir_km_rango)
+
+            _peaje_total_pre = float(pre.get("costo_peaje_total", pre.get("costo_peaje_unitario", 0.0)))
+            peaje_total_ruta = st.number_input(
+                "💰 Costo Total de Peajes de la Ruta ($)",
+                min_value=0,
+                value=int(_peaje_total_pre),
+                step=500,
+                format="%d",
+                key="p3_peaje_total",
+                help="Ingresa el valor exacto en pesos que pagas en peajes (ida + vuelta). Ej: $39.000 si hay 2 peajes de $19.500.",
+            )
+            if peaje_total_ruta > 0:
+                st.caption(f"Total peajes incluido: **{_numero_completo(peaje_total_ruta)}**")
 
         with st.container(border=True):
             st.markdown("**✈️ ¿El proyecto es fuera de Barranquilla?**")
@@ -1491,8 +1486,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         st.session_state.pre = {
             **st.session_state.pre,
             "agente_externo_taller": agente_ext_taller,
-            "vehiculo_entrega": vehiculo, "km": km,
-            "peajes": peajes, "costo_peaje_unitario": costo_peaje_unitario,
+            "vehiculo_entrega": "externo", "km": km,
+            "peajes": 0, "costo_peaje_unitario": 0.0, "costo_peaje_total": peaje_total_ruta,
             "foraneo_activo": foraneo_activo, "viaticos_activos": viaticos_activos,
             "tipo_aloj": tipo_aloj, "noches": noches,
             "num_instaladores": num_instaladores, "incluir_hospedaje": incluir_hospedaje,
@@ -1501,9 +1496,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             "incluir_iva": incluir_iva,
         }
         fn_sp_set("cdir_agente_externo", agente_ext_taller)
-        fn_sp_set("cdir_vehiculo", vehiculo)
         fn_sp_set("cdir_km", km)
-        fn_sp_set("cdir_peajes", peajes)
+        fn_sp_set("cdir_peaje_total", peaje_total_ruta)
         fn_sp_set("cdir_foraneo", foraneo_activo)
         fn_sp_set("cdir_viaticos_activos", viaticos_activos)
         fn_sp_set("cdir_tipo_aloj", tipo_aloj)
@@ -1566,7 +1560,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             "m2_proyecto": m2_real, "m2_cortados_input": m2_cortados_total,
             "m2_usados": m2_usados, "margen_pct": margen_pct,
             "agente_externo_taller": agente_ext_taller,
-            "vehiculo_entrega": vehiculo, "km": km, "peajes": peajes,
+            "vehiculo_entrega": "externo", "km": km, "peajes": 0,
+            "costo_peaje_total": pre.get("costo_peaje_total", 0.0),
             "foraneo_activo": foraneo_activo, "viaticos_activos": viaticos_activos,
             "tipo_aloj": tipo_aloj, "noches": noches,
             "adicionales_activos": adicionales_activos, "cantidades_add": cantidades_add,
@@ -1602,18 +1597,17 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     materiales_lista=st.session_state.get("materiales_proyecto",[]),
                     m2_usados=m2_usados, margen_pct=margen_pct, dias=dias, personas=personas,
                     zocalo_activo=zocalo_activo, zocalo_ml=zocalo_ml,
-                    agente_externo_taller=agente_ext_taller, vehiculo_entrega=vehiculo,
-                    km=km, num_peajes=peajes, foraneo_activo=foraneo_activo,
+                    agente_externo_taller=agente_ext_taller, vehiculo_entrega="externo",
+                    km=km, num_peajes=0, foraneo_activo=foraneo_activo,
                     viaticos_activos=viaticos_activos, tipo_aloj=tipo_aloj, noches=noches,
                     adicionales_activos=adicionales_activos, cantidades_add=cantidades_add,
                     etapa=etapa, adicionales_lista=_ADICIONALES_ACT,
                     tipo_proyecto=tipo, nombre_cliente=nombre_cliente,
                     ml_proyecto=_ml_tot,
                     logistica_override=st.session_state.get("logistica_custom"),
-                    vehiculos_custom=fn_get_vehiculos_config(),
                     tarifas_override=st.session_state.get("tarifas_custom"),
                     piezas=_piezas,
-                    costo_peaje_unitario=float(pre.get("costo_peaje_unitario",0.0)),
+                    costo_peaje_unitario=float(pre.get("costo_peaje_total", 0.0)),
                     incluir_hospedaje=bool(pre.get("incluir_hospedaje",True)),
                     tipo_alimentacion=pre.get("tipo_alimentacion","completa"),
                     estrategia_precio=_estrategia_val,
