@@ -1070,10 +1070,6 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     datos_filas = []
     if r.get("nombre_cliente"):
         datos_filas.append(("Para", r["nombre_cliente"]))
-    # ── MOD-2: Resumen automático del campo Proyecto ────────────────────────────
-    # En lugar de mostrar solo "Baño", compone una cadena con tipo + piezas.
-    # Ejemplo: "Baño - Incluye: Lavamanos con poceta, Mueble de baño, Zócalo"
-    # Si supera 80 caracteres se trunca añadiendo "..."
     _piezas_doc = r.get("_estado_guardado", {}).get("piezas", [])
     _tipo_proy  = r.get("tipo_proyecto", "—")
     if _piezas_doc:
@@ -1086,16 +1082,14 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 
     datos_filas += [
         ("Ciudad",        emp.get("ciudad", "Barranquilla")),
-        ("Proyecto",      _resumen_proy),                                    # ← MOD-2
+        ("Proyecto",      _resumen_proy),
         ("Forma de pago", f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra entrega"),
         ("Condiciones",   f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
     ]
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, 7))
 
-    # ③ ALCANCE DEL PROYECTO: Servicios Adicionales (oculta si no hay adicionales)
-    #    Validamos c7_adicionales para no imprimir secciones vacías en el PDF.
-    # Usamos _c7_adicionales que ya fue calculado al inicio de la función
+    # ③ SERVICIOS ADICIONALES (solo si hay adicionales > 0)
     if _c7_adicionales > 0:
         story.append(Spacer(1, 7))
         story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
@@ -1105,9 +1099,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(Spacer(1, 7))
     story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
 
-    # ── Resumen Financiero · Alcance · Términos · Firma ────────────────────
-
-    # ④ RESUMEN FINANCIERO — KeepTogether protege título + tabla + letras
+    # ⑤ RESUMEN FINANCIERO
     fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
         E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
         c7_adicionales=_c7_adicionales,
@@ -1119,15 +1111,15 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
         ]))
-    story.append(KeepTogether(fin_story + [_tbl_letras]))
-    story.append(Spacer(1, 8))
-
-    # ③b INCLUYE / NO INCLUYE — Matriz Dinámica con listas de la UI
     story.append(Spacer(1, 7))
+    story.append(KeepTogether(fin_story + [_tbl_letras]))
+    story.append(Spacer(1, 10))
+
+    # ⑥ ALCANCE DEL PROYECTO (Inclusiones y Exclusiones)
     story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
     story.append(Spacer(1, 8))
 
-    # ⑤ TÉRMINOS Y CONDICIONES — KeepTogether protege el bloque completo
+    # ⑦ TÉRMINOS Y CONDICIONES
     nota_iva = (
         "Propuesta con IVA del 19% (Art. 468 E.T.) — Responsable de IVA — Régimen Común. "
         if incluir_iva else
@@ -1135,11 +1127,13 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     )
     _terminos_story = _seccion_terminos(E, C, nota_iva, anticipo_pct)
     story.append(KeepTogether(_terminos_story))
-    # Bloque contractual de aceptación con KeepTogether
+
+    # ⑧ FIRMA DEL CLIENTE
     story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
-    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
 
+    # ⑨ FOOTER
+    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
     doc.build(story)
     return buf.getvalue()
 
