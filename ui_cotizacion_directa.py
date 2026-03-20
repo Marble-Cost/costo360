@@ -1586,6 +1586,26 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _opciones_estrategia = ["Placa Completa (Tradicional)", "Producto Terminado (Optimizado)"]
         _estrategia_lbl = st.radio("⚖️ Estrategia de Cobro de Material", _opciones_estrategia, index=0, horizontal=True, key="cdir_estrategia_precio")
         _estrategia_val = "optimizado" if "Optimizado" in _estrategia_lbl else "placa_completa"
+        with st.expander("💡 Guía de Cobro: ¿Qué modelo elegir?"):
+            st.markdown("""
+Esta decisión define cómo se calcula el costo del material y quién asume el desperdicio.
+
+**🟦 Opción 1: Placa Completa (Tradicional)**
+El cliente asume el costo de **toda la lámina** de piedra que se necesita comprar para su proyecto, sin importar cuánto sobre.
+* **¿Quién se queda con el sobrante?** El cliente (o se desecha).
+* **¿Cuándo elegirlo?** Para materiales exóticos, costosos o de muy baja rotación. Si compras una lámina rara solo para este cliente y te sobra un pedazo, ese retal es dinero inmovilizado. Cóbrasela completa.
+
+**🟩 Opción 2: Producto Terminado (Optimizado)**
+El cliente paga **únicamente por los metros reales** que se van a instalar en su espacio (más un pequeño porcentaje estándar de seguridad por cortes).
+* **¿Quién se queda con el sobrante?** La empresa. Pasa a formar parte de tu "Banco de Retales".
+* **¿Cuándo elegirlo?** Ideal para materiales de alta rotación (como Quarztone Blanco o Granitos comerciales). Al quedarte con el retal, puedes venderlo en el futuro con un margen de ganancia del 100%. Maximiza la rentabilidad a largo plazo.
+
+| Criterio | Placa Completa | Producto Terminado |
+| :--- | :--- | :--- |
+| **Costo para el cliente** | Más alto (paga todo) | Más competitivo (paga lo que usa) |
+| **Riesgo para la empresa** | Cero (todo está pago) | Bajo (el retal es una inversión) |
+| **Uso estratégico** | Materiales exclusivos | Materiales muy vendidos |
+""")
         if st.session_state.cotizacion and st.session_state.cotizacion.get("estrategia_precio") != _estrategia_val:
             st.session_state["_recalcular_paso4"] = True
 
