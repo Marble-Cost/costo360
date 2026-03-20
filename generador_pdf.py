@@ -778,142 +778,128 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
 
 def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     """
-    BLOQUE 3 — Matriz Dinámica SaaS B2B: Inclusiones (✔) vs Exclusiones (✗).
+    BLOQUE 3 -- Matriz Dinámica SaaS B2B: Inclusiones (✔) vs Exclusiones (✖).
 
-    Implementación 100% Platypus Table:
-      • Paragraph() en cada celda → wrap automático de texto largo garantizado.
-      • Cabeceras centradas: INCLUYE (verde #166534) | NO INCLUYE (rojo #991B1B).
-      • Zebra striping independiente por columna (gris neutro en pares).
-      • Cell padding generoso (8 pt) para eliminar estrés visual.
-      • Cuadrícula con bordes grises claros (#E2E8F0) para legibilidad cruzada.
-      • Fallback a lista vacía si la UI no pasa valores.
+    Reescritura compacta v2:
+      - fontSize=7.5 / leading=9 en todos los estilos de texto.
+      - TOPPADDING / BOTTOMPADDING = 3 en titulo y matriz.
+      - Titulo + Spacer + Tabla agrupados en KeepTogether indivisible.
+      - Retorna lista compatible con story += _seccion_alcance(...).
     """
     _inc = inclusiones if inclusiones is not None else []
     _exc = exclusiones if exclusiones is not None else []
 
-    story = []
+    # -- Paleta de colores --------------------------------------------------
+    _INC_HDR   = colors.HexColor("#166534")   # verde oscuro -- cabecera INCLUYE
+    _EXC_HDR   = colors.HexColor("#991B1B")   # rojo oscuro  -- cabecera NO INCLUYE
+    _ZEBRA     = colors.HexColor("#F3F4F6")   # gris muy suave -- filas pares
+    _GRID      = colors.HexColor("#E2E8F0")   # gris claro   -- cuadricula
+    _WHITE     = colors.HexColor("#FFFFFF")
 
-    # ── Título corporativo B2B de la sección ────────────────────────────────────
-    # Fondo oscuro #1A252C · texto blanco centrado · borde inferior dorado
-    # idéntico al encabezado del documento para coherencia visual total.
-    _tit_style = ParagraphStyle(
-        "_alcance_tit", fontSize=8.5, fontName="Helvetica-Bold",
-        leading=11, textColor=colors.HexColor("#FFFFFF"),
+    # -- Estilos compactos: fontSize=7.5, leading=9 ------------------------
+    _S_TIT = ParagraphStyle(
+        "_alcance_tit", fontSize=7.5, fontName="Helvetica-Bold",
+        leading=9, textColor=colors.HexColor("#FFFFFF"),
         alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
     )
-    _tbl_tit = Table(
-        [[Paragraph("ALCANCE DE LA PROPUESTA — INCLUSIONES Y EXCLUSIONES", _tit_style)]],
-        colWidths=[_AU],
-    )
-    _tbl_tit.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#1A252C")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
-        ("LINEBELOW",     (0, 0), (-1, -1), 2.0, colors.HexColor("#C9A84C")),
-    ]))
-
-    # ── Paleta de la matriz ───────────────────────────────────────────────────
-    _INC_HDR   = colors.HexColor("#166534")   # verde oscuro  — fondo cabecera INCLUYE
-    _EXC_HDR   = colors.HexColor("#991B1B")   # rojo oscuro   — fondo cabecera NO INCLUYE
-    _ZEBRA_INC = colors.HexColor("#F3F4F6")   # gris muy suave — filas pares inclusiones
-    _ZEBRA_EXC = colors.HexColor("#F3F4F6")   # gris muy suave — filas pares exclusiones
-    _GRID      = colors.HexColor("#E2E8F0")   # gris claro    — cuadrícula y bordes
-    _WHITE     = colors.HexColor("#FFFFFF")   # blanco        — filas impares
-
-    # ── Estilos tipográficos locales (8 pt compacto, wrap automático) ─────────
     _S_HDR_INC = ParagraphStyle(
-        "_mhdr_inc", fontSize=8, fontName="Helvetica-Bold",
-        leading=10, textColor=colors.HexColor("#FFFFFF"),
+        "_mhdr_inc", fontSize=7.5, fontName="Helvetica-Bold",
+        leading=9, textColor=colors.HexColor("#FFFFFF"),
         alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
     )
     _S_HDR_EXC = ParagraphStyle(
-        "_mhdr_exc", fontSize=8, fontName="Helvetica-Bold",
-        leading=10, textColor=colors.HexColor("#FFFFFF"),
+        "_mhdr_exc", fontSize=7.5, fontName="Helvetica-Bold",
+        leading=9, textColor=colors.HexColor("#FFFFFF"),
         alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
     )
     _S_INC = ParagraphStyle(
-        "_minc", fontSize=8, fontName="Helvetica",
-        leading=10, textColor=colors.HexColor("#14532D"),   # verde oscuro legible
+        "_minc", fontSize=7.5, fontName="Helvetica",
+        leading=9, textColor=colors.HexColor("#14532D"),
         leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
         wordWrap="LTR",
     )
     _S_EXC = ParagraphStyle(
-        "_mexc", fontSize=8, fontName="Helvetica",
-        leading=10, textColor=colors.HexColor("#7F1D1D"),   # rojo oscuro legible
+        "_mexc", fontSize=7.5, fontName="Helvetica",
+        leading=9, textColor=colors.HexColor("#7F1D1D"),
         leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
         wordWrap="LTR",
     )
     _S_EMPTY = ParagraphStyle(
-        "_mempty", fontSize=8, fontName="Helvetica",
-        leading=10, textColor=colors.HexColor("#FFFFFF"),
+        "_mempty", fontSize=7.5, fontName="Helvetica",
+        leading=9, textColor=colors.HexColor("#FFFFFF"),
         spaceAfter=0, spaceBefore=0,
     )
 
-    # ── Fila 0: cabeceras ────────────────────────────────────────────────────
+    # -- Tabla de titulo corporativo (TOPPADDING / BOTTOMPADDING = 3) ------
+    _tbl_tit = Table(
+        [[Paragraph(
+            "ALCANCE DE LA PROPUESTA — INCLUSIONES Y EXCLUSIONES",
+            _S_TIT,
+        )]],
+        colWidths=[_AU],
+    )
+    _tbl_tit.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#1A252C")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        ("LINEBELOW",     (0, 0), (-1, -1), 1.5, colors.HexColor("#C9A84C")),
+    ]))
+
+    # -- Construccion de filas de datos ------------------------------------
     rows = [[
         Paragraph("✔  INCLUYE",    _S_HDR_INC),
         Paragraph("✖  NO INCLUYE", _S_HDR_EXC),
     ]]
 
-    # ── Filas de datos: cada texto en un Paragraph → wrap automático ──────────
-    _inc_items = _inc if _inc else ["—"]
-    _exc_items = _exc if _exc else ["—"]
+    _inc_items = _inc if _inc else ["--"]
+    _exc_items = _exc if _exc else ["--"]
     _n_data = max(len(_inc_items), len(_exc_items))
 
     for _i in range(_n_data):
         _txt_inc = _inc_items[_i] if _i < len(_inc_items) else ""
         _txt_exc = _exc_items[_i] if _i < len(_exc_items) else ""
-        # Párrafo inclusión: checkmark verde + texto completo
         _p_inc = (
             Paragraph(f"✔  {_txt_inc}", _S_INC)
             if _txt_inc else Paragraph("", _S_EMPTY)
         )
-        # Párrafo exclusión: equis roja + texto completo
         _p_exc = (
             Paragraph(f"✖  {_txt_exc}", _S_EXC)
             if _txt_exc else Paragraph("", _S_EMPTY)
         )
         rows.append([_p_inc, _p_exc])
 
-    # ── Tabla con colWidths fijos de 50% / 50% del ancho útil ────────────────
+    # -- Tabla de matriz: colWidths 50%/50%, TOPPADDING/BOTTOMPADDING = 3 --
     _col_w = _AU * 0.5
     tbl_al = Table(rows, colWidths=[_col_w, _col_w], repeatRows=1)
 
-    # ── Estilos base de la tabla ──────────────────────────────────────────────
     _ts = [
-        # Cabeceras con fondos corporativos
         ("BACKGROUND",    (0, 0), (0, 0),  _INC_HDR),
         ("BACKGROUND",    (1, 0), (1, 0),  _EXC_HDR),
-        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        # Padding compacto para reducir espacio vertical
-        ("TOPPADDING",    (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
-        # Cuadrícula con bordes grises claros
-        ("GRID",          (0, 0), (-1, -1), 0.5, _GRID),
-        ("BOX",           (0, 0), (-1, -1), 1.5, colors.HexColor("#1A252C")),
-        # Separador vertical central más visible
-        ("LINEBEFORE",    (1, 0), (1, -1),  1.0, _GRID),
-        # Filas de datos: blanco por defecto
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING",    (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("GRID",          (0, 0), (-1, -1), 0.4, _GRID),
+        ("BOX",           (0, 0), (-1, -1), 1.2, colors.HexColor("#1A252C")),
+        ("LINEBEFORE",    (1, 0), (1, -1),  0.8, _GRID),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [_WHITE, _WHITE]),
     ]
 
-    # ── Zebra striping independiente por columna (filas pares = índice par) ───
+    # Zebra striping: filas pares gris suave, independiente por columna
     for _ri in range(1, len(rows)):
-        if _ri % 2 == 0:   # filas pares (2, 4, 6…) → gris suave
-            _ts.append(("BACKGROUND", (0, _ri), (0, _ri), _ZEBRA_INC))
-            _ts.append(("BACKGROUND", (1, _ri), (1, _ri), _ZEBRA_EXC))
+        if _ri % 2 == 0:
+            _ts.append(("BACKGROUND", (0, _ri), (0, _ri), _ZEBRA))
+            _ts.append(("BACKGROUND", (1, _ri), (1, _ri), _ZEBRA))
 
     tbl_al.setStyle(TableStyle(_ts))
 
-    # ── Fusión estructural: título + tabla en KeepTogether absoluto ───────────
-    # Agrupa título + pequeño espaciador + tabla en una única unidad indivisible.
-    # Garantiza que nunca quede el título solo al final de una página.
-    bloque_alcance = [_tbl_tit, Spacer(1, 3), tbl_al]
-    return [KeepTogether(bloque_alcance)]
+    # -- Fusion: titulo + espaciador + tabla en KeepTogether absoluto ------
+    bloque_completo = [_tbl_tit, Spacer(1, 3), tbl_al]
+    return [KeepTogether(bloque_completo)]
+
 
 # ── Módulo: Términos y Condiciones ────────────────────────────────────────────
 
