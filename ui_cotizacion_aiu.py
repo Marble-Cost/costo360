@@ -13,7 +13,6 @@
 #       fn_guardar_config,        # (clave, valor) -> None
 #       fn_leer_config,           # (clave, defecto=None) -> Any
 #       fn_clave_borrador_aiu,    # () -> str
-#       fn_get_vehiculos_config,  # () -> dict
 #       fn_sp_set,                # (key, value) -> None
 #       fn_sp_agregar_item_aiu,   # () -> None
 #       fn_sp_eliminar_item_aiu,  # (idx) -> None
@@ -28,7 +27,7 @@ from datetime import date
 import streamlit as st
 
 from calculos import calcular_aiu, cop
-from parametros import VEHICULOS, ALOJAMIENTO, AIU_DEFAULTS
+from parametros import ALOJAMIENTO, AIU_DEFAULTS
 
 
 # ── UI helpers ────────────────────────────────────────────────────────────────
@@ -78,7 +77,6 @@ def _ui_cotizacion_aiu(
     fn_guardar_config,
     fn_leer_config,
     fn_clave_borrador_aiu,
-    fn_get_vehiculos_config,
     fn_sp_set,
     fn_sp_agregar_item_aiu,
     fn_sp_eliminar_item_aiu,
@@ -546,12 +544,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
             st.markdown("**Logistica**")
             _al1, _al2 = st.columns(2)
             with _al1:
-                _veh_aiu_keys    = list(VEHICULOS.keys())
-                _veh_aiu_pre     = st.session_state.pre.get("vehiculo_entrega", "frontier")
-                _veh_aiu_lbl_pre = next((k for k, v in VEHICULOS.items() if v == _veh_aiu_pre), _veh_aiu_keys[0])
-                _veh_aiu_sel     = st.pills("Vehiculo", _veh_aiu_keys, default=_veh_aiu_lbl_pre, key="aiu_veh_pills")
-                vehiculo_aiu     = VEHICULOS.get(_veh_aiu_sel if _veh_aiu_sel else _veh_aiu_lbl_pre, "frontier")
-                agente_aiu       = st.toggle(
+                agente_aiu = st.toggle(
                     "Agente externo trae material",
                     value=bool(st.session_state.pre.get("agente_externo_taller", False)),
                     key="aiu_agente",
@@ -583,20 +576,18 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
                 )
                 km_aiu = st.number_input("Km exactos (Ida)", min_value=0.0, value=_km_aiu_val_init, step=1.0, key="aiu_km")
 
-                _pj_aiu_opts  = ["0", "1", "2", "3", "4+"]
-                _pj_aiu_pre   = int(st.session_state.pre.get("peajes", 0))
-                _pj_aiu_pre_s = (
-                    str(_pj_aiu_pre)
-                    if str(_pj_aiu_pre) in _pj_aiu_opts
-                    else ("4+" if _pj_aiu_pre > 3 else _pj_aiu_opts[0])
-                )
-                _pj_aiu_sel = st.pills("Peajes ida+vuelta", _pj_aiu_opts, default=_pj_aiu_pre_s, key="aiu_pj_pills")
-                _pj_aiu_sel = _pj_aiu_sel if _pj_aiu_sel else _pj_aiu_pre_s
-                peajes_aiu  = (
-                    int(_pj_aiu_sel)
-                    if (_pj_aiu_sel and _pj_aiu_sel != "4+")
-                    else st.number_input("Peajes (exacto)", min_value=0, value=_pj_aiu_pre, step=1, key="aiu_pj_custom")
-                )
+            _peaje_aiu_pre = float(st.session_state.pre.get("costo_peaje_total", st.session_state.pre.get("costo_peaje_unitario", 0.0)))
+            peajes_aiu_total = st.number_input(
+                "💰 Costo Total de Peajes de la Ruta ($)",
+                min_value=0,
+                value=int(_peaje_aiu_pre),
+                step=500,
+                format="%d",
+                key="aiu_peaje_total",
+                help="Ingresa el valor exacto en pesos que pagas en peajes (ida + vuelta). Ej: $39.000 si hay 2 peajes de $19.500.",
+            )
+            if peajes_aiu_total > 0:
+                st.caption(f"Total peajes incluido: **${int(peajes_aiu_total):,}**".replace(",","."))
 
         with st.container(border=True):
             st.markdown("**Proyecto fuera de Barranquilla?**")
@@ -648,9 +639,10 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
             "pct_i":                 pct_i,
             "pct_u":                 pct_u,
             "incluir_iva":           incluir_iva_aiu,
-            "vehiculo_entrega":      vehiculo_aiu,
+            "vehiculo_entrega":      "externo",
             "km":                    km_aiu,
-            "peajes":                peajes_aiu,
+            "peajes":                0,
+            "costo_peaje_total":     peajes_aiu_total,
             "agente_externo_taller": agente_aiu,
             "foraneo_activo":        foraneo_aiu,
             "tipo_aloj":             tipo_aloj_aiu,
@@ -681,9 +673,10 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
         pct_a         = st.session_state.pre.get("pct_a",  AIU_DEFAULTS["a"])
         pct_i         = st.session_state.pre.get("pct_i",  AIU_DEFAULTS["i"])
         pct_u         = st.session_state.pre.get("pct_u",  AIU_DEFAULTS["u"])
-        vehiculo_aiu  = st.session_state.pre.get("vehiculo_entrega", "frontier")
+        vehiculo_aiu  = "externo"
         km_aiu        = st.session_state.pre.get("km",     10.0)
-        peajes_aiu    = st.session_state.pre.get("peajes", 0)
+        peajes_aiu    = 0
+        peajes_aiu_total = float(st.session_state.pre.get("costo_peaje_total", 0.0))
         agente_aiu    = st.session_state.pre.get("agente_externo_taller", False)
         foraneo_aiu   = st.session_state.pre.get("foraneo_activo",       False)
         tipo_aloj_aiu = st.session_state.pre.get("tipo_aloj",  "pueblo")
@@ -699,8 +692,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
                     incluir_iva=_current_iva,
                     logistica_override=st.session_state.get("logistica_custom"),
                     viaticos_override=st.session_state.get("viaticos_custom"),
-                    vehiculos_custom=fn_get_vehiculos_config(),
-                    costo_peaje_unitario=float(st.session_state.pre.get("costo_peaje_unitario", 0.0)),
+                    costo_peaje_unitario=peajes_aiu_total,
                 )
                 res_aiu.update({
                     "tipo_proyecto":   "Licitacion AIU",
@@ -717,8 +709,8 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
                     "aiu_items":             st.session_state.aiu_items,
                     "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u,
                     "tipo_proyecto":         "Licitacion AIU",
-                    "vehiculo_entrega":      vehiculo_aiu,
-                    "km": km_aiu, "peajes": peajes_aiu,
+                    "vehiculo_entrega":      "externo",
+                    "km": km_aiu, "peajes": 0, "costo_peaje_total": peajes_aiu_total,
                     "agente_externo_taller": agente_aiu,
                     "foraneo_activo":        foraneo_aiu,
                     "tipo_aloj":             tipo_aloj_aiu,
