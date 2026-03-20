@@ -770,7 +770,7 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
         ("BOX",            (0,0), (-1,-1), 1.0, C["border"]),
         ("LINEBELOW",      (0,0), (-1,-2), 0.3, C["border"]),
     ]))
-    story.append(KeepTogether([tbl_fin]))
+    story.append(tbl_fin)
     return story, precio_final_doc, anticipo_val
 
 
@@ -939,7 +939,7 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
     for item in condiciones_items:
         bloques.append(Paragraph(f"• {item}", _viñeta_tc))
 
-    story.append(KeepTogether(bloques))
+    story += bloques
     return story
 
 
@@ -1110,7 +1110,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
 
     # ── Espaciador natural — el Resumen Financiero fluye en la misma página ──
-    story.append(Spacer(1, 0.8 * cm))
+    story.append(Spacer(1, 8))
 
     # ── Resumen Financiero · Términos · Firma ─────────────────────────────────
 
