@@ -807,14 +807,12 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     )
     _tbl_tit.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#1A252C")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING",   (0, 0), (-1, -1), 12),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
         ("LINEBELOW",     (0, 0), (-1, -1), 2.0, colors.HexColor("#C9A84C")),
     ]))
-    story.append(_tbl_tit)
-    story.append(Spacer(1, 4))
 
     # ── Paleta de la matriz ───────────────────────────────────────────────────
     _INC_HDR   = colors.HexColor("#166534")   # verde oscuro  — fondo cabecera INCLUYE
@@ -824,32 +822,32 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     _GRID      = colors.HexColor("#E2E8F0")   # gris claro    — cuadrícula y bordes
     _WHITE     = colors.HexColor("#FFFFFF")   # blanco        — filas impares
 
-    # ── Estilos tipográficos locales (9 pt, sin sangría, wrap automático) ─────
+    # ── Estilos tipográficos locales (8 pt compacto, wrap automático) ─────────
     _S_HDR_INC = ParagraphStyle(
-        "_mhdr_inc", fontSize=9, fontName="Helvetica-Bold",
-        leading=12, textColor=colors.HexColor("#FFFFFF"),
+        "_mhdr_inc", fontSize=8, fontName="Helvetica-Bold",
+        leading=10, textColor=colors.HexColor("#FFFFFF"),
         alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
     )
     _S_HDR_EXC = ParagraphStyle(
-        "_mhdr_exc", fontSize=9, fontName="Helvetica-Bold",
-        leading=12, textColor=colors.HexColor("#FFFFFF"),
+        "_mhdr_exc", fontSize=8, fontName="Helvetica-Bold",
+        leading=10, textColor=colors.HexColor("#FFFFFF"),
         alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
     )
     _S_INC = ParagraphStyle(
-        "_minc", fontSize=9, fontName="Helvetica",
-        leading=13, textColor=colors.HexColor("#14532D"),   # verde oscuro legible
+        "_minc", fontSize=8, fontName="Helvetica",
+        leading=10, textColor=colors.HexColor("#14532D"),   # verde oscuro legible
         leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
         wordWrap="LTR",
     )
     _S_EXC = ParagraphStyle(
-        "_mexc", fontSize=9, fontName="Helvetica",
-        leading=13, textColor=colors.HexColor("#7F1D1D"),   # rojo oscuro legible
+        "_mexc", fontSize=8, fontName="Helvetica",
+        leading=10, textColor=colors.HexColor("#7F1D1D"),   # rojo oscuro legible
         leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
         wordWrap="LTR",
     )
     _S_EMPTY = ParagraphStyle(
-        "_mempty", fontSize=9, fontName="Helvetica",
-        leading=13, textColor=colors.HexColor("#FFFFFF"),
+        "_mempty", fontSize=8, fontName="Helvetica",
+        leading=10, textColor=colors.HexColor("#FFFFFF"),
         spaceAfter=0, spaceBefore=0,
     )
 
@@ -889,9 +887,9 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
         ("BACKGROUND",    (0, 0), (0, 0),  _INC_HDR),
         ("BACKGROUND",    (1, 0), (1, 0),  _EXC_HDR),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-        # Padding generoso para legibilidad sin estrés visual
-        ("TOPPADDING",    (0, 0), (-1, -1), 9),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        # Padding compacto para reducir espacio vertical
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING",   (0, 0), (-1, -1), 10),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
         # Cuadrícula con bordes grises claros
@@ -910,8 +908,12 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
             _ts.append(("BACKGROUND", (1, _ri), (1, _ri), _ZEBRA_EXC))
 
     tbl_al.setStyle(TableStyle(_ts))
-    story.append(KeepTogether([tbl_al]))
-    return story
+
+    # ── Fusión estructural: título + tabla en KeepTogether absoluto ───────────
+    # Agrupa título + pequeño espaciador + tabla en una única unidad indivisible.
+    # Garantiza que nunca quede el título solo al final de una página.
+    bloque_alcance = [_tbl_tit, Spacer(1, 3), tbl_al]
+    return [KeepTogether(bloque_alcance)]
 
 # ── Módulo: Términos y Condiciones ────────────────────────────────────────────
 
