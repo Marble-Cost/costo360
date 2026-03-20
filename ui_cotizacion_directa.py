@@ -244,13 +244,13 @@ def _ui_cotizacion_directa(
                         _m0 = _mats_sb[0]
                         _cat_sb  = _m0.get("cat", "Mármol")
                         _ref_sb  = _m0.get("ref", "")
-                        _pm2_sb  = float(_m0.get("precio_m2", 0))
-                        _area_sb = float(_m0.get("area_placa", 1.0))
+                        _pm2_sb  = float(_m0.get("precio_m2") or 0)
+                        _area_sb = float(_m0.get("area_placa") or 1.0)
                     else:
                         _cat_sb  = _pre_sb.get("categoria", "Mármol")
                         _ref_sb  = _pre_sb.get("referencia", "")
-                        _pm2_sb  = float(_pre_sb.get("precio_m2", 0))
-                        _area_sb = float(_pre_sb.get("area_placa", 1.0))
+                        _pm2_sb  = float(_pre_sb.get("precio_m2") or 0)
+                        _area_sb = float(_pre_sb.get("area_placa") or 1.0)
                     _add_sb      = fn_get_adicionales()
                     _cant_add_sb = _pre_sb.get("cantidades_add", [0] * len(_add_sb))
                     while len(_cant_add_sb) < len(_add_sb):
@@ -263,22 +263,22 @@ def _ui_cotizacion_directa(
                             categoria=_cat_sb, referencia=_ref_sb, precio_m2=_pm2_sb,
                             area_placa_comprada=_area_sb,
                             materiales_lista=_mats_sb,
-                            m2_real=float(_pre_sb.get("m2_proyecto", _area_sb)),
-                            m2_cortados=float(_pre_sb.get("m2_cortados_input", 0)),
-                            m2_usados=float(_pre_sb.get("m2_usados", _area_sb)),
-                            margen_pct=float(_pre_sb.get("margen_pct", 40)),
-                            dias=int(_pre_sb.get("dias_obra", 1)),
-                            personas=int(_pre_sb.get("personas", 2)),
+                            m2_real=float(_pre_sb.get("m2_proyecto") or _area_sb),
+                            m2_cortados=float(_pre_sb.get("m2_cortados_input") or 0),
+                            m2_usados=float(_pre_sb.get("m2_usados") or _area_sb),
+                            margen_pct=float(_pre_sb.get("margen_pct") or 40),
+                            dias=int(_pre_sb.get("dias_obra") or 1),
+                            personas=int(_pre_sb.get("personas") or 2),
                             zocalo_activo=bool(_pre_sb.get("zocalo_activo", False)),
-                            zocalo_ml=float(_pre_sb.get("zocalo_ml", 0)),
+                            zocalo_ml=float(_pre_sb.get("zocalo_ml") or 0),
                             agente_externo_taller=bool(_pre_sb.get("agente_externo_taller", False)),
                             vehiculo_entrega="externo",
-                            km=float(_pre_sb.get("km", 10)),
+                            km=float(_pre_sb.get("km") or 10),
                             num_peajes=0,
                             foraneo_activo=bool(_pre_sb.get("foraneo_activo", False)),
                             viaticos_activos=bool(_pre_sb.get("viaticos_activos", True)),
                             tipo_aloj=_pre_sb.get("tipo_aloj", "pueblo"),
-                            noches=int(_pre_sb.get("noches", 0)),
+                            noches=int(_pre_sb.get("noches") or 0),
                             adicionales_activos=bool(_pre_sb.get("adicionales_activos", False)),
                             cantidades_add=_cant_add_sb,
                             etapa=_etapa_sb,
@@ -286,10 +286,10 @@ def _ui_cotizacion_directa(
                             tipo_proyecto=_pre_sb.get("tipo_proyecto", ""),
                             nombre_cliente=_nombre_atajo,
                             piezas=_pre_sb.get("piezas", []),
-                            ml_proyecto=float(_pre_sb.get("ml_proyecto", 0)),
+                            ml_proyecto=float(_pre_sb.get("ml_proyecto") or 0),
                             logistica_override=st.session_state.get("logistica_custom"),
                             tarifas_override=st.session_state.get("tarifas_custom"),
-                            costo_peaje_unitario=float(_pre_sb.get("costo_peaje_total", 0.0)),
+                            costo_peaje_unitario=float(_pre_sb.get("costo_peaje_total") or 0.0),
                             incluir_iva=_pre_sb.get("incluir_iva", False),
                         )
                         _r_atajo["_estado_guardado"] = _pre_sb
@@ -764,14 +764,14 @@ def _ui_cotizacion_directa(
                 with colc:
                     precio_m2_m = st.number_input(
                         "Precio por m² (COP)", min_value=10_000, max_value=5_000_000,
-                        value=int(mat_item.get("precio_m2", 220_000)), step=1_000, key=f"mpm2_{midx}",
+                        value=int(mat_item.get("precio_m2") or 220_000), step=1_000, key=f"mpm2_{midx}",
                     )
                     st.markdown(f"<div style='margin-top:-12px;margin-bottom:10px;font-size:0.85rem;color:#1B5FA8;font-weight:600;'>💰 Equivalencia: {cop(precio_m2_m)}</div>", unsafe_allow_html=True)
                 with cold:
-                    _area_leg   = float(mat_item.get("area_placa", 5.94))
-                    _cant_prev  = int(mat_item.get("placas_cant", 1))
-                    _largo_prev = float(mat_item.get("placas_largo", round(_area_leg / 0.60, 2)))
-                    _ancho_prev = float(mat_item.get("placas_ancho", 0.60))
+                    _area_leg   = float(mat_item.get("area_placa") or 5.94)
+                    _cant_prev  = int(mat_item.get("placas_cant") or 1)
+                    _largo_prev = float(mat_item.get("placas_largo") or round(_area_leg / 0.60, 2))
+                    _ancho_prev = float(mat_item.get("placas_ancho") or 0.60)
                     st.markdown("<div style='font-size:0.8rem;font-weight:600;opacity:0.7;margin-bottom:4px'>Dimensiones de la lámina</div>", unsafe_allow_html=True)
                     _pcol1, _pcol2, _pcol3 = st.columns(3)
                     with _pcol1:
@@ -1027,17 +1027,17 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                         tipo_idx     = tipos_superficie.index(pieza.get("ancho_tipo", tipos_superficie[0])) if pieza.get("ancho_tipo") in tipos_superficie else 0
                         ancho_tipo_p = st.selectbox("Tipo de elemento", tipos_superficie, index=tipo_idx, key=f"ptip_{idx}", help=ANCHOS_ESTANDAR.get(pieza.get("ancho_tipo", tipos_superficie[0]), {}).get("desc", ""))
                     with _col_ml:
-                        ml_p = st.number_input("Largo (ML)", value=float(pieza.get("ml", 1.0)), min_value=0.01, step=0.1, key=f"pml_{idx}")
+                        ml_p = st.number_input("Largo (ML)", value=float(pieza.get("ml") or 1.0), min_value=0.01, step=0.1, key=f"pml_{idx}")
                     with _col_cant:
-                        cantidad_p = st.number_input("Cantidad", value=int(pieza.get("cantidad", 1)), min_value=1, max_value=100, step=1, key=f"pcant_{idx}")
+                        cantidad_p = st.number_input("Cantidad", value=int(pieza.get("cantidad") or 1), min_value=1, max_value=100, step=1, key=f"pcant_{idx}")
 
                     if ancho_tipo_p == "Personalizado":
                         st.text_input("Nombre personalizado (aparece en el PDF)", value=st.session_state.get(f"pcustom_{idx}", pieza.get("nombre_personalizado","")), key=f"pcustom_{idx}", placeholder='Ej: "Mesón de lavamanos"')
 
                     _col_ancho, _col_m2 = st.columns(2)
                     with _col_ancho:
-                        ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom", 0.60)
-                        ancho_p   = st.number_input("Ancho (m)", value=float(ancho_def), min_value=0.01, step=0.01, key=f"panc_{idx}")
+                        ancho_def = ANCHOS_ESTANDAR[ancho_tipo_p]["ancho"] or pieza.get("ancho_custom") or 0.60
+                        ancho_p   = st.number_input("Ancho (m)", value=float(ancho_def or 0.60), min_value=0.01, step=0.01, key=f"panc_{idx}")
 
                     _auditor_largo = ml_p > 3.5
                     _auditor_ancho = ancho_p > 2.2
@@ -1068,16 +1068,17 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     if _mats_paso1:
                         def _fmt_lote(i, _mats=_mats_paso1):
                             _m    = _mats[i]
-                            _ll   = float(_m.get("placas_largo", _m.get("largo", 0.0)))
-                            _la   = float(_m.get("placas_ancho", _m.get("ancho", 0.0)))
-                            _lc   = int(_m.get("placas_cant", 1))
-                            _area = float(_m.get("area_placa", _ll * _la * _lc))
+                            _ll   = float(_m.get("placas_largo") or _m.get("largo") or 0.0)
+                            _la   = float(_m.get("placas_ancho") or _m.get("ancho") or 0.0)
+                            _lc   = int(_m.get("placas_cant") or 1)
+                            _area = float(_m.get("area_placa") or (_ll * _la * _lc))
                             _ref  = _m.get("ref") or _m.get("cat", "")
                             _cat  = _m.get("cat", "")
                             _dims = f"{_ll:.2f}m × {_la:.2f}m" if _ll > 0 and _la > 0 else "sin dimensiones"
                             _sfx  = f" ×{_lc}" if _lc > 1 else ""
                             return f"[Lote #{i+1}] {_cat} — {_ref}{_sfx} ({_dims}) | {_area:.2f} m²"
-                        _lote_prev    = int(pieza.get("id_lote_origen", 0))
+                        _lote_val     = pieza.get("id_lote_origen")
+                        _lote_prev    = int(_lote_val) if _lote_val is not None and _lote_val != "" else 0
                         _lote_idx_def = _lote_prev if _lote_prev < len(_mats_paso1) else 0
                         _sel_lote_idx = st.selectbox("🪨 Asignar a la placa (Lote físico)", list(range(len(_mats_paso1))), index=_lote_idx_def, format_func=_fmt_lote, key=f"pmat_{idx}")
                         _mat_sel      = _mats_paso1[_sel_lote_idx]
@@ -1098,10 +1099,10 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                             _zoc_d = st.checkbox(f"Lateral Der. ({ancho_p:.2f} m)", value=bool(pieza.get("zoc_der",False)), key=f"zoc_d_{idx}")
                         _hay_zocalo = _zoc_t or _zoc_i or _zoc_d
                         if _hay_zocalo:
-                            _altura_pre = float(pieza.get("altura_zocalo_cm", 7.0))
+                            _altura_pre = float(pieza.get("altura_zocalo_cm") or 7.0)
                             _altura_zoc = st.number_input("Altura del zócalo (cm)", min_value=1.0, max_value=50.0, value=_altura_pre, step=0.5, key=f"zoc_h_{idx}")
                         else:
-                            _altura_zoc = float(pieza.get("altura_zocalo_cm", 7.0))
+                            _altura_zoc = float(pieza.get("altura_zocalo_cm") or 7.0)
                         _ml_zoc_pieza = (
                             (ml_p * cantidad_p if _zoc_t else 0.0) +
                             (ancho_p * cantidad_p if _zoc_i else 0.0) +
@@ -1160,9 +1161,9 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         if _mats_rv:
             st.markdown("<p style='font-size:0.72rem;font-weight:700;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px 0'>🪨 Estado de consumo por lote</p>", unsafe_allow_html=True)
             for _li, _lm in enumerate(_mats_rv):
-                _ll = float(_lm.get("placas_largo", _lm.get("largo",0.0)))
-                _la = float(_lm.get("placas_ancho", _lm.get("ancho",0.0)))
-                _lc = int(_lm.get("placas_cant",1))
+                _ll = float(_lm.get("placas_largo") or _lm.get("largo") or 0.0)
+                _la = float(_lm.get("placas_ancho") or _lm.get("ancho") or 0.0)
+                _lc = int(_lm.get("placas_cant") or 1)
                 _area_lote = _ll * _la * _lc if _ll > 0 and _la > 0 else float(_lm.get("area_placa",0.0))
                 _piezas_lote = [p for p in _piezas_rv if p.get("id_lote_origen") == _li]
                 _consumido_base = sum(float(p.get("ml", 0)) * float(p.get("ancho_custom",0.60)) for p in _piezas_lote)
