@@ -265,6 +265,16 @@ def _estilos(C):
                                        leading=11, textColor=colors.HexColor("#1C2B3A")),
         "firma_campo": ParagraphStyle("firma_campo", fontSize=8, fontName="Helvetica",
                                        leading=12, textColor=colors.HexColor("#1C2B3A")),
+        "matriz_inc":     ParagraphStyle("matriz_inc", fontSize=7.5, fontName="Helvetica-Bold",
+                                          leading=9, textColor=colors.HexColor("#FFFFFF")),
+        "matriz_exc":     ParagraphStyle("matriz_exc", fontSize=7.5, fontName="Helvetica-Bold",
+                                          leading=9, textColor=colors.HexColor("#FFFFFF")),
+        "matriz_inc_row": ParagraphStyle("matriz_inc_row", fontSize=7, fontName="Helvetica",
+                                          leading=10, textColor=colors.HexColor("#1C2B3A"),
+                                          leftIndent=14, firstLineIndent=-14),
+        "matriz_exc_row": ParagraphStyle("matriz_exc_row", fontSize=7, fontName="Helvetica",
+                                          leading=10, textColor=colors.HexColor("#1C2B3A"),
+                                          leftIndent=14, firstLineIndent=-14),
     }
 
 
@@ -444,9 +454,9 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
 
             pu = precio_p / _qty_base if _qty_base > 0 else 0
 
-            # ── Descripción enriquecida con referencia del material ────
+            # ── Descripción comercial: "Espacio en Material" ─────────
             _nombre_pieza = p.get("nombre", "—")
-            _desc_enriq   = f"{_nombre_pieza}. REF: {_nombres_mat}"
+            _desc_enriq   = f"{_nombre_pieza} en {_nombres_mat}"
 
             filas.append([
                 Paragraph(str(idx_p),                               E["cell_c"]),
@@ -762,46 +772,71 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
     return story, precio_final_doc, anticipo_val
 
 
-# ── Módulo: Alcance ───────────────────────────────────────────────────────────
+# ── Módulo: Matriz Dinámica de Inclusiones / Exclusiones ────────────────────
 
-def _seccion_alcance(E, C):
+def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
+    """
+    BLOQUE 3 — Matriz Dinámica: Inclusiones (✔) vs Exclusiones (✗).
+    Recibe las listas ya filtradas por el usuario desde la UI.
+    Tabla a dos columnas con encabezados oscuros corporativos.
+    """
+    from parametros import INCLUSIONES_BASE, EXCLUSIONES_BASE
+    _inc = inclusiones if inclusiones is not None else INCLUSIONES_BASE
+    _exc = exclusiones if exclusiones is not None else EXCLUSIONES_BASE
+
     story = []
-    story += _seccion_header("Alcance de la Propuesta", E)
-    incluye = [
-        "Toma de rectificación de medidas finales en obra previa a producción",
-        "Transporte especializado y acarreo cuidadoso del material hasta el punto de instalación",
-        "Garantía de 12 meses sobre mano de obra de instalación",
-        "Limpieza técnica final del área de trabajo y retiro de desperdicios de material",
-        "Diseño y modelado 3D fotorrealista para previsualización de acabados pétreos",
-        "Aplicación de tratamiento protector inicial (sellador hidrófugo/oleófugo) post-instalación",
-    ]
-    no_incluye = [
-        "Conexiones finales (grifería, electrodomésticos, instalaciones hidráulicas o eléctricas)",
-        "Trabajos previos de obra civil (demoliciones, adecuación de muros, resanes o pintura)",
-        "Suministro de materiales de obra gris ajenos a la instalación del proyecto",
-        "Suministro o reparación de muebles, ebanistería o estructuras de soporte",
-    ]
-    col_inc  = [[Paragraph("INCLUYE",    E["inc_hdr"])]] + [[Paragraph(f"\u2714  {t}", E["inc_row"])] for t in incluye]
-    col_ninc = [[Paragraph("NO INCLUYE", E["inc_hdr"])]] + [[Paragraph(f"\u2716  {t}", E["inc_row"])] for t in no_incluye]
-    max_r = max(len(col_inc), len(col_ninc))
-    while len(col_inc)  < max_r: col_inc.append([""])
-    while len(col_ninc) < max_r: col_ninc.append([""])
-    rows = [[col_inc[i][0], col_ninc[i][0]] for i in range(max_r)]
+    story += _seccion_header("Alcance de la Propuesta — Inclusiones y Exclusiones", E)
+
+    _INC_BG    = colors.HexColor("#166534")   # verde oscuro — cabecera INCLUYE
+    _EXC_BG    = colors.HexColor("#991B1B")   # rojo oscuro  — cabecera NO INCLUYE
+    _INC_ROW_A = colors.HexColor("#F0FDF4")   # verde muy suave zebra A
+    _INC_ROW_B = colors.HexColor("#DCFCE7")   # verde suave  zebra B
+    _EXC_ROW_A = colors.HexColor("#FFF5F5")   # rojo muy suave zebra A
+    _EXC_ROW_B = colors.HexColor("#FEE2E2")   # rojo suave   zebra B
+
+    # Construir columnas: [encabezado] + [filas de texto]
+    col_inc = [Paragraph("✔  INCLUYE",    E["matriz_inc"])]
+    col_exc = [Paragraph("✖  NO INCLUYE", E["matriz_exc"])]
+
+    for t in (_inc or ["-"]):
+        col_inc.append(Paragraph(f"✔  {t}", E["matriz_inc_row"]))
+    for t in (_exc or ["-"]):
+        col_exc.append(Paragraph(f"✖  {t}", E["matriz_exc_row"]))
+
+    # Igualar número de filas rellenando con texto vacío
+    max_r = max(len(col_inc), len(col_exc))
+    while len(col_inc) < max_r:
+        col_inc.append(Paragraph("", E["matriz_inc_row"]))
+    while len(col_exc) < max_r:
+        col_exc.append(Paragraph("", E["matriz_exc_row"]))
+
+    rows = [[col_inc[i], col_exc[i]] for i in range(max_r)]
+
     tbl_al = Table(rows, colWidths=[_AU * 0.5, _AU * 0.5], repeatRows=1)
-    tbl_al.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0), (-1,0),  C["header_dark"]),
-        ("ROWBACKGROUNDS",(0,1), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
-        ("TOPPADDING",    (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 4),
-        ("LEFTPADDING",   (0,0), (-1,-1), 8),
-        ("RIGHTPADDING",  (0,0), (-1,-1), 8),
-        ("LINEBELOW",     (0,0), (-1,-1), 0.3, C["border"]),
-        ("VALIGN",        (0,0), (-1,-1), "TOP"),
-        ("BOX",           (0,0), (-1,-1), 0.5, C["border"]),
-    ]))
+
+    # Estilos base
+    _ts = [
+        ("BACKGROUND",    (0, 0), (0, 0),  _INC_BG),
+        ("BACKGROUND",    (1, 0), (1, 0),  _EXC_BG),
+        ("TOPPADDING",    (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
+        ("LINEBELOW",     (0, 0), (-1, -1), 0.3, C["border"]),
+        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
+        ("BOX",           (0, 0), (-1, -1), 0.5, C["border"]),
+        ("LINEBETWEEN",   (0, 0), (1, -1),  0.5, C["border"]),
+    ]
+    # Zebra striping independiente por columna
+    for _row_i in range(1, max_r):
+        _bg_inc = _INC_ROW_A if _row_i % 2 == 1 else _INC_ROW_B
+        _bg_exc = _EXC_ROW_A if _row_i % 2 == 1 else _EXC_ROW_B
+        _ts.append(("BACKGROUND", (0, _row_i), (0, _row_i), _bg_inc))
+        _ts.append(("BACKGROUND", (1, _row_i), (1, _row_i), _bg_exc))
+
+    tbl_al.setStyle(TableStyle(_ts))
     story.append(tbl_al)
     return story
-
 
 # ── Módulo: Términos y Condiciones ────────────────────────────────────────────
 
@@ -895,7 +930,8 @@ def _bloque_firma_cliente(E, C):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
-                            logo_bytes=None, incluir_iva=True):
+                            logo_bytes=None, incluir_iva=True,
+                            inclusiones=None, exclusiones=None):
     if numero is None:
         numero = f"COT-{_hoy().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
@@ -1006,9 +1042,9 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(Spacer(1, 7))
     story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
 
-    # ③b INCLUYE / NO INCLUYE — en Página 1 para llenarla de valor
+    # ③b INCLUYE / NO INCLUYE — Matriz Dinámica con listas de la UI
     story.append(Spacer(1, 7))
-    story += _seccion_alcance(E, C)
+    story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
 
     # ══════════════════════════════════════════════════════════════════
     # SALTO DE PÁGINA — Página 2 inicia con Resumen Financiero
