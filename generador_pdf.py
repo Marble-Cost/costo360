@@ -265,16 +265,18 @@ def _estilos(C):
                                        leading=11, textColor=colors.HexColor("#1C2B3A")),
         "firma_campo": ParagraphStyle("firma_campo", fontSize=8, fontName="Helvetica",
                                        leading=12, textColor=colors.HexColor("#1C2B3A")),
-        "matriz_inc":     ParagraphStyle("matriz_inc", fontSize=7.5, fontName="Helvetica-Bold",
-                                          leading=9, textColor=colors.HexColor("#FFFFFF")),
-        "matriz_exc":     ParagraphStyle("matriz_exc", fontSize=7.5, fontName="Helvetica-Bold",
-                                          leading=9, textColor=colors.HexColor("#FFFFFF")),
-        "matriz_inc_row": ParagraphStyle("matriz_inc_row", fontSize=7, fontName="Helvetica",
-                                          leading=10, textColor=colors.HexColor("#1C2B3A"),
-                                          leftIndent=14, firstLineIndent=-14),
-        "matriz_exc_row": ParagraphStyle("matriz_exc_row", fontSize=7, fontName="Helvetica",
-                                          leading=10, textColor=colors.HexColor("#1C2B3A"),
-                                          leftIndent=14, firstLineIndent=-14),
+        "matriz_inc":     ParagraphStyle("matriz_inc", fontSize=9, fontName="Helvetica-Bold",
+                                          leading=12, textColor=colors.HexColor("#FFFFFF"),
+                                          alignment=TA_CENTER, spaceAfter=0),
+        "matriz_exc":     ParagraphStyle("matriz_exc", fontSize=9, fontName="Helvetica-Bold",
+                                          leading=12, textColor=colors.HexColor("#FFFFFF"),
+                                          alignment=TA_CENTER, spaceAfter=0),
+        "matriz_inc_row": ParagraphStyle("matriz_inc_row", fontSize=9, fontName="Helvetica",
+                                          leading=13, textColor=colors.HexColor("#1C2B3A"),
+                                          leftIndent=0, firstLineIndent=0, spaceAfter=0),
+        "matriz_exc_row": ParagraphStyle("matriz_exc_row", fontSize=9, fontName="Helvetica",
+                                          leading=13, textColor=colors.HexColor("#1C2B3A"),
+                                          leftIndent=0, firstLineIndent=0, spaceAfter=0),
     }
 
 
@@ -776,9 +778,15 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
 
 def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     """
-    BLOQUE 3 — Matriz Dinámica: Inclusiones (✔) vs Exclusiones (✗).
-    Recibe las listas ya filtradas por el usuario desde la UI.
-    Tabla a dos columnas con encabezados oscuros corporativos.
+    BLOQUE 3 — Matriz Dinámica SaaS B2B: Inclusiones (✔) vs Exclusiones (✗).
+
+    Implementación 100% Platypus Table:
+      • Paragraph() en cada celda → wrap automático de texto largo garantizado.
+      • Cabeceras centradas: INCLUYE (verde #166534) | NO INCLUYE (rojo #991B1B).
+      • Zebra striping independiente por columna (gris neutro en pares).
+      • Cell padding generoso (8 pt) para eliminar estrés visual.
+      • Cuadrícula con bordes grises claros (#E2E8F0) para legibilidad cruzada.
+      • Fallback a lista vacía si la UI no pasa valores.
     """
     _inc = inclusiones if inclusiones is not None else []
     _exc = exclusiones if exclusiones is not None else []
@@ -786,52 +794,98 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     story = []
     story += _seccion_header("Alcance de la Propuesta — Inclusiones y Exclusiones", E)
 
-    _INC_BG    = colors.HexColor("#166534")   # verde oscuro — cabecera INCLUYE
-    _EXC_BG    = colors.HexColor("#991B1B")   # rojo oscuro  — cabecera NO INCLUYE
-    _INC_ROW_A = colors.HexColor("#F0FDF4")   # verde muy suave zebra A
-    _INC_ROW_B = colors.HexColor("#DCFCE7")   # verde suave  zebra B
-    _EXC_ROW_A = colors.HexColor("#FFF5F5")   # rojo muy suave zebra A
-    _EXC_ROW_B = colors.HexColor("#FEE2E2")   # rojo suave   zebra B
+    # ── Paleta de la matriz ───────────────────────────────────────────────────
+    _INC_HDR   = colors.HexColor("#166534")   # verde oscuro  — fondo cabecera INCLUYE
+    _EXC_HDR   = colors.HexColor("#991B1B")   # rojo oscuro   — fondo cabecera NO INCLUYE
+    _ZEBRA_INC = colors.HexColor("#F3F4F6")   # gris muy suave — filas pares inclusiones
+    _ZEBRA_EXC = colors.HexColor("#F3F4F6")   # gris muy suave — filas pares exclusiones
+    _GRID      = colors.HexColor("#E2E8F0")   # gris claro    — cuadrícula y bordes
+    _WHITE     = colors.HexColor("#FFFFFF")   # blanco        — filas impares
 
-    # Construir columnas: [encabezado] + [filas de texto]
-    col_inc = [Paragraph("✔  INCLUYE",    E["matriz_inc"])]
-    col_exc = [Paragraph("✖  NO INCLUYE", E["matriz_exc"])]
+    # ── Estilos tipográficos locales (9 pt, sin sangría, wrap automático) ─────
+    _S_HDR_INC = ParagraphStyle(
+        "_mhdr_inc", fontSize=9, fontName="Helvetica-Bold",
+        leading=12, textColor=colors.HexColor("#FFFFFF"),
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    _S_HDR_EXC = ParagraphStyle(
+        "_mhdr_exc", fontSize=9, fontName="Helvetica-Bold",
+        leading=12, textColor=colors.HexColor("#FFFFFF"),
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    _S_INC = ParagraphStyle(
+        "_minc", fontSize=9, fontName="Helvetica",
+        leading=13, textColor=colors.HexColor("#14532D"),   # verde oscuro legible
+        leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
+        wordWrap="LTR",
+    )
+    _S_EXC = ParagraphStyle(
+        "_mexc", fontSize=9, fontName="Helvetica",
+        leading=13, textColor=colors.HexColor("#7F1D1D"),   # rojo oscuro legible
+        leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
+        wordWrap="LTR",
+    )
+    _S_EMPTY = ParagraphStyle(
+        "_mempty", fontSize=9, fontName="Helvetica",
+        leading=13, textColor=colors.HexColor("#FFFFFF"),
+        spaceAfter=0, spaceBefore=0,
+    )
 
-    for t in (_inc or ["-"]):
-        col_inc.append(Paragraph(f"✔  {t}", E["matriz_inc_row"]))
-    for t in (_exc or ["-"]):
-        col_exc.append(Paragraph(f"✖  {t}", E["matriz_exc_row"]))
+    # ── Fila 0: cabeceras ────────────────────────────────────────────────────
+    rows = [[
+        Paragraph("✔  INCLUYE",    _S_HDR_INC),
+        Paragraph("✖  NO INCLUYE", _S_HDR_EXC),
+    ]]
 
-    # Igualar número de filas rellenando con texto vacío
-    max_r = max(len(col_inc), len(col_exc))
-    while len(col_inc) < max_r:
-        col_inc.append(Paragraph("", E["matriz_inc_row"]))
-    while len(col_exc) < max_r:
-        col_exc.append(Paragraph("", E["matriz_exc_row"]))
+    # ── Filas de datos: cada texto en un Paragraph → wrap automático ──────────
+    _inc_items = _inc if _inc else ["—"]
+    _exc_items = _exc if _exc else ["—"]
+    _n_data = max(len(_inc_items), len(_exc_items))
 
-    rows = [[col_inc[i], col_exc[i]] for i in range(max_r)]
+    for _i in range(_n_data):
+        _txt_inc = _inc_items[_i] if _i < len(_inc_items) else ""
+        _txt_exc = _exc_items[_i] if _i < len(_exc_items) else ""
+        # Párrafo inclusión: checkmark verde + texto completo
+        _p_inc = (
+            Paragraph(f"✔  {_txt_inc}", _S_INC)
+            if _txt_inc else Paragraph("", _S_EMPTY)
+        )
+        # Párrafo exclusión: equis roja + texto completo
+        _p_exc = (
+            Paragraph(f"✖  {_txt_exc}", _S_EXC)
+            if _txt_exc else Paragraph("", _S_EMPTY)
+        )
+        rows.append([_p_inc, _p_exc])
 
-    tbl_al = Table(rows, colWidths=[_AU * 0.5, _AU * 0.5], repeatRows=1)
+    # ── Tabla con colWidths fijos de 50% / 50% del ancho útil ────────────────
+    _col_w = _AU * 0.5
+    tbl_al = Table(rows, colWidths=[_col_w, _col_w], repeatRows=1)
 
-    # Estilos base
+    # ── Estilos base de la tabla ──────────────────────────────────────────────
     _ts = [
-        ("BACKGROUND",    (0, 0), (0, 0),  _INC_BG),
-        ("BACKGROUND",    (1, 0), (1, 0),  _EXC_BG),
-        ("TOPPADDING",    (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
-        ("LINEBELOW",     (0, 0), (-1, -1), 0.3, C["border"]),
-        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-        ("BOX",           (0, 0), (-1, -1), 0.5, C["border"]),
-        ("LINEBETWEEN",   (0, 0), (1, -1),  0.5, C["border"]),
+        # Cabeceras con fondos corporativos
+        ("BACKGROUND",    (0, 0), (0, 0),  _INC_HDR),
+        ("BACKGROUND",    (1, 0), (1, 0),  _EXC_HDR),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        # Padding generoso para legibilidad sin estrés visual
+        ("TOPPADDING",    (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        # Cuadrícula con bordes grises claros
+        ("GRID",          (0, 0), (-1, -1), 0.5, _GRID),
+        ("BOX",           (0, 0), (-1, -1), 1.0, _GRID),
+        # Separador vertical central más visible
+        ("LINEBEFORE",    (1, 0), (1, -1),  1.0, _GRID),
+        # Filas de datos: blanco por defecto
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [_WHITE, _WHITE]),
     ]
-    # Zebra striping independiente por columna
-    for _row_i in range(1, max_r):
-        _bg_inc = _INC_ROW_A if _row_i % 2 == 1 else _INC_ROW_B
-        _bg_exc = _EXC_ROW_A if _row_i % 2 == 1 else _EXC_ROW_B
-        _ts.append(("BACKGROUND", (0, _row_i), (0, _row_i), _bg_inc))
-        _ts.append(("BACKGROUND", (1, _row_i), (1, _row_i), _bg_exc))
+
+    # ── Zebra striping independiente por columna (filas pares = índice par) ───
+    for _ri in range(1, len(rows)):
+        if _ri % 2 == 0:   # filas pares (2, 4, 6…) → gris suave
+            _ts.append(("BACKGROUND", (0, _ri), (0, _ri), _ZEBRA_INC))
+            _ts.append(("BACKGROUND", (1, _ri), (1, _ri), _ZEBRA_EXC))
 
     tbl_al.setStyle(TableStyle(_ts))
     story.append(tbl_al)
