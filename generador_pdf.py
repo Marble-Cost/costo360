@@ -1105,14 +1105,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(Spacer(1, 7))
     story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
 
-    # ③b INCLUYE / NO INCLUYE — Matriz Dinámica con listas de la UI
-    story.append(Spacer(1, 7))
-    story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
-
-    # ── Espaciador natural — el Resumen Financiero fluye en la misma página ──
-    story.append(Spacer(1, 8))
-
-    # ── Resumen Financiero · Términos · Firma ─────────────────────────────────
+    # ── Resumen Financiero · Alcance · Términos · Firma ────────────────────
 
     # ④ RESUMEN FINANCIERO — KeepTogether protege título + tabla + letras
     fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
@@ -1127,7 +1120,12 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
         ]))
     story.append(KeepTogether(fin_story + [_tbl_letras]))
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 8))
+
+    # ③b INCLUYE / NO INCLUYE — Matriz Dinámica con listas de la UI
+    story.append(Spacer(1, 7))
+    story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
+    story.append(Spacer(1, 8))
 
     # ⑤ TÉRMINOS Y CONDICIONES — KeepTogether protege el bloque completo
     nota_iva = (
