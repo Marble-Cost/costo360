@@ -780,9 +780,8 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     Recibe las listas ya filtradas por el usuario desde la UI.
     Tabla a dos columnas con encabezados oscuros corporativos.
     """
-    from parametros import INCLUSIONES_BASE, EXCLUSIONES_BASE
-    _inc = inclusiones if inclusiones is not None else INCLUSIONES_BASE
-    _exc = exclusiones if exclusiones is not None else EXCLUSIONES_BASE
+    _inc = inclusiones if inclusiones is not None else []
+    _exc = exclusiones if exclusiones is not None else []
 
     story = []
     story += _seccion_header("Alcance de la Propuesta — Inclusiones y Exclusiones", E)
