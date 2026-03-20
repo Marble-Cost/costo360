@@ -456,3 +456,30 @@ CROSS_SELLING_MAP = {
         "razon":       "Tono gris azulado moderno en Quarztone. Mayor margen y menor costo de instalación.",
     },
 }
+
+# ── MATRIZ COMERCIAL: INCLUSIONES Y EXCLUSIONES BASE ─────────────────────────
+# Listas precargadas para la UI de cotización. El usuario puede seleccionar /
+# deseleccionar ítem por ítem antes de generar el PDF.
+# Aparecen en la Matriz Dinámica del PDF (Bloque 3), columna izquierda (✔) y
+# columna derecha (✗).
+
+INCLUSIONES_BASE = [
+    "Toma de medidas finales en obra previa a producción",
+    "Transporte especializado y acarreo cuidadoso hasta el punto de instalación",
+    "Diseño 3D fotorrealista para previsualización de acabados pétreos",
+    "Corte, pulida y biselada de piezas con maquinaria de precisión",
+    "Instalación completa por técnicos especializados en piedra natural",
+    "Aplicación de tratamiento protector inicial (sellador hidrófugo/oleófugo)",
+    "Limpieza técnica final del área y retiro de desperdicios de material",
+    "Garantía de 12 meses sobre mano de obra de instalación",
+]
+
+EXCLUSIONES_BASE = [
+    "Trabajos previos de obra civil (demoliciones, adecuación de muros, resanes)",
+    "Conexiones finales hidráulicas, eléctricas o de grifería",
+    "Suministro o reparación de muebles, ebanistería o estructuras de soporte",
+    "Suministro de materiales de obra gris ajenos a la instalación",
+    "Pintura, estuco o acabados complementarios de obra",
+    "Permisos de construcción o trámites ante entidades oficiales",
+    "Trabajos nocturnos, dominicales o en festivos (sin acuerdo previo)",
+]
