@@ -1099,14 +1099,10 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(Spacer(1, 7))
     story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
 
-    # ══════════════════════════════════════════════════════════════════
-    # SALTO DE PÁGINA — Página 2 inicia con Resumen Financiero
-    # ══════════════════════════════════════════════════════════════════
-    story.append(PageBreak())
+    # ── Espaciador natural — el Resumen Financiero fluye en la misma página ──
+    story.append(Spacer(1, 0.8 * cm))
 
-    # ══════════════════════════════════════════════════════════════════
-    # PÁGINA 2 — Resumen Financiero · Alcance · Términos · Firma
-    # ══════════════════════════════════════════════════════════════════
+    # ── Resumen Financiero · Términos · Firma ─────────────────────────────────
 
     # ④ RESUMEN FINANCIERO (con adicionales discriminados)
     fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
