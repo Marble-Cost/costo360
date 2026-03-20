@@ -56,7 +56,7 @@ def _ui_parametros(
         "🤖 Asistente IA (Modificación Automática)",
         "📊 Tarifas y Producción",
         "🚗 Viáticos",
-        "🚛 Logística y Vehículos",
+        "🚛 Logística",
         "➕ Costos Adicionales",
     ])
 
@@ -1194,207 +1194,45 @@ La app multiplica estos valores por el número de personas y noches que configur
             st.rerun()
 
     # ─────────────────────────────────────────────────────────────────────────
-    # TAB: 🚛 LOGÍSTICA Y VEHÍCULOS
+    # TAB: 🚛 LOGÍSTICA
     # ─────────────────────────────────────────────────────────────────────────
     with t_log:
-        st.caption("Costos de transporte, vehículos propios, peajes y fletes. Modifica y presiona **Guardar Logística**.")
-
-        with st.expander("📖 ¿Cómo funciona el cálculo de logística?", expanded=False):
-            st.markdown("""
-La app calcula automáticamente el costo de llevar el material desde el taller hasta la obra del cliente.
-
-**¿Qué se suma?**
-- El costo del **combustible** del trayecto (según el rendimiento del vehículo y la distancia)
-- El **desgaste** del vehículo (llantas, frenos, suspensión) por kilómetro recorrido
-- El **costo base mínimo** por salir (aunque sea cerca)
-- Los **peajes** del camino
-- El **desgaste de herramientas** (llaves, niveles, espátulas que se gastan)
-- El **flete del agente externo** si alguien trajo el material desde el proveedor hasta tu taller
-
-**Vehículos propios (Frontier / Cheyenne):**
-El costo se calcula por kilómetro. La app hace:
-> costo = (gasolina ÷ rendimiento km/gal) + desgaste por km × km × 2 (ida + vuelta) + base mínima
-
-**Ejemplo con Frontier, 15 km de distancia:**
-> ($16.000 ÷ 7.2 km/gal) + $148/km = $2.370/km
-> $2.370 × 15 km × 2 (ida+vuelta) = $71.100 + $65.000 base = **$136.100 de transporte**
-
-**Vehículo externo / tercero:**
-Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre el mismo valor que configures aquí.
-
-**💡 Actualiza estos valores cada que cambien los precios del mercado** (gasolina, peajes, etc.).
-            """)
+        st.caption("Configura el precio de la gasolina y el flete externo. Presiona **Guardar Logística** para aplicar.")
 
         log_act = fn_get_logistica()
 
         with st.container(border=True):
-            st.markdown("**⛽ Insumos generales**")
-            _lg1, _lg2, _lg3, _lg4 = st.columns(4)
-            gasolina_edit = _lg1.number_input(
-                "Gasolina (COP/galón)", min_value=1_000,
-                value=int(log_act.get("gasolina", 16_000)), step=500, format="%d",
+            st.markdown("**⛽ Precio de la Gasolina**")
+            gasolina_edit = st.number_input(
+                "Gasolina corriente (COP/galón)",
+                min_value=1_000,
+                value=int(log_act.get("precio_gasolina", log_act.get("gasolina", 16_000))),
+                step=500,
+                format="%d",
                 key="log_gas",
-                help="Precio de la gasolina corriente en Barranquilla.")
-            peaje_edit = _lg2.number_input(
-                "Peaje promedio (COP)", min_value=0,
-                value=int(log_act.get("peaje", 19_500)), step=500, format="%d",
-                key="log_pea",
-                help="Peaje promedio Galapa / Juan Mina, ida + vuelta.")
-            herram_edit = _lg3.number_input(
-                "Herramientas (COP/viaje)", min_value=0,
-                value=int(log_act.get("herram", 4_500)), step=500, format="%d",
-                key="log_her",
-                help="Desgaste de llaves, niveles, espátulas, etc. por viaje.")
-            agente_edit = _lg4.number_input(
-                "Agente externo (COP)", min_value=0,
-                value=int(log_act.get("agente", 85_000)), step=1_000, format="%d",
-                key="log_age",
-                help="Lo que cobra el agente por traer el material desde el proveedor hasta el taller.")
+                help="Precio actual de la gasolina corriente en Barranquilla. Actualiza cuando cambie el precio del mercado.",
+            )
+            st.caption(f"Valor actual: **{fn_numero_completo(gasolina_edit)}/galón**")
 
         with st.container(border=True):
-            st.markdown("**🚙 Frontier NP300 — camioneta propia**")
-            _vc = log_act.get("frontier", {})
-            _cf1, _cf2, _cf3 = st.columns(3)
-            fr_rend = _cf1.number_input(
-                "Rendimiento (km/galón)", min_value=1.0,
-                value=float(_vc.get("rend", 7.2)), step=0.1, format="%.1f",
-                key="log_fr_rend",
-                help="Rendimiento real con carga. Promedio cargada ≈ 7 km/gal.")
-            fr_desg = _cf2.number_input(
-                "Desgaste por km (COP/km)", min_value=0,
-                value=int(_vc.get("desgaste", 148)), step=5, format="%d",
-                key="log_fr_desg",
-                help="Amortización de llantas, frenos y suspensión por kilómetro.")
-            fr_base = _cf3.number_input(
-                "Flete base mínimo (COP)", min_value=0,
-                value=int(_vc.get("base", 65_000)), step=1_000, format="%d",
-                key="log_fr_base",
-                help="Costo mínimo por viaje sin importar la distancia.")
-            _fr_km = (gasolina_edit / fr_rend) + fr_desg
-            st.caption(f"Costo estimado por km ida+vuelta: **{fn_numero_completo(_fr_km * 2)}/km** · "
-                       f"Ejemplo 10 km → **{fn_numero_completo(fr_base + _fr_km * 20)}** total")
-
-        with st.container(border=True):
-            st.markdown("**🚛 Cheyenne V8 — camión propio**")
-            _vc2 = log_act.get("cheyenne", {})
-            _cc1, _cc2, _cc3 = st.columns(3)
-            ch_rend = _cc1.number_input(
-                "Rendimiento (km/galón)", min_value=1.0,
-                value=float(_vc2.get("rend", 4.1)), step=0.1, format="%.1f",
-                key="log_ch_rend",
-                help="Rendimiento real del V8 con carga pesada.")
-            ch_desg = _cc2.number_input(
-                "Desgaste por km (COP/km)", min_value=0,
-                value=int(_vc2.get("desgaste", 340)), step=5, format="%d",
-                key="log_ch_desg",
-                help="Mayor desgaste por tonelaje.")
-            ch_base = _cc3.number_input(
-                "Flete base mínimo (COP)", min_value=0,
-                value=int(_vc2.get("base", 85_000)), step=1_000, format="%d",
-                key="log_ch_base",
-                help="Costo mínimo por viaje del camión.")
-            _ch_km = (gasolina_edit / ch_rend) + ch_desg
-            st.caption(f"Costo estimado por km ida+vuelta: **{fn_numero_completo(_ch_km * 2)}/km** · "
-                       f"Ejemplo 10 km → **{fn_numero_completo(ch_base + _ch_km * 20)}** total")
-
-        with st.container(border=True):
-            st.markdown("**🤝 Externo / Tercero — flete contratado**")
-            _ve = log_act.get("externo", {})
-            _flete_val = int(_ve.get("flete", 165_000)) if isinstance(_ve, dict) else int(_ve)
-            ext_flete = st.number_input(
-                "Flete fijo por viaje (COP)", min_value=0,
-                value=_flete_val, step=5_000, format="%d",
-                key="log_ext_flete",
-                help="Precio pactado con el flete externo. Aplica sin importar la distancia.")
-
-        # ── GESTOR MANUAL DE FLETES ───────────────────────────────────────────
-        st.markdown("### 🚚 Mi Flota y Fletes")
-        st.caption("Agrega manualmente vehículos propios o fletes externos fijos.")
-        _log_c_now   = st.session_state.get("logistica_custom") or {}
-        _flota_actual = _log_c_now.get("flota_propia", {})
-
-        if _flota_actual:
-            st.markdown("Vehículos/Fletes guardados:")
-            for _fslug, _fvcfg in list(_flota_actual.items()):
-                with st.container(border=True):
-                    _fc1, _fc2, _fc3 = st.columns([4, 4, 1])
-                    _fc1.markdown(f"**{_fvcfg.get('nombre', _fslug)}**", unsafe_allow_html=True)
-                    if _fvcfg.get("tipo") == "flete_fijo":
-                        _fc2.markdown(f"Costo por viaje: ${_fvcfg.get('costo_viaje', 0):,.0f}".replace(",", "."))
-                    else:
-                        _fc2.markdown(f"Rendimiento: {_fvcfg.get('rendimiento_km_gal', _fvcfg.get('rend', 0))} km/gal | Desgaste: ${_fvcfg.get('desgaste', 0)}/km")
-
-                    if _fc3.button("🗑️", key=f"flota_del_{_fslug}"):
-                        _log_del    = dict(st.session_state.get("logistica_custom") or {})
-                        _flota_del  = dict(_log_del.get("flota_propia", {}))
-                        _flota_del.pop(_fslug, None)
-                        _log_del["flota_propia"] = _flota_del
-                        st.session_state.logistica_custom = _log_del
-                        fn_sp()["params_logistica"] = _log_del
-                        try:
-                            fn_guardar_config("logistica_custom", _log_del)
-                        except Exception:
-                            pass
-                        st.rerun()
-        else:
-            st.info("No tienes vehículos manuales registrados.")
-
-        with st.container(border=True):
-            st.markdown("**➕ Agregar nuevo vehículo o flete fijo**")
-            _flota_col1, _flota_col2 = st.columns(2)
-            _flota_input = _flota_col1.text_input("Nombre (Ej: Camioneta Empresa, Flete Norte)", key="flota_nombre_input")
-            _flota_costo = _flota_col2.number_input("Costo del viaje ($ COP)", min_value=0, step=5000, value=70000, key="flota_costo_input")
-
-            if st.button("💾 Guardar Vehículo/Flete", type="primary", use_container_width=True):
-                if (_flota_input or "").strip():
-                    import re as _re_fl
-                    _slug = _re_fl.sub(r"[^a-z0-9]+", "_", _flota_input.lower().strip())[:30].strip("_")
-                    if _slug in {"frontier", "cheyenne", "externo"}:
-                        _slug = f"custom_{_slug}"
-
-                    _veh_nuevo = {
-                        "nombre":      _flota_input.strip(),
-                        "tipo":        "flete_fijo",
-                        "costo_viaje": _flota_costo,
-                    }
-                    _log_save  = dict(st.session_state.get("logistica_custom") or {})
-                    _flota_upd = dict(_log_save.get("flota_propia", {}))
-                    _flota_upd[_slug] = _veh_nuevo
-                    _log_save["flota_propia"] = _flota_upd
-
-                    st.session_state.logistica_custom = _log_save
-                    fn_sp()["params_logistica"] = _log_save
-                    try:
-                        fn_guardar_config("logistica_custom", _log_save)
-                    except Exception:
-                        pass
-                    st.session_state.pop("flota_nombre_input", None)
-                    st.session_state.pop("flota_costo_input", None)
-                    st.rerun()
+            st.markdown("**🚚 Agente Externo / Flete Base**")
+            flete_edit = st.number_input(
+                "Flete externo base (COP/viaje)",
+                min_value=0,
+                value=int(log_act.get("flete_externo", log_act.get("externo", {}).get("flete", 165_000) if isinstance(log_act.get("externo"), dict) else log_act.get("externo", 165_000))),
+                step=5_000,
+                format="%d",
+                key="log_flete",
+                help="Costo fijo por viaje cuando el agente externo trae el material o se contrata un flete tercero.",
+            )
+            st.caption(f"Valor actual: **{fn_numero_completo(flete_edit)}/viaje**")
 
         st.markdown("")
         _col_save_log, _col_reset_log = st.columns([3, 1])
         if _col_save_log.button("💾 Guardar Logística", type="primary", key="btn_save_log", use_container_width=True):
-            _flota_preservada = (st.session_state.get("logistica_custom") or {}).get("flota_propia", {})
             _saved_log = {
-                "gasolina": int(st.session_state.get("log_gas",      16_000)),
-                "peaje":    int(st.session_state.get("log_pea",      19_500)),
-                "herram":   int(st.session_state.get("log_her",       4_500)),
-                "agente":   int(st.session_state.get("log_age",      85_000)),
-                "frontier": {
-                    "rend":     float(st.session_state.get("log_fr_rend",  7.2)),
-                    "desgaste": int(st.session_state.get("log_fr_desg",    148)),
-                    "base":     int(st.session_state.get("log_fr_base", 65_000)),
-                },
-                "cheyenne": {
-                    "rend":     float(st.session_state.get("log_ch_rend",  4.1)),
-                    "desgaste": int(st.session_state.get("log_ch_desg",    340)),
-                    "base":     int(st.session_state.get("log_ch_base", 85_000)),
-                },
-                "externo": {
-                    "flete": int(st.session_state.get("log_ext_flete", 165_000)),
-                },
-                "flota_propia": _flota_preservada,
+                "precio_gasolina": int(st.session_state.get("log_gas", 16_000)),
+                "flete_externo":   int(st.session_state.get("log_flete", 165_000)),
             }
             fn_sp()["params_logistica"] = _saved_log
             st.session_state.logistica_custom = _saved_log
@@ -1402,9 +1240,7 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                 fn_guardar_config("logistica_custom", _saved_log)
             except Exception:
                 pass
-            for _lk in ["log_gas", "log_pea", "log_her", "log_age",
-                        "log_fr_rend", "log_fr_desg", "log_fr_base",
-                        "log_ch_rend", "log_ch_desg", "log_ch_base", "log_ext_flete"]:
+            for _lk in ["log_gas", "log_flete"]:
                 st.session_state.pop(_lk, None)
             st.toast("✅ Logística guardada y persistida correctamente", icon="💾")
             st.rerun()
@@ -1417,9 +1253,7 @@ Se usa un precio fijo de flete. Sin importar la distancia, el costo es siempre e
                 fn_guardar_config("logistica_custom", None)
             except Exception:
                 pass
-            for _lk in ["log_gas", "log_pea", "log_her", "log_age",
-                        "log_fr_rend", "log_fr_desg", "log_fr_base",
-                        "log_ch_rend", "log_ch_desg", "log_ch_base", "log_ext_flete"]:
+            for _lk in ["log_gas", "log_flete"]:
                 st.session_state.pop(_lk, None)
             st.toast("↺ Logística restaurada a valores por defecto", icon="🔄")
             st.rerun()
