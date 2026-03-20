@@ -25,10 +25,10 @@ from calculos import (
     calcular_aiu, calcular_logistica, ml_a_m2, cop,
 )
 from parametros import (
-    CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA, VEHICULOS,
+    CATEGORIAS_MATERIAL, ADICIONALES, ETAPAS_OBRA,
     ALOJAMIENTO, AIU_DEFAULTS, TARIFAS, LOGISTICA, VIATICOS,
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, MATERIALES_CATALOGO,
-    ANCHOS_ESTANDAR, VEHICULOS_CONFIG, TOUR_PASOS, CROSS_SELLING_MAP,
+    ANCHOS_ESTANDAR, TOUR_PASOS, CROSS_SELLING_MAP,
     PROPIEDADES_MATERIAL,
 )
 from asistente_ia import chat_con_ia, ia_disponible, interpretar_proyecto, generar_resumen_cotizacion, chat_sos, extraer_coordenadas_plano
@@ -1659,7 +1659,7 @@ _defaults = {
         "ciudad": "Barranquilla, Atlántico — Colombia", "banco": "Davivienda",
         "cuenta_tipo": "Cuenta Corriente Empresas", "cuenta_numero": "108900027484",
     },
-    "vehiculos_custom": None, "cat_sel": "Mármol",
+    "cat_sel": "Mármol",
     "adicionales_custom": None,
     "chat_input_key": 0,
     "params_wizard_chat": [],
@@ -1752,7 +1752,6 @@ def _sp_init():
         "cdir_zocalo_activo": False,
         "cdir_zocalo_ml": 0.0,
         "cdir_agente_externo": False,
-        "cdir_vehiculo": "frontier",
         "cdir_km": 5.0,
         "cdir_peajes": 0,
         "cdir_foraneo": False,
@@ -1805,7 +1804,6 @@ def _sp_init():
         sp["cdir_zocalo_activo"]       = _pre.get("zocalo_activo", sp["cdir_zocalo_activo"])
         sp["cdir_zocalo_ml"]           = _pre.get("zocalo_ml", sp["cdir_zocalo_ml"])
         sp["cdir_agente_externo"]      = _pre.get("agente_externo_taller", sp["cdir_agente_externo"])
-        sp["cdir_vehiculo"]            = _pre.get("vehiculo_entrega", sp["cdir_vehiculo"])
         sp["cdir_km"]                  = _pre.get("km", sp["cdir_km"])
         sp["cdir_peajes"]              = _pre.get("peajes", sp["cdir_peajes"])
         sp["cdir_foraneo"]             = _pre.get("foraneo_activo", sp["cdir_foraneo"])
@@ -2312,50 +2310,7 @@ def get_viaticos(): return st.session_state.viaticos_custom or VIATICOS
 def get_adicionales():
     import copy
     return copy.deepcopy(st.session_state.adicionales_custom) if st.session_state.adicionales_custom else copy.deepcopy(ADICIONALES)
-def get_vehiculos_config():
-    """
-    Devuelve el mapa completo de vehículos fusionando tres capas (en orden de prioridad):
-      1. VEHICULOS_CONFIG  — base de fábrica (Frontier, Cheyenne, Externo).
-      2. vehiculos_custom  — overrides legacy de session_state (retro-compat).
-      3. flota_propia      — vehículos añadidos por el usuario en el Gestor de Flota.
-                             Viven en logistica_custom["flota_propia"] y se proyectan
-                             con tipo="propio" para que calcular_logistica los procese.
-    Esta función es el ÚNICO punto de verdad de vehículos; todos los selectores
-    y llamadas a calcular_logistica deben pasar por aquí.
-    """
-    import copy
-    base   = copy.deepcopy(VEHICULOS_CONFIG)
-    custom = st.session_state.get("vehiculos_custom") or {}
-    for k, v in custom.items():
-        base[k] = v
-    # ── Flota propia guardada en el Gestor de Flota ───────────────────────────
-    _log_c = st.session_state.get("logistica_custom") or {}
-    _flota = _log_c.get("flota_propia", {})
-    for _slug, _vcfg in _flota.items():
-        if _slug in base:          # nunca pisar Frontier / Cheyenne / Externo
-            continue
-        base[_slug] = {
-            "nombre":                    _vcfg.get("nombre", _slug),
-            "tipo":                      _vcfg.get("tipo", "propio"),   # soporta "flete_fijo" y "propio"
-            "costo_viaje":               float(_vcfg.get("costo_viaje", 0)),
-            # rendimiento_km_gal es la base termodinámica (sin carga) para calculos.py v5
-            "rendimiento_km_gal":        float(_vcfg.get("rendimiento_km_gal", 25.0)),
-            "rend":                      float(_vcfg.get("rendimiento_km_gal", 25.0)),  # alias legacy
-            "capacidad_max_kg":          float(_vcfg.get("capacidad_max_kg",  1_000.0)),
-            "desgaste":                  int(_vcfg.get("desgaste",   120)),
-            "base":                      int(_vcfg.get("base",    50_000)),
-            "costo_mantenimiento_por_km": int(_vcfg.get("costo_mantenimiento_por_km", 80)),
-            "descripcion":               _vcfg.get("descripcion", "Vehículo personalizado"),
-        }
-    return base
 
-def get_vehiculos_dict():
-    """Label → slug. Usado por los selectores de vehículo en toda la app."""
-    vc = get_vehiculos_config()
-    return {
-        f"{cfg.get('nombre', k)} ({'propio' if cfg.get('tipo') == 'propio' else 'flete externo'})": k
-        for k, cfg in vc.items()
-    }
 
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -2817,14 +2772,11 @@ elif pagina == "Cotizacion Directa":
         fn_get_logistica=get_logistica,
         fn_get_viaticos=get_viaticos,
         fn_get_adicionales=get_adicionales,
-        fn_get_vehiculos_config=get_vehiculos_config,
-        fn_get_vehiculos_dict=get_vehiculos_dict,
         fn_generar_snapshot_datos=_generar_snapshot_datos,
         fn_cb_cdir_nombre_cliente=_cb_cdir_nombre_cliente,
         fn_cb_cdir_tipos_proyecto=_cb_cdir_tipos_proyecto,
         fn_cb_cdir_etapa=_cb_cdir_etapa,
         fn_cb_cdir_agente_externo=_cb_cdir_agente_externo,
-        fn_cb_cdir_vehiculo_km=_cb_cdir_vehiculo_km,
         fn_cb_cdir_km_rango=_cb_cdir_km_rango,
         fn_cb_cdir_foraneo=_cb_cdir_foraneo,
         fn_cb_cdir_viaticos_activos=_cb_cdir_viaticos_activos,
@@ -2841,7 +2793,6 @@ elif pagina == "Cotizacion AIU":
         fn_guardar_config=_guardar_config,
         fn_leer_config=_leer_config,
         fn_clave_borrador_aiu=_clave_borrador_aiu,
-        fn_get_vehiculos_config=get_vehiculos_config,
         fn_sp_set=_sp_set,
         fn_sp_agregar_item_aiu=_sp_agregar_item_aiu,
         fn_sp_eliminar_item_aiu=_sp_eliminar_item_aiu,
