@@ -39,6 +39,7 @@ from parametros import (
     CATEGORIAS_MATERIAL, ETAPAS_OBRA, ALOJAMIENTO,
     MATERIALES_CATALOGO, ANCHOS_ESTANDAR, CROSS_SELLING_MAP,
     BADGE_COLORS, DESCRIPCIONES_CATEGORIA, TARIFAS,
+    INCLUSIONES_BASE, EXCLUSIONES_BASE,
 )
 
 
@@ -534,6 +535,45 @@ def _ui_cotizacion_directa(
                 icon="⚠️",
             )
 
+        # ── Matriz de Inclusiones / Exclusiones ──────────────────────────────
+        st.markdown("### 📋 Alcance del Proyecto")
+        with st.container(border=True):
+            st.caption(
+                "Selecciona o deselecciona los ítems que se incluirán en el PDF. "
+                "Los cambios son sólo para este documento; no afectan el cálculo."
+            )
+            _inc_col, _exc_col = st.columns(2)
+            with _inc_col:
+                st.markdown(
+                    "<div style='font-size:0.75rem;font-weight:700;color:#15803d;"
+                    "text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px'>"
+                    "✔ Inclusiones</div>",
+                    unsafe_allow_html=True,
+                )
+                _sel_inclusiones = st.multiselect(
+                    "Incluye:",
+                    options=INCLUSIONES_BASE,
+                    default=INCLUSIONES_BASE,
+                    key="pdf_inclusiones",
+                    label_visibility="collapsed",
+                    help="Ítem marcado con ✔ verde en el PDF",
+                )
+            with _exc_col:
+                st.markdown(
+                    "<div style='font-size:0.75rem;font-weight:700;color:#dc2626;"
+                    "text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px'>"
+                    "✗ Exclusiones</div>",
+                    unsafe_allow_html=True,
+                )
+                _sel_exclusiones = st.multiselect(
+                    "No incluye:",
+                    options=EXCLUSIONES_BASE,
+                    default=EXCLUSIONES_BASE,
+                    key="pdf_exclusiones",
+                    label_visibility="collapsed",
+                    help="Ítem marcado con ✗ rojo en el PDF",
+                )
+
         # ── Exportar PDFs ─────────────────────────────────────────────────────
         st.markdown("### 📄 Documentos para el cliente")
         from generador_pdf import generar_pdf_cotizacion, generar_cuenta_cobro
@@ -553,6 +593,8 @@ def _ui_cotizacion_directa(
                             empresa_info=st.session_state.empresa_info,
                             logo_bytes=st.session_state.logo_bytes,
                             incluir_iva=_iva_act,
+                            inclusiones=st.session_state.get("pdf_inclusiones", INCLUSIONES_BASE),
+                            exclusiones=st.session_state.get("pdf_exclusiones", EXCLUSIONES_BASE),
                         )
                     st.download_button("⬇ Descargar Cotización PDF", pdf_bytes, file_name=f"{num_cot}_Cotizacion.pdf", mime="application/pdf", use_container_width=True, key="dl_pdf_cot")
 
