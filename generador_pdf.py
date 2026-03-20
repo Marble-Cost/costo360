@@ -792,7 +792,29 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     _exc = exclusiones if exclusiones is not None else []
 
     story = []
-    story += _seccion_header("Alcance de la Propuesta — Inclusiones y Exclusiones", E)
+
+    # ── Título corporativo B2B de la sección ────────────────────────────────────
+    # Fondo oscuro #1A252C · texto blanco centrado · borde inferior dorado
+    # idéntico al encabezado del documento para coherencia visual total.
+    _tit_style = ParagraphStyle(
+        "_alcance_tit", fontSize=8.5, fontName="Helvetica-Bold",
+        leading=11, textColor=colors.HexColor("#FFFFFF"),
+        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
+    )
+    _tbl_tit = Table(
+        [[Paragraph("ALCANCE DE LA PROPUESTA — INCLUSIONES Y EXCLUSIONES", _tit_style)]],
+        colWidths=[_AU],
+    )
+    _tbl_tit.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#1A252C")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 12),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 12),
+        ("LINEBELOW",     (0, 0), (-1, -1), 2.0, colors.HexColor("#C9A84C")),
+    ]))
+    story.append(_tbl_tit)
+    story.append(Spacer(1, 4))
 
     # ── Paleta de la matriz ───────────────────────────────────────────────────
     _INC_HDR   = colors.HexColor("#166534")   # verde oscuro  — fondo cabecera INCLUYE
@@ -874,7 +896,7 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
         ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
         # Cuadrícula con bordes grises claros
         ("GRID",          (0, 0), (-1, -1), 0.5, _GRID),
-        ("BOX",           (0, 0), (-1, -1), 1.0, _GRID),
+        ("BOX",           (0, 0), (-1, -1), 1.5, colors.HexColor("#1A252C")),
         # Separador vertical central más visible
         ("LINEBEFORE",    (1, 0), (1, -1),  1.0, _GRID),
         # Filas de datos: blanco por defecto
@@ -888,7 +910,7 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
             _ts.append(("BACKGROUND", (1, _ri), (1, _ri), _ZEBRA_EXC))
 
     tbl_al.setStyle(TableStyle(_ts))
-    story.append(tbl_al)
+    story.append(KeepTogether([tbl_al]))
     return story
 
 # ── Módulo: Términos y Condiciones ────────────────────────────────────────────
@@ -1104,28 +1126,29 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 
     # ── Resumen Financiero · Términos · Firma ─────────────────────────────────
 
-    # ④ RESUMEN FINANCIERO (con adicionales discriminados)
+    # ④ RESUMEN FINANCIERO — KeepTogether protege título + tabla + letras
     fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
         E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
         c7_adicionales=_c7_adicionales,
         adicionales_detalle=_adicionales_detalle)
-    story += fin_story
     valor_letras = _numero_a_letras(int(round(precio_final_doc)))
-    story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
+    _tbl_letras = Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
         colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
             ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
-        ])))
+        ]))
+    story.append(KeepTogether(fin_story + [_tbl_letras]))
     story.append(Spacer(1, 10))
 
-    # ⑤ TÉRMINOS Y CONDICIONES
+    # ⑤ TÉRMINOS Y CONDICIONES — KeepTogether protege el bloque completo
     nota_iva = (
         "Propuesta con IVA del 19% (Art. 468 E.T.) — Responsable de IVA — Régimen Común. "
         if incluir_iva else
         "Propuesta sin IVA — Régimen Simplificado (Art. 499 E.T.). "
     )
-    story += _seccion_terminos(E, C, nota_iva, anticipo_pct)
+    _terminos_story = _seccion_terminos(E, C, nota_iva, anticipo_pct)
+    story.append(KeepTogether(_terminos_story))
     # Bloque contractual de aceptación con KeepTogether
     story += _bloque_firma_cliente(E, C)
     story.append(Spacer(1, 5))
