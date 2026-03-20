@@ -12,7 +12,6 @@ from parametros import (
     ADICIONALES,
     MATERIALES_CATALOGO,
     PROPIEDADES_MATERIAL,
-    VEHICULOS_CONFIG,
 )
 
 
@@ -46,16 +45,6 @@ def _get_adicionales_ex():
     )
 
 
-def _get_vehiculos_config_ex():
-    """Devuelve mapa de vehículos fusionando base + custom + flota propia."""
-    base   = copy.deepcopy(VEHICULOS_CONFIG)
-    custom = st.session_state.get("vehiculos_custom") or {}
-    for k, v in custom.items():
-        base[k] = v
-    _log_c = st.session_state.get("logistica_custom") or {}
-    for _vnombre, _vcfg in _log_c.get("flota_propia", {}).items():
-        base[_vnombre] = {**_vcfg, "tipo": "propio"}
-    return base
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -257,7 +246,7 @@ def _ui_cotizacion_express():
                 zocalo_activo=False,
                 zocalo_ml=0.0,
                 agente_externo_taller=False,
-                vehiculo_entrega="frontier",
+                vehiculo_entrega="externo",
                 km=5.0,
                 num_peajes=0,
                 foraneo_activo=False,
@@ -274,7 +263,6 @@ def _ui_cotizacion_express():
                 materiales_lista=_mats_ex,
                 tarifas_override=st.session_state.get("tarifas_custom"),
                 logistica_override=st.session_state.get("logistica_custom"),
-                vehiculos_custom=_get_vehiculos_config_ex(),
                 incluir_iva=_ex_iva,
             )
             st.session_state["ex2_resultado"] = _res_ex
