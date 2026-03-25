@@ -1,12 +1,15 @@
-# generador_pdf.py — CostoMármol v9 · Propuesta Comercial B2B
+# generador_pdf.py — CostoMármol v10 · Propuesta Comercial B2B Premium
 # MARMOLES COLLANTE & CASTRO LTDA.
 #
-# ARQUITECTURA v9 (Refactorización Estructural):
-#   - Tipografía B2B escalada: seccion=9.5, cell=9, letra_chica=8, matriz=8.5
-#   - Constantes de columnas globales (_AU) para toda geometría de tablas
-#   - Padding compactado: datos=4, headers=5, firmas=8
-#   - Spacers estandarizados: entre secciones=5, dentro de headers=2
-#   - KeepTogether preservado SOLO en Resumen Financiero y Firmas
+# ARQUITECTURA v10 (Balance Premium):
+#   - Sistema de espaciado jerárquico: _SP_SECCION=10, _SP_BLOQUE=4, _SP_HEADER=3
+#   - Tipografía con contraste por nivel: sec=10pt bold, label=9pt bold, body=9pt, nota=8pt
+#   - Leading = fontSize + 2 en todos los estilos (respira sin inflar)
+#   - Padding por nivel: _PAD_HDR=6, _PAD_DATA=5, _PAD_NOTA=4, _PAD_FIRMA=10
+#   - Borde dorado 3pt encima de fila TOTAL — máxima jerarquía visual
+#   - KeepTogether SOLO en Resumen Financiero (tabla+letras) y Firma
+#   - T&C numerado con leading=12 para escaneo fácil
+#   - Cierre de contrato: línea superior 2pt + celdas generosas
 #   - Flujo: Encabezado→Cliente→Adicionales→Despiece→Resumen(KT)→Alcance→T&C→Firma(KT)→Footer
 
 import io
@@ -29,7 +32,7 @@ from reportlab.lib.styles import ParagraphStyle
 ancho_util = 16.5 * cm
 _AU = ancho_util
 
-# ── Constantes globales de columnas (fuente única de verdad geométrica) ───────
+# ── Constantes globales de columnas ──────────────────────────────────────────
 COL_2_30_70   = [_AU * 0.301, _AU * 0.699]
 COL_2_75_25   = [_AU * 0.753, _AU * 0.247]
 COL_2_50_50   = [_AU * 0.50,  _AU * 0.50]
@@ -39,6 +42,17 @@ COL_FIRMA_CC  = [_AU * 0.482, _AU * 0.090, _AU * 0.428]
 COL_FIRMA_CLI = [_AU * 0.314, _AU * 0.686]
 COL_AIU_3     = [_AU * 0.633, _AU * 0.121, _AU * 0.247]
 COL_AIU_5     = [_AU * 0.470, _AU * 0.078, _AU * 0.090, _AU * 0.181, _AU * 0.181]
+
+# ── Sistema de espaciado jerárquico ──────────────────────────────────────────
+_SP_SECCION = 10   # Entre secciones mayores
+_SP_BLOQUE  = 4    # Dentro de un bloque
+_SP_HEADER  = 3    # Spacer interior del _seccion_header
+
+# ── Sistema de padding por nivel ─────────────────────────────────────────────
+_PAD_HDR   = 6    # Cabeceras de tabla (fila 0 con fondo oscuro)
+_PAD_DATA  = 5    # Filas de datos
+_PAD_NOTA  = 4    # Tablas de notas / avisos
+_PAD_FIRMA = 10   # Celdas de firma (altura escribible)
 
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
@@ -179,42 +193,40 @@ def _logo_img(logo_bytes, max_h=1.4*cm):
         return None
 
 
-# ── Estilos tipográficos ──────────────────────────────────────────────────────
+# ── Estilos tipográficos — Sistema Premium con contraste por nivel ────────────
+# leading = fontSize + 2 en todos los estilos
+# NIVEL 1 — Títulos de sección : 10pt bold  / secondary blue
+# NIVEL 2 — Labels / subtítulos: 9pt bold
+# NIVEL 3 — Cuerpo             : 9pt regular
+# NIVEL 4 — Notas / pie        : 8pt
 
 def _estilos(C):
     return {
-        "doc_empresa": ParagraphStyle("doc_empresa", fontSize=8.5, fontName="Helvetica-Bold",
+        # ── Encabezado corporativo ─────────────────────────────────────────────
+        "doc_empresa": ParagraphStyle("doc_empresa", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["white"]),
-        "doc_emp_sub": ParagraphStyle("doc_emp_sub", fontSize=7, fontName="Helvetica",
-                                       leading=9, textColor=colors.HexColor("#B8D4F0")),
-        "doc_num":     ParagraphStyle("doc_num", fontSize=13, fontName="Helvetica-Bold",
-                                       leading=16, textColor=C["white"], alignment=TA_RIGHT),
-        "doc_validez": ParagraphStyle("doc_validez", fontSize=7, fontName="Helvetica-Bold",
-                                       leading=9, textColor=C["accent"], alignment=TA_RIGHT),
-        # REGLA 1: seccion → fontSize=9.5, leading=12
-        "seccion":     ParagraphStyle("seccion", fontSize=9.5, fontName="Helvetica-Bold",
-                                       leading=12, textColor=C["gray"], letterSpacing=1.4),
-        # REGLA 1: cell* → fontSize=9, leading=11
-        "cell":        ParagraphStyle("cell", fontSize=9, fontName="Helvetica",
-                                       leading=11, textColor=C["text"]),
+        "doc_emp_sub": ParagraphStyle("doc_emp_sub", fontSize=7.5, fontName="Helvetica",
+                                       leading=10, textColor=colors.HexColor("#B8D4F0")),
+        "doc_num":     ParagraphStyle("doc_num", fontSize=14, fontName="Helvetica-Bold",
+                                       leading=17, textColor=C["white"], alignment=TA_RIGHT),
+        "doc_validez": ParagraphStyle("doc_validez", fontSize=7.5, fontName="Helvetica-Bold",
+                                       leading=10, textColor=C["accent"], alignment=TA_RIGHT),
+
+        # ── NIVEL 1: Títulos de sección ───────────────────────────────────────
+        "seccion":     ParagraphStyle("seccion", fontSize=10, fontName="Helvetica-Bold",
+                                       leading=12, textColor=C["secondary"], letterSpacing=0.8),
+
+        # ── NIVEL 2: Labels / subtítulos ──────────────────────────────────────
         "cell_b":      ParagraphStyle("cell_b", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["text"]),
-        "cell_r":      ParagraphStyle("cell_r", fontSize=9, fontName="Helvetica",
-                                       leading=11, textColor=C["text"], alignment=TA_RIGHT),
         "cell_br":     ParagraphStyle("cell_br", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["text"], alignment=TA_RIGHT),
-        "cell_c":      ParagraphStyle("cell_c", fontSize=9, fontName="Helvetica",
-                                       leading=11, textColor=C["text"], alignment=TA_CENTER),
         "th":          ParagraphStyle("th", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["white"]),
         "th_r":        ParagraphStyle("th_r", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["white"], alignment=TA_RIGHT),
         "th_c":        ParagraphStyle("th_c", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["white"], alignment=TA_CENTER),
-        "total_label": ParagraphStyle("total_label", fontSize=10, fontName="Helvetica-Bold",
-                                       leading=13, textColor=C["white"]),
-        "total_val":   ParagraphStyle("total_val", fontSize=10, fontName="Helvetica-Bold",
-                                       leading=13, textColor=C["white"], alignment=TA_RIGHT),
         "subtotal_l":  ParagraphStyle("subtotal_l", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["text"]),
         "subtotal_v":  ParagraphStyle("subtotal_v", fontSize=9, fontName="Helvetica-Bold",
@@ -223,50 +235,64 @@ def _estilos(C):
                                        leading=11, textColor=C["accent"]),
         "anticipo_v":  ParagraphStyle("anticipo_v", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["accent"], alignment=TA_RIGHT),
+
+        # ── NIVEL 3: Cuerpo ───────────────────────────────────────────────────
+        "cell":        ParagraphStyle("cell", fontSize=9, fontName="Helvetica",
+                                       leading=11, textColor=C["text"]),
+        "cell_r":      ParagraphStyle("cell_r", fontSize=9, fontName="Helvetica",
+                                       leading=11, textColor=C["text"], alignment=TA_RIGHT),
+        "cell_c":      ParagraphStyle("cell_c", fontSize=9, fontName="Helvetica",
+                                       leading=11, textColor=C["text"], alignment=TA_CENTER),
         "iva_l":       ParagraphStyle("iva_l", fontSize=9, fontName="Helvetica-Oblique",
                                        leading=11, textColor=C["secondary"]),
         "iva_v":       ParagraphStyle("iva_v", fontSize=9, fontName="Helvetica-Oblique",
                                        leading=11, textColor=C["secondary"], alignment=TA_RIGHT),
+
+        # ── TOTAL: máxima jerarquía visual ────────────────────────────────────
+        "total_label": ParagraphStyle("total_label", fontSize=11, fontName="Helvetica-Bold",
+                                       leading=14, textColor=C["white"]),
+        "total_val":   ParagraphStyle("total_val", fontSize=11, fontName="Helvetica-Bold",
+                                       leading=14, textColor=C["white"], alignment=TA_RIGHT),
         "letras":      ParagraphStyle("letras", fontSize=8, fontName="Helvetica-Bold",
                                        leading=10, textColor=C["white"]),
+
+        # ── NIVEL 4: Notas / pie ──────────────────────────────────────────────
         "footer":      ParagraphStyle("footer", fontSize=6.5, fontName="Helvetica",
                                        leading=8, textColor=C["gray"], alignment=TA_CENTER),
-        # REGLA 1: aviso → fontSize=8, leading=10
         "aviso":       ParagraphStyle("aviso", fontSize=8, fontName="Helvetica",
                                        leading=10, textColor=C["text"]),
-        "terms_title": ParagraphStyle("terms_title", fontSize=8, fontName="Helvetica-Bold",
-                                       leading=10, textColor=C["terms_text"]),
-        # REGLA 1: terms_body → fontSize=8, leading=10
-        "terms_body":  ParagraphStyle("terms_body", fontSize=8, fontName="Helvetica",
-                                       leading=10, textColor=C["terms_text"]),
-        "inc_hdr":     ParagraphStyle("inc_hdr", fontSize=8, fontName="Helvetica-Bold",
-                                       leading=10, textColor=C["white"]),
-        "inc_row":     ParagraphStyle("inc_row", fontSize=8, fontName="Helvetica",
-                                       leading=10, textColor=C["text"],
-                                       leftIndent=14, firstLineIndent=-14),
-        "white_s":     ParagraphStyle("white_s", fontSize=8, fontName="Helvetica",
-                                       leading=10, textColor=C["white"]),
-        "accent_s":    ParagraphStyle("accent_s", fontSize=8, fontName="Helvetica-Bold",
-                                       leading=10, textColor=C["accent"]),
-        # REGLA 1: nota_legal → fontSize=8, leading=10
         "nota_legal":  ParagraphStyle("nota_legal", fontSize=8, fontName="Helvetica-Oblique",
                                        leading=10, textColor=colors.HexColor("#4A5568")),
-        "firma_titulo":ParagraphStyle("firma_titulo", fontSize=8, fontName="Helvetica-Bold",
+        "terms_title": ParagraphStyle("terms_title", fontSize=9, fontName="Helvetica-Bold",
+                                       leading=11, textColor=colors.HexColor("#0D2137")),
+        "terms_body":  ParagraphStyle("terms_body", fontSize=8.5, fontName="Helvetica",
+                                       leading=12, textColor=colors.HexColor("#4A5568")),
+        "inc_hdr":     ParagraphStyle("inc_hdr", fontSize=8.5, fontName="Helvetica-Bold",
+                                       leading=11, textColor=C["white"]),
+        "inc_row":     ParagraphStyle("inc_row", fontSize=8.5, fontName="Helvetica",
+                                       leading=11, textColor=C["text"],
+                                       leftIndent=14, firstLineIndent=-14),
+        "white_s":     ParagraphStyle("white_s", fontSize=8.5, fontName="Helvetica",
+                                       leading=11, textColor=C["white"]),
+        "accent_s":    ParagraphStyle("accent_s", fontSize=8.5, fontName="Helvetica-Bold",
+                                       leading=11, textColor=C["accent"]),
+        "firma_titulo":ParagraphStyle("firma_titulo", fontSize=9, fontName="Helvetica-Bold",
                                        leading=11, textColor=colors.HexColor("#1C2B3A")),
-        "firma_campo": ParagraphStyle("firma_campo", fontSize=8, fontName="Helvetica",
-                                       leading=12, textColor=colors.HexColor("#1C2B3A")),
-        # REGLA 1: matriz_* → fontSize=8.5, leading=10
+        "firma_campo": ParagraphStyle("firma_campo", fontSize=8.5, fontName="Helvetica",
+                                       leading=11, textColor=colors.HexColor("#1C2B3A")),
+
+        # ── Matriz inclusiones/exclusiones ────────────────────────────────────
         "matriz_inc":     ParagraphStyle("matriz_inc", fontSize=8.5, fontName="Helvetica-Bold",
-                                          leading=10, textColor=colors.HexColor("#FFFFFF"),
+                                          leading=11, textColor=colors.HexColor("#FFFFFF"),
                                           alignment=TA_CENTER, spaceAfter=0),
         "matriz_exc":     ParagraphStyle("matriz_exc", fontSize=8.5, fontName="Helvetica-Bold",
-                                          leading=10, textColor=colors.HexColor("#FFFFFF"),
+                                          leading=11, textColor=colors.HexColor("#FFFFFF"),
                                           alignment=TA_CENTER, spaceAfter=0),
         "matriz_inc_row": ParagraphStyle("matriz_inc_row", fontSize=8.5, fontName="Helvetica",
-                                          leading=10, textColor=colors.HexColor("#1C2B3A"),
+                                          leading=11, textColor=colors.HexColor("#1C2B3A"),
                                           leftIndent=0, firstLineIndent=0, spaceAfter=0),
         "matriz_exc_row": ParagraphStyle("matriz_exc_row", fontSize=8.5, fontName="Helvetica",
-                                          leading=10, textColor=colors.HexColor("#1C2B3A"),
+                                          leading=11, textColor=colors.HexColor("#1C2B3A"),
                                           leftIndent=0, firstLineIndent=0, spaceAfter=0),
     }
 
@@ -275,10 +301,10 @@ def _estilos(C):
 
 def _seccion_header(titulo, E):
     return [
-        HRFlowable(width="100%", thickness=0.4, color=colors.HexColor("#CBD5E0")),
-        Spacer(1, 2),
+        HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#C8D8E8")),
+        Spacer(1, _SP_HEADER),
         Paragraph(titulo.upper(), E["seccion"]),
-        Spacer(1, 2),
+        Spacer(1, _SP_HEADER),
     ]
 
 
@@ -304,32 +330,32 @@ def _encabezado_doc(E, C, doc_type, numero, fecha_str, empresa_info, logo_bytes,
     der = [
         Paragraph(doc_type,
             ParagraphStyle("dt", fontSize=7.5, fontName="Helvetica-Bold",
-                           leading=9, textColor=C["accent"], alignment=TA_RIGHT)),
+                           leading=10, textColor=C["accent"], alignment=TA_RIGHT)),
         Spacer(1, 4),
         Paragraph(f"<b>{numero}</b>", E["doc_num"]),
         Spacer(1, 3),
         Paragraph(fecha_str,
             ParagraphStyle("fch", fontSize=7.5, fontName="Helvetica",
-                           leading=9, textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)),
+                           leading=10, textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)),
     ]
     if emp.get("email"):
         der.append(Paragraph(emp["email"],
             ParagraphStyle("em2", fontSize=6.5, fontName="Helvetica",
                            leading=9, textColor=colors.HexColor("#B8D4F0"), alignment=TA_RIGHT)))
     if valido_hasta:
-        der.append(Spacer(1, 3))
+        der.append(Spacer(1, 4))
         der.append(Paragraph(f"Válida hasta: {valido_hasta}", E["doc_validez"]))
 
     tbl = Table([[izq, der]], colWidths=COL_ENCAB)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0,0), (-1,-1), C["primary"]),
         ("VALIGN",        (0,0), (-1,-1), "TOP"),
-        ("TOPPADDING",    (0,0), (-1,-1), 12),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 12),
-        ("LEFTPADDING",   (0,0), (0,-1),  14),
-        ("RIGHTPADDING",  (-1,0),(-1,-1), 14),
-        ("LEFTPADDING",   (-1,0),(-1,-1), 8),
-        ("LINEBELOW",     (0,0), (-1,-1), 2.5, C["accent"]),
+        ("TOPPADDING",    (0,0), (-1,-1), 14),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 14),
+        ("LEFTPADDING",   (0,0), (0,-1),  16),
+        ("RIGHTPADDING",  (-1,0),(-1,-1), 16),
+        ("LEFTPADDING",   (-1,0),(-1,-1), 10),
+        ("LINEBELOW",     (0,0), (-1,-1), 3.0, C["accent"]),
     ]))
     return tbl
 
@@ -341,10 +367,10 @@ def _tabla_datos_cliente(E, C, filas_datos):
     tbl = Table(rows, colWidths=COL_2_30_70, repeatRows=1)
     tbl.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0,0), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
-        ("TOPPADDING",     (0,0), (-1,-1), 4),
-        ("BOTTOMPADDING",  (0,0), (-1,-1), 4),
-        ("LEFTPADDING",    (0,0), (-1,-1), 8),
-        ("RIGHTPADDING",   (0,0), (-1,-1), 8),
+        ("TOPPADDING",     (0,0), (-1,-1), _PAD_DATA),
+        ("BOTTOMPADDING",  (0,0), (-1,-1), _PAD_DATA),
+        ("LEFTPADDING",    (0,0), (-1,-1), 10),
+        ("RIGHTPADDING",   (0,0), (-1,-1), 10),
         ("LINEBELOW",      (0,0), (-1,-1), 0.3, C["border"]),
         ("BOX",            (0,0), (-1,-1), 0.5, C["border"]),
     ]))
@@ -356,8 +382,7 @@ def _tabla_2col(E, C, filas_datos):
 
 
 def _footer_doc(E, C, emp_nombre, fecha_str, numero="", ciudad="Barranquilla"):
-    _nombre_marca = emp_nombre.strip() if emp_nombre and emp_nombre.strip() else "MÁRMOLES COLLANTE & CASTRO LTDA."
-    _ciudad_str   = ciudad.strip() if ciudad and ciudad.strip() else "Barranquilla"
+    _ciudad_str = ciudad.strip() if ciudad and ciudad.strip() else "Barranquilla"
     linea = (
         f"MÁRMOLES COLLANTE & CASTRO LTDA.  |  "
         f"Distribuidor Oficial de GRANITOS Y MÁRMOLES S.A.S  |  "
@@ -369,9 +394,9 @@ def _footer_doc(E, C, emp_nombre, fecha_str, numero="", ciudad="Barranquilla"):
         letterSpacing=0.3,
     )
     return [
-        Spacer(1, 6),
+        Spacer(1, 8),
         HRFlowable(width="100%", thickness=0.5, color=C["border"]),
-        Spacer(1, 3),
+        Spacer(1, 4),
         Paragraph(linea, _footer_style),
     ]
 
@@ -383,7 +408,6 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
     story += _seccion_header("Despiece Técnico y Elementos del Proyecto", E)
 
     piezas = r.get("_estado_guardado", {}).get("piezas", [])
-
     _cat_mat  = r.get("categoria", "")
     _ref_mat  = r.get("referencia", "")
     _nombres_mat = (f"{_cat_mat} {_ref_mat}".strip()
@@ -410,22 +434,16 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             m2_p         = _m2_calc if _m2_calc > 0 else _ml_efectivo * _ancho
             prop         = (m2_p / total_m2) if total_m2 > 0 else (1 / len(piezas))
             precio_p     = precio_sugerido_total * prop
-
-            _tipo_pieza = p.get("ancho_tipo", "").lower()
-            _es_area_p  = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
-
+            _tipo_pieza  = p.get("ancho_tipo", "").lower()
+            _es_area_p   = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
             if _es_area_p:
                 _cant_unid_str = f"{_cantidad} u × {(_ml_unit * _ancho):.2f} m²"
                 _qty_base  = m2_p
             else:
                 _cant_unid_str = f"{_cantidad} u × {_ml_unit:.2f} ml"
                 _qty_base  = _ml_efectivo
-
             pu = precio_p / _qty_base if _qty_base > 0 else 0
-
-            _nombre_pieza = p.get("nombre", "—")
-            _desc_enriq   = f"{_nombre_pieza} en {_nombres_mat}"
-
+            _desc_enriq = f"{p.get('nombre', '—')} en {_nombres_mat}"
             filas.append([
                 Paragraph(str(idx_p),                               E["cell_c"]),
                 Paragraph(_desc_enriq,                              E["cell"]),
@@ -445,17 +463,17 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
 
     tbl = Table(filas, colWidths=COL_5_STD, repeatRows=1)
     tbl.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
-        ("ROWBACKGROUNDS",(0,1),  (-1,-1), [C["zebra_a"], C["zebra_b"]]),
-        ("TOPPADDING",    (0,0),  (-1,0),  5),
-        ("BOTTOMPADDING", (0,0),  (-1,0),  5),
-        ("TOPPADDING",    (0,1),  (-1,-1), 4),
-        ("BOTTOMPADDING", (0,1),  (-1,-1), 4),
-        ("LEFTPADDING",   (0,0),  (-1,-1), 7),
-        ("RIGHTPADDING",  (0,0),  (-1,-1), 7),
-        ("VALIGN",        (0,0),  (-1,-1), "TOP"),
-        ("LINEBELOW",     (0,0),  (-1,-1), 0.3, C["border"]),
-        ("BOX",           (0,0),  (-1,-1), 0.5, C["border"]),
+        ("BACKGROUND",    (0,0), (-1,0),  C["header_dark"]),
+        ("ROWBACKGROUNDS",(0,1), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
+        ("TOPPADDING",    (0,0), (-1,0),  _PAD_HDR),
+        ("BOTTOMPADDING", (0,0), (-1,0),  _PAD_HDR),
+        ("TOPPADDING",    (0,1), (-1,-1), _PAD_DATA),
+        ("BOTTOMPADDING", (0,1), (-1,-1), _PAD_DATA),
+        ("LEFTPADDING",   (0,0), (-1,-1), 8),
+        ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+        ("VALIGN",        (0,0), (-1,-1), "TOP"),
+        ("LINEBELOW",     (0,0), (-1,-1), 0.3, C["border"]),
+        ("BOX",           (0,0), (-1,-1), 0.5, C["border"]),
     ]))
     story.append(tbl)
 
@@ -470,88 +488,63 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
         colWidths=[_AU],
         style=TableStyle([
             ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#F7F9FC")),
-            ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",  (0,0),(-1,-1),10),
-            ("TOPPADDING",    (0,0),(-1,-1), 4),  ("BOTTOMPADDING", (0,0),(-1,-1),4),
+            ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
+            ("TOPPADDING",    (0,0),(-1,-1), _PAD_NOTA), ("BOTTOMPADDING",(0,0),(-1,-1),_PAD_NOTA),
             ("LINEABOVE",     (0,0),(-1, 0), 0.5, colors.HexColor("#6B85A0")),
             ("BOX",           (0,0),(-1,-1), 0.4, colors.HexColor("#C8D8E8")),
         ])
     ))
-
     return story
 
 
 def _seccion_adicionales_alcance(E, C, adicionales_detalle, c7_adicionales):
     story = []
-    story += _seccion_header("ALCANCE DEL PROYECTO: Servicios Adicionales", E)
+    story += _seccion_header("Alcance del Proyecto: Servicios Adicionales", E)
 
-    _s_hdr = ParagraphStyle("aaic_hdr", fontSize=9, fontName="Helvetica-Bold",
-                             leading=11, textColor=colors.HexColor("#0D2137"),
-                             letterSpacing=0.8)
-    _s_item = ParagraphStyle("aaic_item", fontSize=9, fontName="Helvetica",
-                              leading=11, textColor=colors.HexColor("#1C2B3A"))
-    _s_val  = ParagraphStyle("aaic_val",  fontSize=9, fontName="Helvetica-Bold",
-                              leading=11, textColor=colors.HexColor("#1B5FA8"),
-                              alignment=TA_RIGHT)
-    _s_tot_l = ParagraphStyle("aaic_tot_l", fontSize=9, fontName="Helvetica-Bold",
-                               leading=11, textColor=colors.HexColor("#1B5FA8"))
-    _s_tot_v = ParagraphStyle("aaic_tot_v", fontSize=9, fontName="Helvetica-Bold",
-                               leading=11, textColor=colors.HexColor("#1B5FA8"),
-                               alignment=TA_RIGHT)
-    _s_val_hdr = ParagraphStyle("aaic_val_hdr", fontSize=9, fontName="Helvetica-Bold",
-                                 leading=11, textColor=colors.HexColor("#0D2137"),
-                                 alignment=TA_RIGHT)
-    _s_vacio = ParagraphStyle("aaic_vacio", fontSize=9, fontName="Helvetica-Oblique",
-                               leading=11, textColor=colors.HexColor("#6B85A0"))
+    _s_hdr    = ParagraphStyle("aaic_hdr", fontSize=9, fontName="Helvetica-Bold",
+                                leading=11, textColor=colors.HexColor("#0D2137"))
+    _s_item   = ParagraphStyle("aaic_item", fontSize=9, fontName="Helvetica",
+                                leading=11, textColor=colors.HexColor("#1C2B3A"))
+    _s_val    = ParagraphStyle("aaic_val",  fontSize=9, fontName="Helvetica-Bold",
+                                leading=11, textColor=colors.HexColor("#1B5FA8"), alignment=TA_RIGHT)
+    _s_tot_l  = ParagraphStyle("aaic_tot_l", fontSize=9, fontName="Helvetica-Bold",
+                                leading=11, textColor=colors.HexColor("#1B5FA8"))
+    _s_tot_v  = ParagraphStyle("aaic_tot_v", fontSize=9, fontName="Helvetica-Bold",
+                                leading=11, textColor=colors.HexColor("#1B5FA8"), alignment=TA_RIGHT)
+    _s_vhdr   = ParagraphStyle("aaic_vhdr", fontSize=9, fontName="Helvetica-Bold",
+                                leading=11, textColor=colors.HexColor("#0D2137"), alignment=TA_RIGHT)
+    _s_vacio  = ParagraphStyle("aaic_vacio", fontSize=9, fontName="Helvetica-Oblique",
+                                leading=11, textColor=colors.HexColor("#6B85A0"))
 
-    filas_aa = [[
-        Paragraph("SERVICIO / ELEMENTO ADICIONAL", _s_hdr),
-        Paragraph("VALOR", _s_val_hdr),
-    ]]
-
+    filas_aa = [[Paragraph("SERVICIO / ELEMENTO ADICIONAL", _s_hdr), Paragraph("VALOR", _s_vhdr)]]
     _items_con_valor = []
     if adicionales_detalle:
         for item in adicionales_detalle:
-            nombre = (item.get("concepto") or item.get("nombre") or "").strip()
-            if not nombre:
-                nombre = "Servicio adicional"
+            nombre = (item.get("concepto") or item.get("nombre") or "").strip() or "Servicio adicional"
             valor = float(item.get("valor", 0) or 0)
             if valor > 0:
                 _items_con_valor.append((nombre, valor))
-                filas_aa.append([
-                    Paragraph(f"✔  {nombre}", _s_item),
-                    Paragraph(_num(valor), _s_val),
-                ])
+                filas_aa.append([Paragraph(f"✔  {nombre}", _s_item), Paragraph(_num(valor), _s_val)])
 
     if not _items_con_valor:
-        filas_aa.append([
-            Paragraph("No se seleccionaron servicios adicionales.", _s_vacio),
-            Paragraph("—", _s_val),
-        ])
+        filas_aa.append([Paragraph("No se seleccionaron servicios adicionales.", _s_vacio), Paragraph("—", _s_val)])
         c7_adicionales = 0.0
-
     if _items_con_valor and c7_adicionales and c7_adicionales > 0:
-        filas_aa.append([
-            Paragraph("Total servicios adicionales", _s_tot_l),
-            Paragraph(_num(c7_adicionales), _s_tot_v),
-        ])
+        filas_aa.append([Paragraph("Total servicios adicionales", _s_tot_l), Paragraph(_num(c7_adicionales), _s_tot_v)])
 
     tbl_aa = Table(filas_aa, colWidths=COL_2_75_25)
     tbl_aa.setStyle(TableStyle([
         ("BACKGROUND",    (0, 0),  (-1, 0),  colors.HexColor("#EBF3FB")),
-        ("ROWBACKGROUNDS",(0, 1),  (-1, -2), [colors.HexColor("#F7FAFD"),
-                                               colors.HexColor("#FFFFFF")]),
-        ("BACKGROUND",    (0, -1), (-1, -1), colors.HexColor("#EBF3FB")),
-        ("LINEABOVE",     (0, 0),  (-1,  0), 1.5, colors.HexColor("#1B5FA8")),
-        ("LINEBELOW",     (0, -1), (-1, -1), 1.5, colors.HexColor("#1B5FA8")),
-        ("LINEBELOW",     (0, 0),  (-1, -2), 0.3, colors.HexColor("#C8D8E8")),
-        ("TOPPADDING",    (0, 0),  (-1, 0),  5),
-        ("BOTTOMPADDING", (0, 0),  (-1, 0),  5),
-        ("TOPPADDING",    (0, 1),  (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 1),  (-1, -1), 4),
-        ("LEFTPADDING",   (0, 0),  (-1, -1), 10),
-        ("RIGHTPADDING",  (0, 0),  (-1, -1), 10),
-        ("VALIGN",        (0, 0),  (-1, -1), "MIDDLE"),
-        ("BOX",           (0, 0),  (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
+        ("ROWBACKGROUNDS",(0, 1),  (-1,-2),  [colors.HexColor("#F7FAFD"), colors.HexColor("#FFFFFF")]),
+        ("BACKGROUND",    (0,-1),  (-1,-1),  colors.HexColor("#EBF3FB")),
+        ("LINEABOVE",     (0, 0),  (-1, 0),  1.5, colors.HexColor("#1B5FA8")),
+        ("LINEBELOW",     (0,-1),  (-1,-1),  1.5, colors.HexColor("#1B5FA8")),
+        ("LINEBELOW",     (0, 0),  (-1,-2),  0.3, colors.HexColor("#C8D8E8")),
+        ("TOPPADDING",    (0, 0),  (-1, 0),  _PAD_HDR), ("BOTTOMPADDING",(0,0),(-1,0),_PAD_HDR),
+        ("TOPPADDING",    (0, 1),  (-1,-1),  _PAD_DATA), ("BOTTOMPADDING",(0,1),(-1,-1),_PAD_DATA),
+        ("LEFTPADDING",   (0, 0),  (-1,-1),  10), ("RIGHTPADDING",(0,0),(-1,-1),10),
+        ("VALIGN",        (0, 0),  (-1,-1),  "MIDDLE"),
+        ("BOX",           (0, 0),  (-1,-1),  0.5, colors.HexColor("#C8D8E8")),
     ]))
     story.append(tbl_aa)
     return story
@@ -566,9 +559,8 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
                                 leading=11, textColor=colors.HexColor("#1B5FA8"))
     _s_adic_v = ParagraphStyle("adic_v", fontSize=9, fontName="Helvetica-Bold",
                                 leading=11, textColor=colors.HexColor("#1B5FA8"), alignment=TA_RIGHT)
-
-    filas_fin = []
     _tiene_adicionales = c7_adicionales and c7_adicionales > 0
+    filas_fin = []
 
     if incluir_iva:
         iva_val          = precio_sugerido_total * 0.19
@@ -576,88 +568,58 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
         anticipo_val     = precio_final_doc * (anticipo_pct / 100)
         saldo_val        = precio_final_doc - anticipo_val
 
-        filas_fin.append([
-            Paragraph("Subtotal", E["cell_b"]),
-            Paragraph(_num(precio_sugerido_total), E["cell_br"]),
-        ])
+        filas_fin.append([Paragraph("Subtotal", E["cell_b"]), Paragraph(_num(precio_sugerido_total), E["cell_br"])])
         if _tiene_adicionales:
-            filas_fin.append([
-                Paragraph("Costos Adicionales", _s_adic_l),
-                Paragraph(_num(c7_adicionales),  _s_adic_v),
-            ])
-        filas_fin.append([
-            Paragraph("Base gravable (subtotal) IVA 19% (Art. 468 E.T.)", E["iva_l"]),
-            Paragraph(_num(iva_val), E["iva_v"]),
-        ])
-        filas_fin.append([
-            Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]),
-            Paragraph(_num(anticipo_val), E["anticipo_v"]),
-        ])
+            filas_fin.append([Paragraph("Costos Adicionales", _s_adic_l), Paragraph(_num(c7_adicionales), _s_adic_v)])
+        filas_fin.append([Paragraph("Base gravable (subtotal) IVA 19% (Art. 468 E.T.)", E["iva_l"]), Paragraph(_num(iva_val), E["iva_v"])])
+        filas_fin.append([Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]), Paragraph(_num(anticipo_val), E["anticipo_v"])])
         filas_fin.append([
             Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
                 ParagraphStyle("sld",fontSize=8,fontName="Helvetica",leading=10,textColor=C["gray"])),
             Paragraph(_num(saldo_val),
                 ParagraphStyle("sldv",fontSize=8,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT)),
         ])
-        filas_fin.append([
-            Paragraph("TOTAL", E["total_label"]),
-            Paragraph(_num(precio_final_doc), E["total_val"]),
-        ])
-        _n_filas = len(filas_fin)
-        idx_ant  = _n_filas - 3
-        idx_tot  = _n_filas - 1
+        filas_fin.append([Paragraph("TOTAL", E["total_label"]), Paragraph(_num(precio_final_doc), E["total_val"])])
     else:
         precio_final_doc = precio_sugerido_total
         anticipo_val     = precio_final_doc * (anticipo_pct / 100)
         saldo_val        = precio_final_doc - anticipo_val
 
-        filas_fin.append([
-            Paragraph("Subtotal", E["subtotal_l"]),
-            Paragraph(_num(precio_final_doc), E["subtotal_v"]),
-        ])
+        filas_fin.append([Paragraph("Subtotal", E["subtotal_l"]), Paragraph(_num(precio_final_doc), E["subtotal_v"])])
         if _tiene_adicionales:
-            filas_fin.append([
-                Paragraph("Costos Adicionales", _s_adic_l),
-                Paragraph(_num(c7_adicionales),  _s_adic_v),
-            ])
-        filas_fin.append([
-            Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]),
-            Paragraph(_num(anticipo_val), E["anticipo_v"]),
-        ])
+            filas_fin.append([Paragraph("Costos Adicionales", _s_adic_l), Paragraph(_num(c7_adicionales), _s_adic_v)])
+        filas_fin.append([Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]), Paragraph(_num(anticipo_val), E["anticipo_v"])])
         filas_fin.append([
             Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
                 ParagraphStyle("sld2",fontSize=8,fontName="Helvetica",leading=10,textColor=C["gray"])),
             Paragraph(_num(saldo_val),
                 ParagraphStyle("sldv2",fontSize=8,fontName="Helvetica",leading=10,textColor=C["gray"],alignment=TA_RIGHT)),
         ])
-        filas_fin.append([
-            Paragraph("TOTAL (SIN IVA)", E["total_label"]),
-            Paragraph(_num(precio_final_doc), E["total_val"]),
-        ])
-        _n_filas = len(filas_fin)
-        idx_ant  = _n_filas - 3
-        idx_tot  = _n_filas - 1
+        filas_fin.append([Paragraph("TOTAL (SIN IVA)", E["total_label"]), Paragraph(_num(precio_final_doc), E["total_val"])])
+
+    _n_filas = len(filas_fin)
+    idx_ant  = _n_filas - 3
+    idx_tot  = _n_filas - 1
 
     _adic_styles = []
     if _tiene_adicionales:
-        _idx_adic = 1
         _adic_styles = [
-            ("BACKGROUND",  (0,_idx_adic), (-1,_idx_adic), colors.HexColor("#EBF3FB")),
-            ("LINEABOVE",   (0,_idx_adic), (-1,_idx_adic), 1.2, colors.HexColor("#1B5FA8")),
-            ("LINEBELOW",   (0,_idx_adic), (-1,_idx_adic), 1.2, colors.HexColor("#1B5FA8")),
+            ("BACKGROUND", (0,1),(-1,1), colors.HexColor("#EBF3FB")),
+            ("LINEABOVE",  (0,1),(-1,1), 1.2, colors.HexColor("#1B5FA8")),
+            ("LINEBELOW",  (0,1),(-1,1), 1.2, colors.HexColor("#1B5FA8")),
         ]
 
     tbl_fin = Table(filas_fin, colWidths=COL_2_75_25)
     tbl_fin.setStyle(TableStyle(
         _adic_styles + [
-        ("ROWBACKGROUNDS", (0,0), (-1, idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
+        ("ROWBACKGROUNDS", (0,0), (-1,idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
         ("BACKGROUND",     (0,idx_ant), (-1,idx_ant), C["anticipo_bg"]),
         ("BACKGROUND",     (0,idx_tot), (-1,idx_tot), C["total_bg"]),
-        ("LINEABOVE",      (0,idx_tot), (-1,idx_tot), 2.5, C["accent"]),
-        ("TOPPADDING",     (0,0), (-1,idx_tot-1), 4),
-        ("BOTTOMPADDING",  (0,0), (-1,idx_tot-1), 4),
-        ("TOPPADDING",     (0,idx_tot), (-1,idx_tot), 5),
-        ("BOTTOMPADDING",  (0,idx_tot), (-1,idx_tot), 5),
+        ("LINEABOVE",      (0,idx_tot), (-1,idx_tot), 3.0, C["accent"]),
+        ("TOPPADDING",     (0,0), (-1,idx_tot-1), _PAD_DATA),
+        ("BOTTOMPADDING",  (0,0), (-1,idx_tot-1), _PAD_DATA),
+        ("TOPPADDING",     (0,idx_tot), (-1,idx_tot), 8),
+        ("BOTTOMPADDING",  (0,idx_tot), (-1,idx_tot), 8),
         ("LEFTPADDING",    (0,0), (-1,-1), 10),
         ("RIGHTPADDING",   (0,0), (-1,-1), 10),
         ("VALIGN",         (0,0), (-1,-1), "MIDDLE"),
@@ -674,107 +636,71 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     _inc = inclusiones if inclusiones is not None else []
     _exc = exclusiones if exclusiones is not None else []
 
-    _INC_HDR   = colors.HexColor("#166534")
-    _EXC_HDR   = colors.HexColor("#991B1B")
-    _ZEBRA     = colors.HexColor("#F3F4F6")
-    _GRID      = colors.HexColor("#E2E8F0")
-    _WHITE     = colors.HexColor("#FFFFFF")
+    _INC_HDR = colors.HexColor("#166534")
+    _EXC_HDR = colors.HexColor("#991B1B")
+    _ZEBRA   = colors.HexColor("#F3F4F6")
+    _GRID    = colors.HexColor("#E2E8F0")
+    _WHITE   = colors.HexColor("#FFFFFF")
 
-    _S_TIT = ParagraphStyle(
-        "_alcance_tit", fontSize=8.5, fontName="Helvetica-Bold",
-        leading=10, textColor=colors.HexColor("#FFFFFF"),
-        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
-    )
-    _S_HDR_INC = ParagraphStyle(
-        "_mhdr_inc", fontSize=8.5, fontName="Helvetica-Bold",
-        leading=10, textColor=colors.HexColor("#FFFFFF"),
-        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
-    )
-    _S_HDR_EXC = ParagraphStyle(
-        "_mhdr_exc", fontSize=8.5, fontName="Helvetica-Bold",
-        leading=10, textColor=colors.HexColor("#FFFFFF"),
-        alignment=TA_CENTER, spaceAfter=0, spaceBefore=0,
-    )
-    _S_INC = ParagraphStyle(
-        "_minc", fontSize=8.5, fontName="Helvetica",
-        leading=10, textColor=colors.HexColor("#14532D"),
-        leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
-        wordWrap="LTR",
-    )
-    _S_EXC = ParagraphStyle(
-        "_mexc", fontSize=8.5, fontName="Helvetica",
-        leading=10, textColor=colors.HexColor("#7F1D1D"),
-        leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0,
-        wordWrap="LTR",
-    )
-    _S_EMPTY = ParagraphStyle(
-        "_mempty", fontSize=8.5, fontName="Helvetica",
-        leading=10, textColor=colors.HexColor("#FFFFFF"),
-        spaceAfter=0, spaceBefore=0,
-    )
+    _S_TIT = ParagraphStyle("_alcance_tit", fontSize=9, fontName="Helvetica-Bold",
+                             leading=11, textColor=colors.HexColor("#FFFFFF"),
+                             alignment=TA_CENTER, spaceAfter=0, spaceBefore=0)
+    _S_HDR_INC = ParagraphStyle("_mhdr_inc", fontSize=9, fontName="Helvetica-Bold",
+                                 leading=11, textColor=colors.HexColor("#FFFFFF"),
+                                 alignment=TA_CENTER, spaceAfter=0, spaceBefore=0)
+    _S_HDR_EXC = ParagraphStyle("_mhdr_exc", fontSize=9, fontName="Helvetica-Bold",
+                                 leading=11, textColor=colors.HexColor("#FFFFFF"),
+                                 alignment=TA_CENTER, spaceAfter=0, spaceBefore=0)
+    _S_INC = ParagraphStyle("_minc", fontSize=8.5, fontName="Helvetica",
+                             leading=11, textColor=colors.HexColor("#14532D"),
+                             leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0, wordWrap="LTR")
+    _S_EXC = ParagraphStyle("_mexc", fontSize=8.5, fontName="Helvetica",
+                             leading=11, textColor=colors.HexColor("#7F1D1D"),
+                             leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0, wordWrap="LTR")
+    _S_EMPTY = ParagraphStyle("_mempty", fontSize=8.5, fontName="Helvetica",
+                               leading=11, textColor=colors.HexColor("#FFFFFF"),
+                               spaceAfter=0, spaceBefore=0)
 
-    _tbl_tit = Table(
-        [[Paragraph("ALCANCE DE LA PROPUESTA — INCLUSIONES Y EXCLUSIONES", _S_TIT)]],
-        colWidths=[_AU],
-    )
+    _tbl_tit = Table([[Paragraph("ALCANCE DE LA PROPUESTA — INCLUSIONES Y EXCLUSIONES", _S_TIT)]], colWidths=[_AU])
     _tbl_tit.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, -1), colors.HexColor("#1A252C")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
-        ("LINEBELOW",     (0, 0), (-1, -1), 1.5, colors.HexColor("#C9A84C")),
+        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#1A252C")),
+        ("TOPPADDING",    (0,0),(-1,-1), _PAD_HDR), ("BOTTOMPADDING",(0,0),(-1,-1),_PAD_HDR),
+        ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
+        ("LINEBELOW",     (0,0),(-1,-1), 2.0, colors.HexColor("#C9A84C")),
     ]))
 
-    rows = [[
-        Paragraph("✔  INCLUYE",    _S_HDR_INC),
-        Paragraph("✖  NO INCLUYE", _S_HDR_EXC),
-    ]]
-
+    rows = [[Paragraph("✔  INCLUYE", _S_HDR_INC), Paragraph("✖  NO INCLUYE", _S_HDR_EXC)]]
     _inc_items = _inc if _inc else ["--"]
     _exc_items = _exc if _exc else ["--"]
-    _n_data = max(len(_inc_items), len(_exc_items))
-
-    for _i in range(_n_data):
+    for _i in range(max(len(_inc_items), len(_exc_items))):
         _txt_inc = _inc_items[_i] if _i < len(_inc_items) else ""
         _txt_exc = _exc_items[_i] if _i < len(_exc_items) else ""
-        _p_inc = (
-            Paragraph(f"✔  {_txt_inc}", _S_INC)
-            if _txt_inc else Paragraph("", _S_EMPTY)
-        )
-        _p_exc = (
-            Paragraph(f"✖  {_txt_exc}", _S_EXC)
-            if _txt_exc else Paragraph("", _S_EMPTY)
-        )
-        rows.append([_p_inc, _p_exc])
+        rows.append([
+            Paragraph(f"✔  {_txt_inc}", _S_INC) if _txt_inc else Paragraph("", _S_EMPTY),
+            Paragraph(f"✖  {_txt_exc}", _S_EXC) if _txt_exc else Paragraph("", _S_EMPTY),
+        ])
 
     tbl_al = Table(rows, colWidths=COL_2_50_50, repeatRows=1)
-
     _ts = [
-        ("BACKGROUND",    (0, 0), (0, 0),  _INC_HDR),
-        ("BACKGROUND",    (1, 0), (1, 0),  _EXC_HDR),
-        ("VALIGN",        (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING",    (0, 0), (-1, 0),  5),
-        ("BOTTOMPADDING", (0, 0), (-1, 0),  5),
-        ("TOPPADDING",    (0, 1), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 8),
-        ("GRID",          (0, 0), (-1, -1), 0.4, _GRID),
-        ("BOX",           (0, 0), (-1, -1), 1.2, colors.HexColor("#1A252C")),
-        ("LINEBEFORE",    (1, 0), (1, -1),  0.8, _GRID),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [_WHITE, _WHITE]),
+        ("BACKGROUND",     (0,0),(0,0),  _INC_HDR),
+        ("BACKGROUND",     (1,0),(1,0),  _EXC_HDR),
+        ("VALIGN",         (0,0),(-1,-1), "TOP"),
+        ("TOPPADDING",     (0,0),(-1, 0), _PAD_HDR), ("BOTTOMPADDING",(0,0),(-1,0),_PAD_HDR),
+        ("TOPPADDING",     (0,1),(-1,-1), _PAD_DATA), ("BOTTOMPADDING",(0,1),(-1,-1),_PAD_DATA),
+        ("LEFTPADDING",    (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
+        ("GRID",           (0,0),(-1,-1), 0.4, _GRID),
+        ("BOX",            (0,0),(-1,-1), 1.2, colors.HexColor("#1A252C")),
+        ("LINEBEFORE",     (1,0),(1,-1),  0.8, _GRID),
+        ("ROWBACKGROUNDS", (0,1),(-1,-1), [_WHITE, _WHITE]),
     ]
-
     for _ri in range(1, len(rows)):
         if _ri % 2 == 0:
-            _ts.append(("BACKGROUND", (0, _ri), (0, _ri), _ZEBRA))
-            _ts.append(("BACKGROUND", (1, _ri), (1, _ri), _ZEBRA))
-
+            _ts.append(("BACKGROUND", (0,_ri),(0,_ri), _ZEBRA))
+            _ts.append(("BACKGROUND", (1,_ri),(1,_ri), _ZEBRA))
     tbl_al.setStyle(TableStyle(_ts))
 
-    # REGLA 4: Sin KeepTogether para la Matriz de Alcance
-    return [_tbl_tit, Spacer(1, 2), tbl_al]
+    # Sin KeepTogether — flujo natural de página
+    return [_tbl_tit, Spacer(1, _SP_BLOQUE), tbl_al]
 
 
 # ── Módulo: Términos y Condiciones ────────────────────────────────────────────
@@ -783,16 +709,12 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
     story = []
     story += _seccion_header("Términos y Condiciones Comerciales", E)
 
-    _titulo_tc = ParagraphStyle(
-        "tc_titulo", fontSize=9, fontName="Helvetica-Bold",
-        leading=11, textColor=colors.HexColor("#0D2137"),
-        spaceAfter=4,
-    )
-    _viñeta_tc = ParagraphStyle(
-        "tc_viñeta", fontSize=8, fontName="Helvetica",
-        leading=10, textColor=colors.HexColor("#4A5568"),
-        leftIndent=12, firstLineIndent=-8, spaceAfter=3,
-    )
+    _titulo_tc = ParagraphStyle("tc_titulo", fontSize=9, fontName="Helvetica-Bold",
+                                 leading=11, textColor=colors.HexColor("#0D2137"), spaceAfter=6)
+    # leading=12 para mayor escaneo visual
+    _viñeta_tc = ParagraphStyle("tc_viñeta", fontSize=8.5, fontName="Helvetica",
+                                 leading=12, textColor=colors.HexColor("#4A5568"),
+                                 leftIndent=14, firstLineIndent=-10, spaceAfter=5)
 
     condiciones_items = [
         nota_iva.strip(),
@@ -807,54 +729,46 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
         "Barranquilla, Colombia.",
     ]
 
-    bloques = [Paragraph("CONDICIONES COMERCIALES", _titulo_tc)]
-    for item in condiciones_items:
-        bloques.append(Paragraph(f"• {item}", _viñeta_tc))
-
-    # REGLA 4: Sin KeepTogether para Términos y Condiciones
-    story += bloques
+    # Sin KeepTogether — flujo natural
+    story.append(Paragraph("CONDICIONES COMERCIALES", _titulo_tc))
+    for i, item in enumerate(condiciones_items, start=1):
+        story.append(Paragraph(f"{i}.  {item}", _viñeta_tc))
     return story
 
 
 def _bloque_firma_cliente(E, C):
-    linea_blanca = "_" * 42
+    """Cierre de contrato premium: línea superior 2pt + celdas generosas para escritura."""
+    linea_firma = "_" * 44
 
     filas_firma = [
         [Paragraph("ACEPTADO Y APROBADO POR EL CLIENTE:", E["firma_titulo"]), ""],
-        [Paragraph("Firma:", E["firma_campo"]),
-         Paragraph(linea_blanca, E["firma_campo"])],
-        [Paragraph("Nombre / Razón Social:", E["firma_campo"]),
-         Paragraph(linea_blanca, E["firma_campo"])],
-        [Paragraph("C.C. / NIT:", E["firma_campo"]),
-         Paragraph(linea_blanca, E["firma_campo"])],
-        [Paragraph("Fecha de aprobación:", E["firma_campo"]),
-         Paragraph(linea_blanca, E["firma_campo"])],
+        [Paragraph("Firma:", E["firma_campo"]),          Paragraph(linea_firma, E["firma_campo"])],
+        [Paragraph("Nombre / Razón Social:", E["firma_campo"]), Paragraph(linea_firma, E["firma_campo"])],
+        [Paragraph("C.C. / NIT:", E["firma_campo"]),     Paragraph(linea_firma, E["firma_campo"])],
+        [Paragraph("Fecha de aprobación:", E["firma_campo"]), Paragraph(linea_firma, E["firma_campo"])],
     ]
 
     tbl_firma = Table(filas_firma, colWidths=COL_FIRMA_CLI)
     tbl_firma.setStyle(TableStyle([
         ("SPAN",          (0, 0), (-1, 0)),
         ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#EEF4FB")),
-        ("BACKGROUND",    (0, 1), (-1, -1), colors.HexColor("#FAFCFF")),
-        ("LINEABOVE",     (0, 0), (-1,  0), 1.5, colors.HexColor("#1B5FA8")),
-        ("LINEBELOW",     (0,-1), (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
-        ("LINEBELOW",     (0, 1), (-1, -2), 0.3, colors.HexColor("#E0E8F0")),
-        ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
-        ("TOPPADDING",    (0, 0), (-1,  0), 5),
-        ("BOTTOMPADDING", (0, 0), (-1,  0), 5),
-        # REGLA 3: padding de firma reducido de 14 a 8
-        ("TOPPADDING",    (0, 1), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 8),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
-        ("VALIGN",        (0, 0), (-1, -1), "BOTTOM"),
+        ("BACKGROUND",    (0, 1), (-1,-1),  colors.HexColor("#FAFCFF")),
+        # Línea superior 2pt — peso visual de cierre de contrato
+        ("LINEABOVE",     (0, 0), (-1, 0),  2.0, colors.HexColor("#1B5FA8")),
+        ("LINEBELOW",     (0,-1), (-1,-1),  0.5, colors.HexColor("#C8D8E8")),
+        ("LINEBELOW",     (0, 1), (-1,-2),  0.3, colors.HexColor("#E0E8F0")),
+        ("BOX",           (0, 0), (-1,-1),  0.5, colors.HexColor("#C8D8E8")),
+        ("TOPPADDING",    (0, 0), (-1, 0),  8),
+        ("BOTTOMPADDING", (0, 0), (-1, 0),  8),
+        ("TOPPADDING",    (0, 1), (-1,-1),  _PAD_FIRMA),
+        ("BOTTOMPADDING", (0, 1), (-1,-1),  _PAD_FIRMA),
+        ("LEFTPADDING",   (0, 0), (-1,-1),  10),
+        ("RIGHTPADDING",  (0, 0), (-1,-1),  10),
+        ("VALIGN",        (0, 0), (-1,-1),  "BOTTOM"),
     ]))
 
-    # REGLA 4: KeepTogether CONSERVADO para el bloque de Firmas
-    return [
-        Spacer(1, 5),
-        KeepTogether([tbl_firma]),
-    ]
+    # KeepTogether CONSERVADO — protege el bloque de firma
+    return [Spacer(1, _SP_SECCION), KeepTogether([tbl_firma])]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -901,43 +815,38 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
                 _precio_unit = _ad.get(_etapa_val, 0)
                 _valor = _cant * _precio_unit
                 if _valor > 0:
-                    _adicionales_detalle.append({
-                        "concepto": _ad.get("concepto", "—"),
-                        "valor": _valor,
-                    })
+                    _adicionales_detalle.append({"concepto": _ad.get("concepto", "—"), "valor": _valor})
 
     story = []
 
     # ① ENCABEZADO
-    story.append(_encabezado_doc(E, C, "PROPUESTA COMERCIAL", numero, fecha_str,
-                                  emp, _lb, valido_hasta))
-    story.append(Spacer(1, 5))
+    story.append(_encabezado_doc(E, C, "PROPUESTA COMERCIAL", numero, fecha_str, emp, _lb, valido_hasta))
+    story.append(Spacer(1, 8))
     story.append(Table([[Paragraph(
         f"Fecha: {_hoy().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}",
-        ParagraphStyle("badge",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
+        ParagraphStyle("badge",fontSize=7,fontName="Helvetica",leading=9,textColor=C["gray"])
     )]], colWidths=[_AU], style=TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
-        ("TOPPADDING",  (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("TOPPADDING",  (0,0),(-1,-1), 5), ("BOTTOMPADDING",(0,0),(-1,-1),5),
         ("LEFTPADDING", (0,0),(-1,-1), 10),
         ("LINEABOVE",   (0,0),(-1, 0), 0.5, C["secondary"]),
     ])))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ② DATOS DEL CLIENTE
     story += _seccion_header("Datos del Cliente y Condiciones", E)
     datos_filas = []
     if r.get("nombre_cliente"):
         datos_filas.append(("Para", r["nombre_cliente"]))
-    _piezas_doc = r.get("_estado_guardado", {}).get("piezas", [])
+    _piezas_doc = _estado_g.get("piezas", [])
     _tipo_proy  = r.get("tipo_proyecto", "—")
     if _piezas_doc:
         _nombres_piezas = ", ".join(p.get("nombre", "—") for p in _piezas_doc)
-        _resumen_proy   = f"{_tipo_proy} - Incluye: {_nombres_piezas}"
+        _resumen_proy = f"{_tipo_proy} - Incluye: {_nombres_piezas}"
         if len(_resumen_proy) > 80:
             _resumen_proy = _resumen_proy[:77] + "..."
     else:
         _resumen_proy = _tipo_proy
-
     datos_filas += [
         ("Ciudad",        emp.get("ciudad", "Barranquilla")),
         ("Proyecto",      _resumen_proy),
@@ -945,49 +854,47 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
         ("Condiciones",   f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
     ]
     story.append(_tabla_datos_cliente(E, C, datos_filas))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
-    # ③ SERVICIOS ADICIONALES (solo si aplica)
+    # ③ SERVICIOS ADICIONALES (si aplica)
     if _c7_adicionales > 0:
         story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
-        story.append(Spacer(1, 5))
+        story.append(Spacer(1, _SP_SECCION))
 
     # ④ DESPIECE TÉCNICO
     precio_sugerido_total = r.get("precio_sugerido", 0)
     story += _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerido_total)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
-    # ⑤ RESUMEN FINANCIERO — KeepTogether CONSERVADO
+    # ⑤ RESUMEN FINANCIERO — KeepTogether protege tabla + letras
     fin_story, precio_final_doc, anticipo_val = _seccion_resumen_financiero(
         E, C, precio_sugerido_total, anticipo_pct, incluir_iva,
-        c7_adicionales=_c7_adicionales,
-        adicionales_detalle=_adicionales_detalle)
+        c7_adicionales=_c7_adicionales, adicionales_detalle=_adicionales_detalle)
     valor_letras = _numero_a_letras(int(round(precio_final_doc)))
     _tbl_letras = Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
         colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
-            ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("TOPPADDING",   (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
         ]))
     story.append(KeepTogether(fin_story + [_tbl_letras]))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
-    # ⑥ ALCANCE — INCLUSIONES / EXCLUSIONES (sin KeepTogether)
+    # ⑥ ALCANCE — sin KeepTogether
     story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
-    # ⑦ TÉRMINOS Y CONDICIONES (sin KeepTogether)
+    # ⑦ TÉRMINOS Y CONDICIONES — sin KeepTogether
     nota_iva = (
         "Propuesta con IVA del 19% (Art. 468 E.T.) — Responsable de IVA — Régimen Común. "
         if incluir_iva else
         "Propuesta sin IVA — Régimen Simplificado (Art. 499 E.T.). "
     )
     story += _seccion_terminos(E, C, nota_iva, anticipo_pct)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_BLOQUE))
 
-    # ⑧ FIRMA — KeepTogether CONSERVADO
+    # ⑧ FIRMA — KeepTogether conservado
     story += _bloque_firma_cliente(E, C)
-    story.append(Spacer(1, 5))
 
     # ⑨ FOOTER
     story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
@@ -1026,20 +933,19 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     story = []
 
     # ① ENCABEZADO
-    story.append(_encabezado_doc(E, C, "PROPUESTA AIU — OBRA PUBLICA", numero, fecha_str,
-                                  emp, _lb, valido_hasta))
-    story.append(Spacer(1, 5))
+    story.append(_encabezado_doc(E, C, "PROPUESTA AIU — OBRA PUBLICA", numero, fecha_str, emp, _lb, valido_hasta))
+    story.append(Spacer(1, 8))
     story.append(Table([[Paragraph(
         f"Fecha: {_hoy().strftime('%d/%m/%Y')}  ·  Válida hasta: {valido_hasta}  ·  "
         "Tipo: AIU — Administración, Imprevistos y Utilidad",
-        ParagraphStyle("badge2",fontSize=6.5,fontName="Helvetica",leading=9,textColor=C["gray"])
+        ParagraphStyle("badge2",fontSize=7,fontName="Helvetica",leading=9,textColor=C["gray"])
     )]], colWidths=[_AU], style=TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
-        ("TOPPADDING",  (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),4),
+        ("TOPPADDING",  (0,0),(-1,-1), 5), ("BOTTOMPADDING",(0,0),(-1,-1),5),
         ("LEFTPADDING", (0,0),(-1,-1), 10),
         ("LINEABOVE",   (0,0),(-1, 0), 0.5, C["secondary"]),
     ])))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ② DATOS DEL CONTRATANTE
     story += _seccion_header("Datos del Contratante", E)
@@ -1054,7 +960,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         ("Condiciones",      f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
     ]
     story.append(_tabla_datos_cliente(E, C, datos_filas))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ③ COSTO DIRECTO
     story += _seccion_header("Costo Directo (CD) — Items del Contrato", E)
@@ -1062,11 +968,8 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     cd = r.get("cd", r.get("costo_total", 0))
 
     cd_filas = [[
-        Paragraph("DESCRIPCION / ITEM", E["th"]),
-        Paragraph("UNID.", E["th_c"]),
-        Paragraph("CANT.", E["th_c"]),
-        Paragraph("P. UNIT.", E["th_r"]),
-        Paragraph("SUBTOTAL", E["th_r"]),
+        Paragraph("DESCRIPCION / ITEM", E["th"]), Paragraph("UNID.", E["th_c"]),
+        Paragraph("CANT.", E["th_c"]), Paragraph("P. UNIT.", E["th_r"]), Paragraph("SUBTOTAL", E["th_r"]),
     ]]
     if aiu_items:
         for it in aiu_items:
@@ -1080,11 +983,8 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
             ])
     else:
         cd_filas.append([
-            Paragraph("Costo Directo Total", E["cell"]),
-            Paragraph("glb", E["cell_c"]),
-            Paragraph("1",   E["cell_c"]),
-            Paragraph(_num(cd), E["cell_r"]),
-            Paragraph(_num(cd), E["cell_br"]),
+            Paragraph("Costo Directo Total", E["cell"]), Paragraph("glb", E["cell_c"]),
+            Paragraph("1", E["cell_c"]), Paragraph(_num(cd), E["cell_r"]), Paragraph(_num(cd), E["cell_br"]),
         ])
     cd_filas.append([
         Paragraph("COSTO DIRECTO (CD)", E["subtotal_l"]),
@@ -1093,19 +993,19 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     ])
     tbl_cd = Table(cd_filas, colWidths=COL_AIU_5, repeatRows=1)
     tbl_cd.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),  (-1,0),  C["header_dark"]),
-        ("ROWBACKGROUNDS",(0,1),  (-1,-2), [C["zebra_a"], C["zebra_b"]]),
-        ("BACKGROUND",    (0,-1), (-1,-1), C["light"]),
-        ("SPAN",          (0,-1), (3,-1)),
-        ("TOPPADDING",    (0,0),  (-1,0),  5), ("BOTTOMPADDING",(0,0),(-1,0), 5),
-        ("TOPPADDING",    (0,1),  (-1,-1), 4), ("BOTTOMPADDING",(0,1),(-1,-1),4),
-        ("LEFTPADDING",   (0,0),  (-1,-1), 7), ("RIGHTPADDING", (0,0),(-1,-1),7),
-        ("VALIGN",        (0,0),  (-1,-1), "TOP"),
-        ("LINEBELOW",     (0,0),  (-1,-1), 0.3, C["border"]),
-        ("BOX",           (0,0),  (-1,-1), 0.5, C["border"]),
+        ("BACKGROUND",    (0,0),(-1,0),  C["header_dark"]),
+        ("ROWBACKGROUNDS",(0,1),(-1,-2), [C["zebra_a"], C["zebra_b"]]),
+        ("BACKGROUND",    (0,-1),(-1,-1),C["light"]),
+        ("SPAN",          (0,-1),(3,-1)),
+        ("TOPPADDING",    (0,0),(-1,0),  _PAD_HDR), ("BOTTOMPADDING",(0,0),(-1,0),_PAD_HDR),
+        ("TOPPADDING",    (0,1),(-1,-1), _PAD_DATA), ("BOTTOMPADDING",(0,1),(-1,-1),_PAD_DATA),
+        ("LEFTPADDING",   (0,0),(-1,-1), 8), ("RIGHTPADDING",(0,0),(-1,-1),8),
+        ("VALIGN",        (0,0),(-1,-1), "TOP"),
+        ("LINEBELOW",     (0,0),(-1,-1), 0.3, C["border"]),
+        ("BOX",           (0,0),(-1,-1), 0.5, C["border"]),
     ]))
     story.append(tbl_cd)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ④ ESTRUCTURA AIU
     story += _seccion_header("Estructura AIU — Desglose del Precio del Contrato", E)
@@ -1119,78 +1019,44 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     precio_total = r.get("precio_total", cd + val_a + val_i + val_u + val_iva + logistica + viaticos)
     anticipo_val = precio_total * (anticipo_pct / 100)
 
-    _CD_BG      = colors.HexColor("#E8F0FB")
-    _AIU_BG     = colors.HexColor("#F4F6F9")
-    _TOTAL_BG   = colors.HexColor("#1A252C")
-    _BORDE_CD   = colors.HexColor("#1B5FA8")
-    _BORDE_AIU  = colors.HexColor("#C9A84C")
+    _CD_BG    = colors.HexColor("#E8F0FB")
+    _AIU_BG   = colors.HexColor("#F4F6F9")
+    _TOTAL_BG = colors.HexColor("#1A252C")
+    _BORDE_CD = colors.HexColor("#1B5FA8")
+    _BORDE_AIU= colors.HexColor("#C9A84C")
 
-    s_cd_lbl  = ParagraphStyle("s_cd_lbl",  fontSize=9.5, fontName="Helvetica-Bold",
-                                leading=12, textColor=colors.HexColor("#0D2137"))
-    s_cd_val  = ParagraphStyle("s_cd_val",  fontSize=9.5, fontName="Helvetica-Bold",
-                                leading=12, textColor=colors.HexColor("#0D2137"), alignment=TA_RIGHT)
-    s_cd_sub  = ParagraphStyle("s_cd_sub",  fontSize=7,   fontName="Helvetica",
-                                leading=9,  textColor=C["gray"])
+    s_cd_lbl  = ParagraphStyle("s_cd_lbl",  fontSize=9.5, fontName="Helvetica-Bold",   leading=12, textColor=colors.HexColor("#0D2137"))
+    s_cd_val  = ParagraphStyle("s_cd_val",  fontSize=9.5, fontName="Helvetica-Bold",   leading=12, textColor=colors.HexColor("#0D2137"), alignment=TA_RIGHT)
+    s_aiu_lbl = ParagraphStyle("s_aiu_lbl", fontSize=9,   fontName="Helvetica",        leading=11, textColor=C["text"])
+    s_aiu_pct = ParagraphStyle("s_aiu_pct", fontSize=9,   fontName="Helvetica-Bold",   leading=11, textColor=C["secondary"], alignment=TA_CENTER)
+    s_aiu_val = ParagraphStyle("s_aiu_val", fontSize=9,   fontName="Helvetica-Bold",   leading=11, textColor=C["text"], alignment=TA_RIGHT)
+    s_iva_lbl = ParagraphStyle("s_iva_lbl", fontSize=8.5, fontName="Helvetica-Oblique",leading=11, textColor=C["secondary"])
+    s_iva_val = ParagraphStyle("s_iva_val", fontSize=8.5, fontName="Helvetica-Bold",   leading=11, textColor=C["secondary"], alignment=TA_RIGHT)
+    s_tot_lbl = ParagraphStyle("s_tot_lbl", fontSize=11,  fontName="Helvetica-Bold",   leading=14, textColor=C["white"])
+    s_tot_val = ParagraphStyle("s_tot_val", fontSize=12,  fontName="Helvetica-Bold",   leading=15, textColor=C["accent"], alignment=TA_RIGHT)
+    s_ant_lbl = ParagraphStyle("s_ant_lbl", fontSize=9,   fontName="Helvetica-Bold",   leading=11, textColor=C["accent"])
+    s_ant_val = ParagraphStyle("s_ant_val", fontSize=9,   fontName="Helvetica-Bold",   leading=11, textColor=C["accent"], alignment=TA_RIGHT)
+    s_log_lbl = ParagraphStyle("s_log_lbl", fontSize=8.5, fontName="Helvetica",        leading=11, textColor=C["gray"])
+    s_log_val = ParagraphStyle("s_log_val", fontSize=8.5, fontName="Helvetica",        leading=11, textColor=C["gray"], alignment=TA_RIGHT)
 
-    s_aiu_lbl = ParagraphStyle("s_aiu_lbl", fontSize=9,   fontName="Helvetica",
-                                leading=11, textColor=C["text"])
-    s_aiu_pct = ParagraphStyle("s_aiu_pct", fontSize=9,   fontName="Helvetica-Bold",
-                                leading=11, textColor=C["secondary"], alignment=TA_CENTER)
-    s_aiu_val = ParagraphStyle("s_aiu_val", fontSize=9,   fontName="Helvetica-Bold",
-                                leading=11, textColor=C["text"], alignment=TA_RIGHT)
-    s_iva_lbl = ParagraphStyle("s_iva_lbl", fontSize=8, fontName="Helvetica-Oblique",
-                                leading=10, textColor=C["secondary"])
-    s_iva_val = ParagraphStyle("s_iva_val", fontSize=8, fontName="Helvetica-Bold",
-                                leading=10, textColor=C["secondary"], alignment=TA_RIGHT)
-    s_tot_lbl = ParagraphStyle("s_tot_lbl", fontSize=11,  fontName="Helvetica-Bold",
-                                leading=14, textColor=C["white"])
-    s_tot_val = ParagraphStyle("s_tot_val", fontSize=12,  fontName="Helvetica-Bold",
-                                leading=15, textColor=C["accent"], alignment=TA_RIGHT)
-    s_ant_lbl = ParagraphStyle("s_ant_lbl", fontSize=9,   fontName="Helvetica-Bold",
-                                leading=11, textColor=C["accent"])
-    s_ant_val = ParagraphStyle("s_ant_val", fontSize=9,   fontName="Helvetica-Bold",
-                                leading=11, textColor=C["accent"], alignment=TA_RIGHT)
-    s_log_lbl = ParagraphStyle("s_log_lbl", fontSize=8, fontName="Helvetica",
-                                leading=10, textColor=C["gray"])
-    s_log_val = ParagraphStyle("s_log_val", fontSize=8, fontName="Helvetica",
-                                leading=10, textColor=C["gray"], alignment=TA_RIGHT)
-
-    # BLOQUE 1: CD
-    tbl_cd_hdr = Table([[
-        Paragraph("COSTO DIRECTO (CD)", s_cd_lbl),
-        Paragraph("100%", s_aiu_pct),
-        Paragraph(_num(cd), s_cd_val),
-    ]], colWidths=COL_AIU_3)
+    tbl_cd_hdr = Table([[Paragraph("COSTO DIRECTO (CD)", s_cd_lbl), Paragraph("100%", s_aiu_pct), Paragraph(_num(cd), s_cd_val)]], colWidths=COL_AIU_3)
     tbl_cd_hdr.setStyle(TableStyle([
         ("BACKGROUND",    (0,0),(-1,-1), _CD_BG),
-        ("LINEABOVE",     (0,0),(-1, 0), 1.5, _BORDE_CD),
-        ("LINEBEFORE",    (0,0),(0, -1), 3.0, _BORDE_CD),
-        ("TOPPADDING",    (0,0),(-1,-1), 9),
-        ("BOTTOMPADDING", (0,0),(-1,-1), 9),
-        ("LEFTPADDING",   (0,0),(-1,-1), 10),
-        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
+        ("LINEABOVE",     (0,0),(-1, 0), 2.0, _BORDE_CD),
+        ("LINEBEFORE",    (0,0),(0,-1),  3.0, _BORDE_CD),
+        ("TOPPADDING",    (0,0),(-1,-1), 9), ("BOTTOMPADDING",(0,0),(-1,-1),9),
+        ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
         ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
         ("BOX",           (0,0),(-1,-1), 0.5, C["border"]),
     ]))
     story.append(tbl_cd_hdr)
 
-    # BLOQUE 2: A/I/U + IVA
     filas_aiu_comp = [
-        [Paragraph(f"A — Administración  ({pct_a:.1f}% sobre CD)", s_aiu_lbl),
-         Paragraph(f"{pct_a:.1f}%", s_aiu_pct),
-         Paragraph(_num(val_a), s_aiu_val)],
-        [Paragraph(f"I — Imprevistos  ({pct_i:.1f}% sobre CD)", s_aiu_lbl),
-         Paragraph(f"{pct_i:.1f}%", s_aiu_pct),
-         Paragraph(_num(val_i), s_aiu_val)],
-        [Paragraph(f"U — Utilidad  ({pct_u:.1f}% sobre CD)", s_aiu_lbl),
-         Paragraph(f"{pct_u:.1f}%", s_aiu_pct),
-         Paragraph(_num(val_u), s_aiu_val)],
-        [Paragraph(
-            "IVA 19%  (Sólo sobre Utilidad — Decreto 1372/92)" if incluir_iva
-            else "IVA  (Exento — Régimen Simplificado Art. 499 E.T.)",
-            s_iva_lbl),
-         Paragraph("19%" if incluir_iva else "0%", s_iva_val),
-         Paragraph(_num(val_iva), s_iva_val)],
+        [Paragraph(f"A — Administración  ({pct_a:.1f}% sobre CD)", s_aiu_lbl), Paragraph(f"{pct_a:.1f}%", s_aiu_pct), Paragraph(_num(val_a), s_aiu_val)],
+        [Paragraph(f"I — Imprevistos  ({pct_i:.1f}% sobre CD)", s_aiu_lbl),   Paragraph(f"{pct_i:.1f}%", s_aiu_pct), Paragraph(_num(val_i), s_aiu_val)],
+        [Paragraph(f"U — Utilidad  ({pct_u:.1f}% sobre CD)", s_aiu_lbl),      Paragraph(f"{pct_u:.1f}%", s_aiu_pct), Paragraph(_num(val_u), s_aiu_val)],
+        [Paragraph("IVA 19%  (Sólo sobre Utilidad — Decreto 1372/92)" if incluir_iva else "IVA  (Exento — Régimen Simplificado Art. 499 E.T.)", s_iva_lbl),
+         Paragraph("19%" if incluir_iva else "0%", s_iva_val), Paragraph(_num(val_iva), s_iva_val)],
     ]
     _iva_bg = colors.HexColor("#EEF3FB") if incluir_iva else colors.HexColor("#EBF7EE")
     tbl_aiu_comp = Table(filas_aiu_comp, colWidths=COL_AIU_3)
@@ -1199,55 +1065,34 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         ("LINEBEFORE",    (0,0),(0,-1),  3.0, _BORDE_AIU),
         ("LINEABOVE",     (0,3),(-1,3),  0.8, C["border"]),
         ("BACKGROUND",    (0,3),(-1,3),  _iva_bg),
-        ("TOPPADDING",    (0,0),(-1,-1), 4),
-        ("BOTTOMPADDING", (0,0),(-1,-1), 4),
-        ("LEFTPADDING",   (0,0),(-1,-1), 10),
-        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
+        ("TOPPADDING",    (0,0),(-1,-1), _PAD_DATA), ("BOTTOMPADDING",(0,0),(-1,-1),_PAD_DATA),
+        ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
         ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
         ("LINEBELOW",     (0,0),(-1,-1), 0.3, C["border"]),
         ("BOX",           (0,0),(-1,-1), 0.5, C["border"]),
     ]))
     story.append(KeepTogether([tbl_aiu_comp]))
 
-    # BLOQUE 3: Logística / Anticipo / TOTAL — KeepTogether CONSERVADO
     filas_extra = []
     if logistica > 0:
-        filas_extra.append([
-            Paragraph("Logística y transporte integrada", s_log_lbl),
-            Paragraph("—", s_log_lbl),
-            Paragraph(_num(logistica), s_log_val),
-        ])
+        filas_extra.append([Paragraph("Logística y transporte integrada", s_log_lbl), Paragraph("—", s_log_lbl), Paragraph(_num(logistica), s_log_val)])
     if viaticos > 0:
-        filas_extra.append([
-            Paragraph("Viáticos y gastos foráneos", s_log_lbl),
-            Paragraph("—", s_log_lbl),
-            Paragraph(_num(viaticos), s_log_val),
-        ])
-    filas_extra.append([
-        Paragraph(f"ANTICIPO A PAGAR  ({anticipo_pct}% del total)", s_ant_lbl),
-        Paragraph(f"{anticipo_pct}%", s_ant_val),
-        Paragraph(_num(anticipo_val), s_ant_val),
-    ])
-    filas_extra.append([
-        Paragraph("TOTAL DEL CONTRATO", s_tot_lbl),
-        Paragraph("", s_tot_lbl),
-        Paragraph(_num(precio_total), s_tot_val),
-    ])
+        filas_extra.append([Paragraph("Viáticos y gastos foráneos", s_log_lbl), Paragraph("—", s_log_lbl), Paragraph(_num(viaticos), s_log_val)])
+    filas_extra.append([Paragraph(f"ANTICIPO A PAGAR  ({anticipo_pct}% del total)", s_ant_lbl), Paragraph(f"{anticipo_pct}%", s_ant_val), Paragraph(_num(anticipo_val), s_ant_val)])
+    filas_extra.append([Paragraph("TOTAL DEL CONTRATO", s_tot_lbl), Paragraph("", s_tot_lbl), Paragraph(_num(precio_total), s_tot_val)])
     idx_ant_extra = len(filas_extra) - 2
     idx_tot_extra = len(filas_extra) - 1
 
     tbl_extra = Table(filas_extra, colWidths=COL_AIU_3)
     tbl_extra.setStyle(TableStyle([
-        ("ROWBACKGROUNDS",  (0,0),(-1, idx_ant_extra-1), [C["zebra_a"], C["zebra_b"]]),
+        ("ROWBACKGROUNDS",  (0,0),(-1,idx_ant_extra-1), [C["zebra_a"], C["zebra_b"]]),
         ("BACKGROUND",      (0,idx_ant_extra),(-1,idx_ant_extra), C["anticipo_bg"]),
         ("BACKGROUND",      (0,idx_tot_extra),(-1,idx_tot_extra), _TOTAL_BG),
         ("LINEABOVE",       (0,idx_tot_extra),(-1,idx_tot_extra), 3.0, C["accent"]),
-        ("TOPPADDING",      (0,0),(-1,-2), 4),
-        ("BOTTOMPADDING",   (0,0),(-1,-2), 4),
-        ("TOPPADDING",      (0,idx_tot_extra),(-1,idx_tot_extra), 12),
-        ("BOTTOMPADDING",   (0,idx_tot_extra),(-1,idx_tot_extra), 12),
-        ("LEFTPADDING",     (0,0),(-1,-1), 10),
-        ("RIGHTPADDING",    (0,0),(-1,-1), 10),
+        ("TOPPADDING",      (0,0),(-1,-2), _PAD_DATA), ("BOTTOMPADDING",(0,0),(-1,-2),_PAD_DATA),
+        ("TOPPADDING",      (0,idx_tot_extra),(-1,idx_tot_extra), 10),
+        ("BOTTOMPADDING",   (0,idx_tot_extra),(-1,idx_tot_extra), 10),
+        ("LEFTPADDING",     (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
         ("VALIGN",          (0,0),(-1,-1), "MIDDLE"),
         ("LINEBELOW",       (0,0),(-1,-2), 0.3, C["border"]),
         ("BOX",             (0,0),(-1,-1), 0.5, C["border"]),
@@ -1258,12 +1103,11 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     story.append(Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
         colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
-            ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("TOPPADDING",   (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
         ])))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
-    # ⑤ TÉRMINOS Y CONDICIONES (sin KeepTogether)
     nota_aiu = (
         "En contratos bajo estructura AIU, el IVA (19%) aplica exclusivamente sobre la "
         "Utilidad (U), conforme al Art. 3 del Decreto 1372/1992 y conceptos DIAN. "
@@ -1272,13 +1116,8 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         "Barranquilla, Colombia."
     )
     story += _seccion_terminos(E, C, nota_aiu, anticipo_pct)
-    story.append(Spacer(1, 5))
-
-    # ⑥ FIRMA — KeepTogether CONSERVADO
+    story.append(Spacer(1, _SP_BLOQUE))
     story += _bloque_firma_cliente(E, C)
-    story.append(Spacer(1, 5))
-
-    # ⑦ FOOTER
     story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
 
     doc.build(story)
@@ -1341,7 +1180,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
 
     # ① ENCABEZADO
     story.append(_encabezado_doc(E, C, _titulo_doc, numero, fecha_str, emp, _lb))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ② QUIEN COBRA
     story += _seccion_header("Quien Cobra", E)
@@ -1351,7 +1190,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         ("Direccion",             datos_prestador.get("direccion", datos_prestador.get("ciudad","—"))),
         ("Telefono",              datos_prestador.get("telefono", datos_prestador.get("tel","—"))),
     ]))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ③ QUIEN PAGA
     story += _seccion_header("Quien Paga", E)
@@ -1360,7 +1199,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         ("NIT / CC",              datos_pagador.get("nit","—")),
         ("Direccion",             datos_pagador.get("direccion","—")),
     ]))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ④ DESCRIPCION DEL SERVICIO
     if descripcion_servicio is None:
@@ -1388,22 +1227,22 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     tbl_serv = Table([[Paragraph(descripcion_servicio, E["cell"])]], colWidths=[_AU])
     tbl_serv.setStyle(TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
-        ("TOPPADDING",  (0,0),(-1,-1), 5), ("BOTTOMPADDING",(0,0),(-1,-1),5),
+        ("TOPPADDING",  (0,0),(-1,-1), _PAD_DATA+1), ("BOTTOMPADDING",(0,0),(-1,-1),_PAD_DATA+1),
         ("LEFTPADDING", (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
         ("BOX",         (0,0),(-1,-1), 0.5, C["border"]),
-        ("LINEABOVE",   (0,0),(-1, 0), 1.0, C["secondary"]),
+        ("LINEABOVE",   (0,0),(-1, 0), 1.5, C["secondary"]),
     ]))
     story.append(tbl_serv)
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
-    # ⑤ VALOR DEL COBRO — KeepTogether CONSERVADO
+    # ⑤ VALOR DEL COBRO — KeepTogether conservado
     story += _seccion_header("Valor del Cobro", E)
     if incluir_iva and not es_aiu:
         filas_val = [
-            [Paragraph("Valor total del servicio (sin IVA)",       E["cell_b"]),   Paragraph(_num(precio_base),      E["cell_br"])],
+            [Paragraph("Valor total del servicio (sin IVA)",        E["cell_b"]),   Paragraph(_num(precio_base),      E["cell_br"])],
             [Paragraph("IVA 19% (Art. 468 E.T.)",                   E["iva_l"]),    Paragraph(_num(iva),              E["iva_v"])],
             [Paragraph("Total (IVA incluido)",                      E["subtotal_l"]),Paragraph(_num(valor_total),     E["subtotal_v"])],
-            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%)",       E["anticipo_l"]),Paragraph(_num(valor_anticipo), E["anticipo_v"])],
+            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%)",      E["anticipo_l"]),Paragraph(_num(valor_anticipo),  E["anticipo_v"])],
             [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
                 ParagraphStyle("sl1",fontSize=8,fontName="Helvetica",leading=10,textColor=C["gray"])),
              Paragraph(_num(valor_saldo),
@@ -1413,8 +1252,8 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         idx_ant, idx_tot = 3, 5
     else:
         filas_val = [
-            [Paragraph("Valor total de la cotizacion",              E["subtotal_l"]),Paragraph(_num(valor_total),   E["subtotal_v"])],
-            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%)",       E["anticipo_l"]),Paragraph(_num(valor_anticipo),E["anticipo_v"])],
+            [Paragraph("Valor total de la cotizacion",              E["subtotal_l"]),Paragraph(_num(valor_total),     E["subtotal_v"])],
+            [Paragraph(f"ANTICIPO A COBRAR ({anticipo_pct}%)",      E["anticipo_l"]),Paragraph(_num(valor_anticipo),  E["anticipo_v"])],
             [Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
                 ParagraphStyle("sl2",fontSize=8,fontName="Helvetica",leading=10,textColor=C["gray"])),
              Paragraph(_num(valor_saldo),
@@ -1426,36 +1265,35 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     tbl_val = Table(filas_val, colWidths=COL_2_75_25)
     tbl_val.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0,0), (-1,idx_ant-1), [C["zebra_a"], C["zebra_b"]]),
-        ("BACKGROUND",     (0,idx_ant), (-1,idx_ant), C["anticipo_bg"]),
-        ("BACKGROUND",     (0,idx_tot), (-1,idx_tot), C["total_bg"]),
-        ("LINEABOVE",      (0,idx_tot), (-1,idx_tot), 2.5, C["accent"]),
-        ("TOPPADDING",     (0,0),(-1,idx_tot-1), 4), ("BOTTOMPADDING",(0,0),(-1,idx_tot-1),4),
-        ("TOPPADDING",     (0,idx_tot),(-1,idx_tot), 5), ("BOTTOMPADDING",(0,idx_tot),(-1,idx_tot),5),
+        ("BACKGROUND",     (0,idx_ant),(-1,idx_ant), C["anticipo_bg"]),
+        ("BACKGROUND",     (0,idx_tot),(-1,idx_tot), C["total_bg"]),
+        ("LINEABOVE",      (0,idx_tot),(-1,idx_tot), 3.0, C["accent"]),
+        ("TOPPADDING",     (0,0),(-1,idx_tot-1), _PAD_DATA), ("BOTTOMPADDING",(0,0),(-1,idx_tot-1),_PAD_DATA),
+        ("TOPPADDING",     (0,idx_tot),(-1,idx_tot), 8), ("BOTTOMPADDING",(0,idx_tot),(-1,idx_tot),8),
         ("LEFTPADDING",    (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
         ("LINEBELOW",      (0,0),(-1,-2), 0.3, C["border"]),
         ("BOX",            (0,0),(-1,-1), 0.5, C["border"]),
     ]))
-
     valor_letras = _numero_a_letras(int(round(valor_anticipo)))
     _tbl_letras_cc = Table([[Paragraph(f"Son: {valor_letras}", E["letras"])]],
         colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",   (0,0),(-1,-1), C["primary"]),
-            ("TOPPADDING",   (0,0),(-1,-1), 3), ("BOTTOMPADDING",(0,0),(-1,-1),6),
+            ("TOPPADDING",   (0,0),(-1,-1), 4), ("BOTTOMPADDING",(0,0),(-1,-1),6),
             ("LEFTPADDING",  (0,0),(-1,-1), 10),
         ]))
     story.append(KeepTogether([tbl_val, _tbl_letras_cc]))
-    story.append(Spacer(1, 5))
+    story.append(Spacer(1, _SP_SECCION))
 
     # ⑥ DATOS BANCARIOS
     banco_filas = []
-    if datos_prestador.get("banco"):        banco_filas.append(("Banco", datos_prestador["banco"]))
-    if datos_prestador.get("cuenta_tipo"):  banco_filas.append(("Tipo de cuenta", datos_prestador["cuenta_tipo"]))
-    if datos_prestador.get("cuenta_numero"):banco_filas.append(("N de cuenta", datos_prestador["cuenta_numero"]))
-    if datos_prestador.get("nombre"):       banco_filas.append(("A nombre de", datos_prestador["nombre"]))
+    if datos_prestador.get("banco"):         banco_filas.append(("Banco", datos_prestador["banco"]))
+    if datos_prestador.get("cuenta_tipo"):   banco_filas.append(("Tipo de cuenta", datos_prestador["cuenta_tipo"]))
+    if datos_prestador.get("cuenta_numero"): banco_filas.append(("N de cuenta", datos_prestador["cuenta_numero"]))
+    if datos_prestador.get("nombre"):        banco_filas.append(("A nombre de", datos_prestador["nombre"]))
     if banco_filas:
         story += _seccion_header("Datos para Pago", E)
         story.append(_tabla_datos_cliente(E, C, banco_filas))
-        story.append(Spacer(1, 5))
+        story.append(Spacer(1, _SP_SECCION))
 
     # ⑦ NOTA TRIBUTARIA
     _nota_tributaria = (
@@ -1464,20 +1302,17 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         if (incluir_iva and not es_aiu) else
         "El prestador del servicio pertenece al Régimen Simplificado (No Responsable de IVA)."
     )
-    story.append(Table(
-        [[Paragraph(_nota_tributaria, E["nota_legal"])]],
-        colWidths=[_AU],
-        style=TableStyle([
+    story.append(Table([[Paragraph(_nota_tributaria, E["nota_legal"])]],
+        colWidths=[_AU], style=TableStyle([
             ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FFF9EC")),
-            ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",  (0,0),(-1,-1),10),
-            ("TOPPADDING",    (0,0),(-1,-1), 5),  ("BOTTOMPADDING", (0,0),(-1,-1),5),
-            ("LINEABOVE",     (0,0),(-1, 0), 1.0, colors.HexColor("#C9A84C")),
+            ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
+            ("TOPPADDING",    (0,0),(-1,-1), _PAD_DATA+1), ("BOTTOMPADDING",(0,0),(-1,-1),_PAD_DATA+1),
+            ("LINEABOVE",     (0,0),(-1, 0), 1.5, colors.HexColor("#C9A84C")),
             ("BOX",           (0,0),(-1,-1), 0.4, colors.HexColor("#C8D8E8")),
-        ])
-    ))
-    story.append(Spacer(1, 5))
+        ])))
+    story.append(Spacer(1, _SP_SECCION))
 
-    # ⑧ BLOQUE DE FIRMA PRESTADOR
+    # ⑧ FIRMA PRESTADOR
     firma = Table([[
         Table([[Paragraph("_" * 40, E["cell"])],[Paragraph(datos_prestador.get("nombre",""), E["aviso"])],[Paragraph("Firma del Prestador", E["aviso"])]]),
         "",
@@ -1485,14 +1320,13 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     ]], colWidths=COL_FIRMA_CC)
     firma.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"BOTTOM")]))
     story.append(firma)
-    story.append(Spacer(1, 5))
 
-    # ⑨ FIRMA CLIENTE — KeepTogether CONSERVADO
+    # ⑨ FIRMA CLIENTE — KeepTogether conservado
     story += _bloque_firma_cliente(E, C)
-    story.append(Spacer(1, 5))
 
     # ⑩ FOOTER
-    story += _footer_doc(E, C, datos_prestador.get("nombre",""), fecha_str, numero, ciudad=datos_prestador.get("ciudad","Barranquilla"))
+    story += _footer_doc(E, C, datos_prestador.get("nombre",""), fecha_str, numero,
+                          ciudad=datos_prestador.get("ciudad","Barranquilla"))
 
     doc.build(story)
     return buf.getvalue()
@@ -1509,8 +1343,7 @@ def _numero_a_letras(n):
         veintes  = {20:"veinte",21:"veintiuno",22:"veintidós",23:"veintitrés",
                     24:"veinticuatro",25:"veinticinco",26:"veintiséis",
                     27:"veintisiete",28:"veintiocho",29:"veintinueve"}
-        decenas  = ["","diez","veinte","treinta","cuarenta","cincuenta","sesenta","setenta",
-                    "ochenta","noventa"]
+        decenas  = ["","diez","veinte","treinta","cuarenta","cincuenta","sesenta","setenta","ochenta","noventa"]
         centenas = ["","ciento","doscientos","trescientos","cuatrocientos","quinientos",
                     "seiscientos","setecientos","ochocientos","novecientos"]
         def _menor_mil(x):
