@@ -361,9 +361,11 @@ def _encabezado_doc(E, C, doc_type, numero, fecha_str, empresa_info, logo_bytes,
 
 
 def _tabla_datos_cliente(E, C, filas_datos):
+    _lbl_style = ParagraphStyle("_lbl_dc", fontSize=8.5, fontName="Helvetica",
+                                 leading=11, textColor=C["gray"])
     rows = []
     for label, valor in filas_datos:
-        rows.append([Paragraph(label, E["cell"]), Paragraph(f"<b>{valor}</b>", E["cell_b"])])
+        rows.append([Paragraph(label, _lbl_style), Paragraph(f"<b>{valor}</b>", E["cell_b"])])
     tbl = Table(rows, colWidths=COL_2_30_70, repeatRows=1)
     tbl.setStyle(TableStyle([
         ("ROWBACKGROUNDS", (0,0), (-1,-1), [C["zebra_a"], C["zebra_b"]]),
@@ -848,22 +850,40 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     # ② DATOS DEL CLIENTE
     story += _seccion_header("Datos del Cliente y Condiciones", E)
     datos_filas = []
-    if r.get("nombre_cliente"):
-        datos_filas.append(("Para", r["nombre_cliente"]))
-    _piezas_doc = _estado_g.get("piezas", [])
-    _tipo_proy  = r.get("tipo_proyecto", "—")
+
+    # Cliente siempre visible — nunca oculto
+    datos_filas.append(("Cliente / Atención a", r.get("nombre_cliente") or "A quien pueda interesar / Por definir"))
+
+    # Contacto: solo si existe teléfono o email
+    _tel_cli   = (r.get("telefono_cliente") or "").strip()
+    _email_cli = (r.get("email_cliente") or "").strip()
+    if _tel_cli or _email_cli:
+        _contacto_str = "  ·  ".join(filter(None, [_tel_cli, _email_cli]))
+        datos_filas.append(("Contacto", _contacto_str))
+
+    # Proyecto — sin redundancia
+    _piezas_doc    = _estado_g.get("piezas", [])
+    _tipo_proy     = (r.get("tipo_proyecto") or "—").strip()
     if _piezas_doc:
         _nombres_piezas = ", ".join(p.get("nombre", "—") for p in _piezas_doc)
-        _resumen_proy = f"{_tipo_proy} - Incluye: {_nombres_piezas}"
-        if len(_resumen_proy) > 80:
-            _resumen_proy = _resumen_proy[:77] + "..."
+        # Solo concatena si el tipo de proyecto NO está ya contenido en los nombres
+        if _tipo_proy.lower() in _nombres_piezas.lower():
+            _resumen_proy = _nombres_piezas
+        else:
+            _resumen_proy = f"{_tipo_proy} — Incluye: {_nombres_piezas}"
+        if len(_resumen_proy) > 85:
+            _resumen_proy = _resumen_proy[:82] + "…"
     else:
         _resumen_proy = _tipo_proy
+
+    # Ubicación real del proyecto, no la de la empresa
+    _ciudad_proy = (r.get("ciudad_proyecto") or "").strip() or "Área Metropolitana"
+
     datos_filas += [
-        ("Ciudad",        emp.get("ciudad", "Barranquilla")),
-        ("Proyecto",      _resumen_proy),
-        ("Forma de pago", f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra entrega"),
-        ("Condiciones",   f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
+        ("Ubicación del Proyecto", _ciudad_proy),
+        ("Proyecto",               _resumen_proy),
+        ("Forma de pago",          f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra entrega"),
+        ("Condiciones",            f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
     ]
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, _SP_SECCION))
