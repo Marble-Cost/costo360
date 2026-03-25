@@ -1,16 +1,15 @@
-# generador_pdf.py — CostoMármol v10 · Propuesta Comercial B2B Premium
+# generador_pdf.py — CostoMármol v10.1 · Propuesta Comercial B2B Premium
 # MARMOLES COLLANTE & CASTRO LTDA.
 #
-# ARQUITECTURA v10 (Balance Premium):
+# ARQUITECTURA v10.1 (Balance Premium & Protección de Matrices):
 #   - Sistema de espaciado jerárquico: _SP_SECCION=10, _SP_BLOQUE=4, _SP_HEADER=3
 #   - Tipografía con contraste por nivel: sec=10pt bold, label=9pt bold, body=9pt, nota=8pt
 #   - Leading = fontSize + 2 en todos los estilos (respira sin inflar)
 #   - Padding por nivel: _PAD_HDR=6, _PAD_DATA=5, _PAD_NOTA=4, _PAD_FIRMA=10
 #   - Borde dorado 3pt encima de fila TOTAL — máxima jerarquía visual
-#   - KeepTogether SOLO en Resumen Financiero (tabla+letras) y Firma
+#   - KeepTogether aplicado a Resumen Financiero, Matriz de Alcance y Firma.
 #   - T&C numerado con leading=12 para escaneo fácil
-#   - Cierre de contrato: línea superior 2pt + celdas generosas
-#   - Flujo: Encabezado→Cliente→Adicionales→Despiece→Resumen(KT)→Alcance→T&C→Firma(KT)→Footer
+#   - Flujo: Encabezado→Cliente→Adicionales→Despiece→Resumen(KT)→Alcance(KT)→T&C→Firma(KT)→Footer
 
 import io
 import os
@@ -194,12 +193,6 @@ def _logo_img(logo_bytes, max_h=1.4*cm):
 
 
 # ── Estilos tipográficos — Sistema Premium con contraste por nivel ────────────
-# leading = fontSize + 2 en todos los estilos
-# NIVEL 1 — Títulos de sección : 10pt bold  / secondary blue
-# NIVEL 2 — Labels / subtítulos: 9pt bold
-# NIVEL 3 — Cuerpo             : 9pt regular
-# NIVEL 4 — Notas / pie        : 8pt
-
 def _estilos(C):
     return {
         # ── Encabezado corporativo ─────────────────────────────────────────────
@@ -699,8 +692,8 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
             _ts.append(("BACKGROUND", (1,_ri),(1,_ri), _ZEBRA))
     tbl_al.setStyle(TableStyle(_ts))
 
-    # Sin KeepTogether — flujo natural de página
-    return [_tbl_tit, Spacer(1, _SP_BLOQUE), tbl_al]
+    # KeepTogether restaurado para proteger la integridad de la matriz
+    return [KeepTogether([_tbl_tit, Spacer(1, _SP_BLOQUE), tbl_al])]
 
 
 # ── Módulo: Términos y Condiciones ────────────────────────────────────────────
@@ -711,7 +704,6 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
 
     _titulo_tc = ParagraphStyle("tc_titulo", fontSize=9, fontName="Helvetica-Bold",
                                  leading=11, textColor=colors.HexColor("#0D2137"), spaceAfter=6)
-    # leading=12 para mayor escaneo visual
     _viñeta_tc = ParagraphStyle("tc_viñeta", fontSize=8.5, fontName="Helvetica",
                                  leading=12, textColor=colors.HexColor("#4A5568"),
                                  leftIndent=14, firstLineIndent=-10, spaceAfter=5)
@@ -729,7 +721,6 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
         "Barranquilla, Colombia.",
     ]
 
-    # Sin KeepTogether — flujo natural
     story.append(Paragraph("CONDICIONES COMERCIALES", _titulo_tc))
     for i, item in enumerate(condiciones_items, start=1):
         story.append(Paragraph(f"{i}.  {item}", _viñeta_tc))
@@ -753,7 +744,6 @@ def _bloque_firma_cliente(E, C):
         ("SPAN",          (0, 0), (-1, 0)),
         ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#EEF4FB")),
         ("BACKGROUND",    (0, 1), (-1,-1),  colors.HexColor("#FAFCFF")),
-        # Línea superior 2pt — peso visual de cierre de contrato
         ("LINEABOVE",     (0, 0), (-1, 0),  2.0, colors.HexColor("#1B5FA8")),
         ("LINEBELOW",     (0,-1), (-1,-1),  0.5, colors.HexColor("#C8D8E8")),
         ("LINEBELOW",     (0, 1), (-1,-2),  0.3, colors.HexColor("#E0E8F0")),
@@ -767,7 +757,6 @@ def _bloque_firma_cliente(E, C):
         ("VALIGN",        (0, 0), (-1,-1),  "BOTTOM"),
     ]))
 
-    # KeepTogether CONSERVADO — protege el bloque de firma
     return [Spacer(1, _SP_SECCION), KeepTogether([tbl_firma])]
 
 
@@ -880,7 +869,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(KeepTogether(fin_story + [_tbl_letras]))
     story.append(Spacer(1, _SP_SECCION))
 
-    # ⑥ ALCANCE — sin KeepTogether
+    # ⑥ ALCANCE — Protegido con KeepTogether en la función
     story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
     story.append(Spacer(1, _SP_SECCION))
 
