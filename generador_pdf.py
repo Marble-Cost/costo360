@@ -1267,7 +1267,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
                 f"Saldo {100-anticipo_pct}% contra entrega a satisfacción."
             )
 
-    story += _seccion_header("Descripcion del Servicio / Concepto", E)
+    story += _seccion_header("Descripcion del Servicio", E)
     tbl_serv = Table([[Paragraph(descripcion_servicio, E["cell"])]], colWidths=[_AU])
     tbl_serv.setStyle(TableStyle([
         ("BACKGROUND",  (0,0),(-1,-1), C["ultralight"]),
@@ -1341,8 +1341,8 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
 
     # ⑦ NOTA TRIBUTARIA
     _nota_tributaria = (
-        "Este documento es una Proforma. La Factura Electrónica legal será emitida "
-        "y transmitida a la DIAN tras la recepción del anticipo."
+        "La Factura Electrónica DIAN será emitida y transmitida oficialmente "
+        "una vez se confirme la recepción del anticipo pactado."
         if (incluir_iva and not es_aiu) else
         "El prestador del servicio pertenece al Régimen Simplificado (No Responsable de IVA)."
     )
