@@ -31,6 +31,7 @@ from reportlab.lib.styles import ParagraphStyle
 # ── Ancho maestro del documento ───────────────────────────────────────────────
 ancho_util = 16.5 * cm
 _AU = ancho_util
+_margen_lateral = (letter[0] - _AU) / 2.0
 
 # ── Constantes globales de columnas ──────────────────────────────────────────
 COL_2_30_70   = [_AU * 0.301, _AU * 0.699]
@@ -803,7 +804,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
-        leftMargin=1.4*cm, rightMargin=1.4*cm,
+        leftMargin=_margen_lateral, rightMargin=_margen_lateral,
         topMargin=1.0*cm,  bottomMargin=1.2*cm,
         title=f"Propuesta Comercial {numero}")
 
@@ -951,7 +952,7 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
-        leftMargin=1.4*cm, rightMargin=1.4*cm,
+        leftMargin=_margen_lateral, rightMargin=_margen_lateral,
         topMargin=1.0*cm,  bottomMargin=1.2*cm,
         title=f"Propuesta AIU {numero}")
 
@@ -1198,7 +1199,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
-        leftMargin=1.4*cm, rightMargin=1.4*cm,
+        leftMargin=_margen_lateral, rightMargin=_margen_lateral,
         topMargin=1.0*cm,  bottomMargin=1.2*cm,
         title=f"{_titulo_doc} {numero}")
 
