@@ -36,7 +36,7 @@ _AU = ancho_util
 COL_2_30_70   = [_AU * 0.301, _AU * 0.699]
 COL_2_75_25   = [_AU * 0.753, _AU * 0.247]
 COL_2_50_50   = [_AU * 0.50,  _AU * 0.50]
-COL_5_STD     = [_AU * 0.05, _AU * 0.40, _AU * 0.16, _AU * 0.21, _AU * 0.18]
+COL_5_STD     = [_AU * 0.06, _AU * 0.38, _AU * 0.20, _AU * 0.20, _AU * 0.16]
 COL_ENCAB     = [_AU * 0.588, _AU * 0.412]
 COL_FIRMA_CC  = [_AU * 0.482, _AU * 0.090, _AU * 0.428]
 COL_FIRMA_CLI = [_AU * 0.314, _AU * 0.686]
@@ -439,10 +439,10 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             _tipo_pieza  = p.get("ancho_tipo", "").lower()
             _es_area_p   = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
             if _es_area_p:
-                _cant_unid_str = f"{m2_p:.2f} m² ({_cantidad} unid.)"
+                _cant_unid_str = f"{m2_p:.2f}&nbsp;m²&nbsp;({_cantidad}&nbsp;unid.)"
                 _qty_base  = m2_p
             else:
-                _cant_unid_str = f"{_ml_efectivo:.2f} ml ({_cantidad} unid.)"
+                _cant_unid_str = f"{_ml_efectivo:.2f}&nbsp;ml&nbsp;({_cantidad}&nbsp;unid.)"
                 _qty_base  = _ml_efectivo
             pu = precio_p / _qty_base if _qty_base > 0 else 0
             _desc_enriq = f"<b>{p.get('nombre', '—')}</b><br/><font size='7.5' color='#6B85A0'>Material: {_nombres_mat}</font>"
@@ -471,8 +471,8 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
         ("BOTTOMPADDING", (0,0), (-1,0),  _PAD_HDR),
         ("TOPPADDING",    (0,1), (-1,-1), _PAD_DATA),
         ("BOTTOMPADDING", (0,1), (-1,-1), _PAD_DATA),
-        ("LEFTPADDING",   (0,0), (-1,-1), 8),
-        ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+        ("LEFTPADDING",   (0,0), (-1,-1), 4),
+        ("RIGHTPADDING",  (0,0), (-1,-1), 4),
         ("VALIGN",        (0,0), (-1,-1), "TOP"),
         ("LINEBELOW",     (0,0), (-1,-1), 0.3, C["border"]),
         ("BOX",           (0,0), (-1,-1), 0.5, C["border"]),
