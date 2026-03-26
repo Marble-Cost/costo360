@@ -137,6 +137,9 @@ def _ui_cotizacion_directa(
             "tipos_proyecto":      _sp_entry.get("cdir_tipos_proyecto", ["Meson"]),
             "etapa_label":         _sp_entry.get("cdir_etapa_label", "Casa terminada (limpia)"),
             "nombre_cliente":      _sp_entry.get("cdir_nombre_cliente", ""),
+            "telefono_cliente":    _sp_entry.get("cdir_telefono_cliente", ""),
+            "email_cliente":       _sp_entry.get("cdir_email_cliente", ""),
+            "ciudad_proyecto":     _sp_entry.get("cdir_ciudad_proyecto", ""),
             "dias_obra":           _sp_entry.get("cdir_dias_obra", 2),
             "personas":            _sp_entry.get("cdir_personas", 2),
             "zocalo_activo":       _sp_entry.get("cdir_zocalo_activo", False),
@@ -534,6 +537,24 @@ def _ui_cotizacion_directa(
                 "**'Calcular'** nuevamente para actualizar los valores del PDF.",
                 icon="⚠️",
             )
+
+        # ── Condiciones comerciales ───────────────────────────────────────────
+        st.markdown("### 💼 Condiciones Comerciales")
+        with st.container(border=True):
+            _ccom1, _ccom2, _ccom3 = st.columns(3)
+            with _ccom1:
+                anticipo_pct = st.number_input("Anticipo (%)", min_value=0, max_value=100, value=int(pre.get("anticipo_pct", 60)), step=5, key="cdir_anticipo_pct")
+            with _ccom2:
+                dias_entrega = st.number_input("Días de entrega", min_value=1, max_value=365, value=int(pre.get("dias_entrega", 10)), step=1, key="cdir_dias_entrega")
+            with _ccom3:
+                dias_validez = st.number_input("Validez de la oferta (días)", min_value=1, max_value=365, value=int(pre.get("dias_validez", 30)), step=5, key="cdir_dias_validez")
+        r["anticipo_pct"]   = anticipo_pct
+        r["dias_entrega"]   = dias_entrega
+        r["dias_validez"]   = dias_validez
+        r["telefono_cliente"] = pre.get("telefono_cliente", "")
+        r["email_cliente"]    = pre.get("email_cliente", "")
+        r["ciudad_proyecto"]  = pre.get("ciudad_proyecto", "")
+        st.session_state.cotizacion = r
 
         # ── Matriz de Inclusiones / Exclusiones ──────────────────────────────
         st.markdown("### 📋 Alcance del Proyecto")
@@ -1283,6 +1304,20 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
             etapa = ETAPAS_OBRA[st.selectbox("Etapa de la obra", list(ETAPAS_OBRA.keys()), index=list(ETAPAS_OBRA.keys()).index(_sp_etapa_label) if _sp_etapa_label in ETAPAS_OBRA else 0, key="cb_cdir_etapa", on_change=fn_cb_cdir_etapa)]
 
         nombre_cliente = st.text_input("Nombre del cliente", value=fn_sp().get("cdir_nombre_cliente", pre.get("nombre_cliente","")), placeholder="Ej: Juan García / Constructora XYZ", key="cb_cdir_nombre_cliente", on_change=fn_cb_cdir_nombre_cliente)
+
+        _cont1, _cont2, _cont3 = st.columns(3)
+        with _cont1:
+            telefono_cliente = st.text_input("Teléfono", value=fn_sp().get("cdir_telefono_cliente", pre.get("telefono_cliente", "")), placeholder="Ej: 300 123 4567", key="cb_cdir_telefono_cliente")
+            st.session_state.pre["telefono_cliente"] = telefono_cliente
+            fn_sp_set("cdir_telefono_cliente", telefono_cliente)
+        with _cont2:
+            email_cliente = st.text_input("Correo electrónico", value=fn_sp().get("cdir_email_cliente", pre.get("email_cliente", "")), placeholder="cliente@email.com", key="cb_cdir_email_cliente")
+            st.session_state.pre["email_cliente"] = email_cliente
+            fn_sp_set("cdir_email_cliente", email_cliente)
+        with _cont3:
+            ciudad_proyecto = st.text_input("Ciudad del proyecto", value=fn_sp().get("cdir_ciudad_proyecto", pre.get("ciudad_proyecto", "")), placeholder="Ej: Barranquilla", key="cb_cdir_ciudad_proyecto")
+            st.session_state.pre["ciudad_proyecto"] = ciudad_proyecto
+            fn_sp_set("cdir_ciudad_proyecto", ciudad_proyecto)
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
         st.markdown("**¿Cuántos días dura la instalación y cuántas personas van?**")
