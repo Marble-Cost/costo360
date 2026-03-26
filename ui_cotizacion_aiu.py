@@ -118,8 +118,8 @@ def _ui_cotizacion_aiu(
     # ══════════════════════════════════════════════════════════════════════════
     if (
         st.session_state.get("aiu_success")
-        and st.session_state.cotizacion
-        and st.session_state.cotizacion.get("tipo_proyecto") == "Licitación AIU"
+        and st.session_state.get("cotizacion")
+        and "val_u" in st.session_state.cotizacion
     ):
         r_aiu = st.session_state.cotizacion
         nombre_cliente_aiu = st.session_state.pre.get("nombre_cliente", "")
