@@ -649,7 +649,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
             "noches":                noches_aiu,
             "personas":              pers_aiu,
             "aiu_items":             st.session_state.get("aiu_items", []),
-            "tipo_proyecto":         "Licitacion AIU",
+            "tipo_proyecto":         "Licitación AIU",
         }
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -695,7 +695,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
                     costo_peaje_unitario=peajes_aiu_total,
                 )
                 res_aiu.update({
-                    "tipo_proyecto":   "Licitacion AIU",
+                    "tipo_proyecto":   "Licitación AIU",
                     "categoria":       "Proyecto Constructora",
                     "referencia":      "Multiple",
                     "m2_real":         0,
@@ -708,7 +708,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
                     "nombre_cliente":        nombre_cliente_aiu,
                     "aiu_items":             st.session_state.aiu_items,
                     "pct_a": pct_a, "pct_i": pct_i, "pct_u": pct_u,
-                    "tipo_proyecto":         "Licitacion AIU",
+                    "tipo_proyecto":         "Licitación AIU",
                     "vehiculo_entrega":      "externo",
                     "km": km_aiu, "peajes": 0, "costo_peaje_total": peajes_aiu_total,
                     "agente_externo_taller": agente_aiu,
