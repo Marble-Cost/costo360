@@ -950,7 +950,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 # COTIZACIÓN AIU
 # ══════════════════════════════════════════════════════════════════════════════
 
-def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None, incluir_iva=True):
+def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None, incluir_iva=True, inclusiones=None, exclusiones=None):
     if numero is None:
         numero = f"COT-AIU-{_hoy().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
@@ -992,12 +992,16 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
 
     # ② DATOS DEL CONTRATANTE
     story += _seccion_header("Datos del Contratante", E)
-    cliente_nombre = r.get("_estado_guardado", {}).get("nombre_cliente", r.get("nombre_cliente",""))
-    datos_filas = []
-    if cliente_nombre:
-        datos_filas.append(("Para", cliente_nombre))
+    cliente_nombre = r.get("nombre_cliente") or r.get("_estado_guardado", {}).get("nombre_cliente") or "A quien pueda interesar"
+    datos_filas = [
+        ("Contratante / Atención a", cliente_nombre),
+    ]
+    _tel = r.get("telefono_cliente", "")
+    _ema = r.get("email_cliente", "")
+    if _tel or _ema:
+        datos_filas.append(("Contacto", "  ·  ".join(filter(None, [_tel, _ema]))))
     datos_filas += [
-        ("Ciudad",           emp.get("ciudad","Barranquilla")),
+        ("Ciudad",           r.get("ciudad_proyecto") or "Área Metropolitana"),
         ("Tipo de contrato", "Licitación / Proyecto Constructora — Estructura AIU"),
         ("Forma de pago",    f"{anticipo_pct}% anticipo  ·  {100-anticipo_pct}% contra acta de entrega"),
         ("Condiciones",      f"Validez: {dias_validez} días  ·  Entrega estimada: {dias_entrega} días"),
@@ -1158,6 +1162,8 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         f"Anticipo requerido: {anticipo_pct}% del total al inicio de la obra. "
         "Barranquilla, Colombia."
     )
+    story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
+    story.append(Spacer(1, _SP_SECCION))
     story += _seccion_terminos(E, C, nota_aiu, anticipo_pct)
     story.append(Spacer(1, _SP_BLOQUE))
     story += _bloque_firma_cliente(E, C)
