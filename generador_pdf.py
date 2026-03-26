@@ -36,7 +36,7 @@ _AU = ancho_util
 COL_2_30_70   = [_AU * 0.301, _AU * 0.699]
 COL_2_75_25   = [_AU * 0.753, _AU * 0.247]
 COL_2_50_50   = [_AU * 0.50,  _AU * 0.50]
-COL_5_STD     = [_AU * 0.05, _AU * 0.45, _AU * 0.15, _AU * 0.15, _AU * 0.20]
+COL_5_STD     = [_AU * 0.05, _AU * 0.40, _AU * 0.16, _AU * 0.21, _AU * 0.18]
 COL_ENCAB     = [_AU * 0.588, _AU * 0.412]
 COL_FIRMA_CC  = [_AU * 0.482, _AU * 0.090, _AU * 0.428]
 COL_FIRMA_CLI = [_AU * 0.314, _AU * 0.686]
@@ -417,10 +417,10 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
                     else (_cat_mat.strip() or "Material"))
 
     hdr = [
-        Paragraph("#", E["th_c"]),
-        Paragraph("DESCRIPCIÓN / ÍTEM", E["th"]),
-        Paragraph("CANT. / UNID.", E["th_c"]),
-        Paragraph("P. UNITARIO", E["th_r"]),
+        Paragraph("Nº", E["th_c"]),
+        Paragraph("ÍTEM", E["th"]),
+        Paragraph("CANTIDAD", E["th_c"]),
+        Paragraph("PRECIO UNITARIO", E["th_r"]),
         Paragraph("SUBTOTAL", E["th_r"]),
     ]
     filas = [hdr]
@@ -439,19 +439,19 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             _tipo_pieza  = p.get("ancho_tipo", "").lower()
             _es_area_p   = any(kw in _tipo_pieza for kw in ("piso", "fachada", "revestimiento"))
             if _es_area_p:
-                _cant_unid_str = f"{_cantidad} u × {(_ml_unit * _ancho):.2f} m²"
+                _cant_unid_str = f"{m2_p:.2f} m² ({_cantidad} unid.)"
                 _qty_base  = m2_p
             else:
-                _cant_unid_str = f"{_cantidad} u × {_ml_unit:.2f} ml"
+                _cant_unid_str = f"{_ml_efectivo:.2f} ml ({_cantidad} unid.)"
                 _qty_base  = _ml_efectivo
             pu = precio_p / _qty_base if _qty_base > 0 else 0
-            _desc_enriq = f"{p.get('nombre', '—')} en {_nombres_mat}"
+            _desc_enriq = f"<b>{p.get('nombre', '—')}</b><br/><font size='7.5' color='#6B85A0'>Material: {_nombres_mat}</font>"
             filas.append([
-                Paragraph(str(idx_p),                               E["cell_c"]),
-                Paragraph(_desc_enriq,                              E["cell"]),
-                Paragraph(_cant_unid_str,                           E["cell_c"]),
-                Paragraph(_num(round(pu / 1000) * 1000),            E["cell_r"]),
-                Paragraph(_num(round(precio_p / 1000) * 1000),      E["cell_br"]),
+                Paragraph(str(idx_p),          E["cell_c"]),
+                Paragraph(_desc_enriq,         E["cell"]),
+                Paragraph(_cant_unid_str,      E["cell_c"]),
+                Paragraph(_num(pu),            E["cell_r"]),
+                Paragraph(_num(precio_p),      E["cell_br"]),
             ])
     else:
         ref_txt = r.get("referencia", r.get("categoria", ""))
@@ -479,12 +479,7 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
     ]))
     story.append(tbl)
 
-    nota_atodocosto = (
-        "Nota Legal: Los valores unitarios presentados corresponden a la modalidad "
-        "'A Todo Costo'. Incluyen el suministro del material pétreo, mano de obra "
-        "especializada de corte e instalación, insumos técnicos, herramientas y "
-        "logística de transporte."
-    )
+    nota_atodocosto = "Nota: Incluye el suministro del material pétreo, mano de obra especializada de corte e instalación, insumos técnicos, herramientas y logística de transporte."
     story.append(Table(
         [[Paragraph(nota_atodocosto, E["nota_legal"])]],
         colWidths=[_AU],
