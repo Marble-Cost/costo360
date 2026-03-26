@@ -856,7 +856,7 @@ def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: di
                 """UPDATE cotizaciones
                    SET numero=%s, cliente=%s, material=%s, tipo=%s, m2=%s, ml=%s,
                        costo=%s, precio=%s, margen=%s, datos_json=%s,
-                       fecha=%s
+                       fecha=%s, estado=%s
                    WHERE id=%s""",
                 (
                     numero,
@@ -872,6 +872,9 @@ def _actualizar_cotizacion(cot_id: int, numero: str, cliente: str, resultado: di
                     # C-06 FIX (incluido aquí): actualizar la fecha para que
                     # el dashboard registre la edición en el período correcto.
                     _hoy().isoformat(),
+                    # Bug #8 FIX — Auditoría de Estados: cualquier edición
+                    # revoca automáticamente una aprobación previa por seguridad.
+                    "Pendiente",
                     cot_id,
                 ),
             )
