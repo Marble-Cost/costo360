@@ -568,7 +568,7 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
         filas_fin.append([Paragraph("Subtotal", E["cell_b"]), Paragraph(_num(precio_sugerido_total), E["cell_br"])])
         if _tiene_adicionales:
             filas_fin.append([Paragraph("Costos Adicionales", _s_adic_l), Paragraph(_num(c7_adicionales), _s_adic_v)])
-        filas_fin.append([Paragraph("Base gravable (subtotal) IVA 19% (Art. 468 E.T.)", E["iva_l"]), Paragraph(_num(iva_val), E["iva_v"])])
+        filas_fin.append([Paragraph("IVA 19%", E["iva_l"]), Paragraph(_num(iva_val), E["iva_v"])])
         filas_fin.append([Paragraph(f"ANTICIPO A PAGAR ({anticipo_pct}% del total)", E["anticipo_l"]), Paragraph(_num(anticipo_val), E["anticipo_v"])])
         filas_fin.append([
             Paragraph(f"Saldo contra entrega ({100-anticipo_pct}%)",
@@ -739,7 +739,6 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
     ]
 
     # Sin KeepTogether — flujo natural
-    story.append(Paragraph("CONDICIONES COMERCIALES", _titulo_tc))
     for i, item in enumerate(condiciones_items, start=1):
         story.append(Paragraph(f"{i}.  {item}", _viñeta_tc))
     return story
