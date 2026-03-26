@@ -53,8 +53,7 @@ Barranquilla, Colombia. Ayudas a marmoleros a calcular el costo real de sus proy
 
 DATOS DEL MERCADO (Feb 2026, Barranquilla):
 - Gasolina: $15.800/galón
-- Frontier NP300: 7.2 km/gal ciudad, desgaste $148/km, flete base $65.000
-- Cheyenne V8: 4.1 km/gal ciudad, desgaste $340/km, flete base $85.000
+- Flete externo: Costo estimado según rango de kilómetros (promedio $45.000 - $80.000).
 - Externo/Tercero: flete fijo $165.000 | Peaje: $19.500 | Flete agente: $85.000
 - Viáticos pueblo: $145.000/noche/persona | Ciudad: $178.000/noche/persona
 
@@ -85,10 +84,9 @@ REGLAS ESTRICTAS:
 2. Si el usuario menciona dimensiones como "4mt de largo por 90cm de ancho", calcula m² = 4 * 0.9 = 3.6
 3. Si menciona "media placa" con área dada, usa esa área
 4. Si el usuario dice "el proveedor trajo el material" o "agente externo", agente_externo = true
-5. Para vehículo, si dice "Frontier" → "frontier", "Cheyenne" → "cheyenne", cualquier otro → "externo"
-6. Si un dato no se menciona, usa null
-7. precio_m2 es el valor por m² que el proveedor le cobró al usuario
-8. area_placa_comprada es el área total de material que compró (ej: "media placa de 2.5 m²" → 2.5)
+5. Si un dato no se menciona, usa null
+6. precio_m2 es el valor por m² que el proveedor le cobró al usuario
+7. area_placa_comprada es el área total de material que compró (ej: "media placa de 2.5 m²" → 2.5)
 
 JSON a retornar:
 {
@@ -100,7 +98,6 @@ JSON a retornar:
   "m2_proyecto": numero_o_null,
   "tipo_proyecto": "Mesón|Cocina|Baño|Piso|Escalera|Fachada|Otro|null",
   "agente_externo_taller": true_o_false,
-  "vehiculo_entrega": "frontier|cheyenne|externo|null",
   "km": numero_o_null,
   "peajes": numero_o_null,
   "foraneo": false,
@@ -374,110 +371,6 @@ JSON a retornar:
         return json.loads(raw.strip())
     except Exception:
         return None
-
-
-# ── Sistema de Investigación Automotriz con Web Search ───────────────────────
-# Función dedicada con system prompt técnico + herramienta web_search.
-# Aislada del asistente de marmolería — sin guardrails de cotización.
-# Retorna {"rendimiento_km_gal": float, "capacidad_max_kg": float} o lanza excepción.
-
-_SYSTEM_VEHICULO = """\
-Eres un sistema experto en especificaciones técnicas automotrices para flotas de transporte en Colombia.
-Tu tarea es obtener datos reales y precisos de un vehículo específico.
-
-PROCESO OBLIGATORIO:
-1. Usa web_search para buscar la ficha técnica oficial del vehículo.
-   Busca: "[marca] [modelo] [año] ficha técnica carga útil Colombia"
-   o en inglés: "[marca] [modelo] [año] payload capacity specifications"
-2. Extrae del fabricante o fuente técnica:
-   - rendimiento_km_gal: km por galón en uso urbano/mixto con carga típica
-     (si encuentras l/100km, convierte: 235.2 / litros_por_100km)
-   - capacidad_max_kg: carga útil máxima en kg según ficha del fabricante
-3. Responde ÚNICAMENTE con un objeto JSON válido con exactamente dos llaves numéricas.
-   Sin texto antes ni después del JSON. Sin markdown. Sin explicaciones.
-
-Ejemplo de respuesta correcta:
-{"rendimiento_km_gal": 9.5, "capacidad_max_kg": 850.0}
-"""
-
-
-def investigar_vehiculo(nombre_vehiculo: str) -> dict:
-    """
-    Investiga la ficha técnica REAL de un vehículo usando IA con web_search.
-
-    Usa el tool web_search de Anthropic para consultar fuentes técnicas reales
-    (fabricante, fichas técnicas, bases de datos automotrices) en lugar de
-    depender del conocimiento estático de entrenamiento.
-
-    Args:
-        nombre_vehiculo: nombre del vehículo (ej: "Ford Ranger 2024")
-
-    Retorna:
-        dict con {"rendimiento_km_gal": float, "capacidad_max_kg": float}
-
-    Lanza:
-        ValueError si la IA no devuelve JSON parseable con las llaves esperadas.
-        RuntimeError si el cliente de IA no está disponible.
-    """
-    import re as _re
-    client = get_client()
-    if client is None:
-        raise RuntimeError(
-            "IA no disponible. Configura ANTHROPIC_API_KEY en .streamlit/secrets.toml"
-        )
-
-    # Intentar primero con web_search para datos reales
-    # Si falla (rate limit, etc.), intentar sin web_search como fallback
-    _query = nombre_vehiculo.strip()
-    _raw = ""
-
-    for _use_web in (True, False):
-        try:
-            _kwargs = dict(
-                model="claude-sonnet-4-6",
-                max_tokens=512,
-                system=_SYSTEM_VEHICULO,
-                messages=[{"role": "user", "content": _query}],
-            )
-            if _use_web:
-                _kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
-            response = client.messages.create(**_kwargs)
-            # Extraer texto de todos los bloques content (puede haber tool_use + text)
-            _raw = " ".join(
-                b.text for b in response.content
-                if hasattr(b, "text") and b.text
-            ).strip()
-            if _raw:
-                break  # tenemos respuesta, salir del loop
-        except Exception as _e_web:
-            if not _use_web:
-                raise  # si falla sin web también, relanzar
-            # Si falla con web, intentar sin web_search
-            continue
-
-    if not _raw:
-        raise ValueError("La IA no devolvió respuesta para el vehículo solicitado.")
-
-    # Extracción robusta: greedy + DOTALL captura JSON aunque tenga saltos de línea
-    raw_clean = _raw.replace("```json", "").replace("```", "").strip()
-    match = _re.search(r"\{[^{}]*\}", raw_clean, _re.DOTALL)
-    if not match:
-        # Intentar extracción más permisiva con nested braces
-        match = _re.search(r"\{.*\}", raw_clean, _re.DOTALL)
-    if not match:
-        raise ValueError(f"La IA no devolvió JSON válido. Respuesta: {_raw[:300]!r}")
-
-    data = json.loads(match.group(0))
-    rend = data.get("rendimiento_km_gal")
-    cap  = data.get("capacidad_max_kg")
-    if rend is None or cap is None:
-        raise ValueError(
-            f"JSON incompleto — faltan llaves esperadas. Datos: {data}"
-        )
-    return {
-        "rendimiento_km_gal": float(rend),
-        "capacidad_max_kg":   float(cap),
-    }
 
 
 # ── Auditor financiero de cotizaciones ─────────────────────────────────────────-
