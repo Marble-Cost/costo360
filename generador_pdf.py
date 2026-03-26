@@ -1213,11 +1213,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     C = _C(palette)
     E = _estilos(C)
 
-    _titulo_doc = (
-        "PRE-FACTURA / DOCUMENTO PROFORMA"
-        if (incluir_iva and not es_aiu) else
-        "CUENTA DE COBRO (DOCUMENTO SOPORTE)"
-    )
+    _titulo_doc = "CUENTA DE COBRO"
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
@@ -1236,7 +1232,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     story.append(_tabla_datos_cliente(E, C, [
         ("Nombre / Razon Social", datos_prestador.get("nombre","—")),
         ("NIT / CC",              datos_prestador.get("nit_cc", datos_prestador.get("nit","—"))),
-        ("Direccion",             datos_prestador.get("direccion", datos_prestador.get("ciudad","—"))),
+        ("Dirección",             "Área metropolitana"),
         ("Telefono",              datos_prestador.get("telefono", datos_prestador.get("tel","—"))),
     ]))
     story.append(Spacer(1, _SP_SECCION))
@@ -1246,7 +1242,6 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     story.append(_tabla_datos_cliente(E, C, [
         ("Nombre / Razon Social", datos_pagador.get("nombre","—")),
         ("NIT / CC",              datos_pagador.get("nit","—")),
-        ("Direccion",             datos_pagador.get("direccion","—")),
     ]))
     story.append(Spacer(1, _SP_SECCION))
 
