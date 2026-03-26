@@ -464,6 +464,22 @@ def _seccion_despiece_tecnico(E, C, r, incluir_iva, anticipo_pct, precio_sugerid
             Paragraph(_num(precio_sugerido_total), E["cell_br"]),
         ])
 
+    # ── RELLENO DE FILAS (ROW PADDING) PARA DISEÑO B2B ──
+    # Garantizamos un mínimo de 8 filas de datos para que la tabla siempre tenga
+    # un peso visual elegante, pareciendo un formato corporativo estándar.
+    _MIN_FILAS = 8
+    _filas_actuales = len(piezas) if piezas else 1
+    _filas_faltantes = max(0, _MIN_FILAS - _filas_actuales)
+
+    for _ in range(_filas_faltantes):
+        filas.append([
+            Paragraph("&nbsp;", E["cell_c"]),
+            Paragraph("&nbsp;", E["cell"]),
+            Paragraph("&nbsp;", E["cell_c"]),
+            Paragraph("&nbsp;", E["cell_r"]),
+            Paragraph("&nbsp;", E["cell_br"]),
+        ])
+
     tbl = Table(filas, colWidths=COL_5_STD, repeatRows=1)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",    (0,0), (-1,0),  C["header_dark"]),
