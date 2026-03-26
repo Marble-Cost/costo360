@@ -385,8 +385,8 @@ TOUR_PASOS = [
         "id":       "sos",
         "etiqueta": "AYUDA",
         "icono":    "🆘",
-        "titulo":   "Boton SOS — ayuda en tiempo real",
-        "cuerpo":   "Si en algun momento te sientes atascado o no entiendes un termino, abre el panel SOS en el menu lateral: encuentra el expander que dice Necesitas ayuda rapida y escribe tu duda.\n\nLa IA te respondera en segundos con una explicacion concisa adaptada a la pantalla en la que te encuentras — sin salir del cotizador ni perder lo que llevas escrito.",
+        "titulo":   "Copiloto IA — asistencia tecnica en tiempo real",
+        "cuerpo":   "Si en algun momento te sientes atascado o no entiendes un termino, abre el panel ✨ Copiloto IA en la barra lateral para recibir asistencia tecnica o comercial inmediata.\n\nLa IA te respondera en segundos con una explicacion concisa adaptada a la pantalla en la que te encuentras — sin salir del cotizador ni perder lo que llevas escrito.",
         "pagina":   None,
     },
     {
@@ -394,7 +394,7 @@ TOUR_PASOS = [
         "etiqueta": "LISTO",
         "icono":    "🚀",
         "titulo":   "Ya estas listo para cotizar",
-        "cuerpo":   "Conoces las funciones clave. Recuerda: el boton SOS del menu lateral esta disponible en cualquier momento para resolver dudas. Los parametros de costos son editables y los cambios aplican de inmediato.\n\nPuedes volver a este recorrido desde la pantalla de Inicio cuando quieras.",
+        "cuerpo":   "Conoces las funciones clave. Recuerda: el panel ✨ Copiloto IA de la barra lateral esta disponible en cualquier momento para resolver dudas tecnicas o comerciales. Los parametros de costos son editables y los cambios aplican de inmediato.\n\nPuedes volver a este recorrido desde la pantalla de Inicio cuando quieras.",
         "pagina":   None,
     },
 ]
