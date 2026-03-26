@@ -1146,15 +1146,40 @@ def _interceptar_accion_ia(respuesta_ia: str) -> dict | None:
 
 
 def _hash_password(password: str) -> str:
-    """Hashing PBKDF2-SHA256 con 200.000 iteraciones. Sin dependencias externas."""
-    salt = b"cc_marmoles_2026_salt"
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
-    return dk.hex()
+    """Hashing PBKDF2-SHA256 con 200.000 iteraciones y salt dinámico único.
+
+    Formato de salida: salt_hex + "$" + key_hex
+    El salt se genera con os.urandom(16) — único por contraseña, nunca reutilizado.
+    Esto elimina la vulnerabilidad de Rainbow Tables del Bug QA #1.
+    """
+    salt_bytes = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt_bytes, 200_000)
+    return salt_bytes.hex() + "$" + dk.hex()
 
 
 def _verificar_password(password: str, hash_almacenado: str) -> bool:
-    """Comparación segura contra timing-attacks via hmac.compare_digest."""
-    return _hmac_mod.compare_digest(_hash_password(password), hash_almacenado)
+    """Verificación segura con retrocompatibilidad estricta.
+
+    Formato nuevo (salt dinámico): "salt_hex$key_hex"
+        → Extrae el salt del hash almacenado y recomputa para comparar.
+    Formato legacy (salt estático): solo "key_hex" sin "$"
+        → Usa el salt estático original para no bloquear al Admin existente.
+    """
+    partes = hash_almacenado.split("$")
+    if len(partes) == 2:
+        # ── Formato nuevo: salt dinámico embebido ────────────────────────────
+        salt_hex, key_hex = partes
+        try:
+            salt_bytes = bytes.fromhex(salt_hex)
+        except ValueError:
+            return False
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt_bytes, 200_000)
+        return _hmac_mod.compare_digest(dk.hex(), key_hex)
+    else:
+        # ── Formato legacy: salt estático (retrocompatibilidad) ──────────────
+        _SALT_LEGACY = b"cc_marmoles_2026_salt"
+        dk_legacy = hashlib.pbkdf2_hmac("sha256", password.encode(), _SALT_LEGACY, 200_000)
+        return _hmac_mod.compare_digest(dk_legacy.hex(), hash_almacenado)
 
 
 def _device_hint() -> str:
@@ -2036,6 +2061,7 @@ def _cb_cdir_tipo_aloj():
 
 def _cb_cdir_noches():
     _sp_set("cdir_noches", st.session_state.get("cb_cdir_noches", 0))
+    _sp_commit_borrador()
 
 
 def _cb_cdir_perfil_desperdicio():
