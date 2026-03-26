@@ -413,7 +413,7 @@ def _generar_snapshot_datos() -> str:
             sort_keys=True, default=str
         ),
         "margen_pct":    str(st.session_state.get("pre", {}).get("margen_pct", "")),
-        "vehiculo":      str(st.session_state.get("pre", {}).get("vehiculo_entrega", "")),
+        # "vehiculo":      str(st.session_state.get("pre", {}).get("vehiculo_entrega", "")),
         "km":            str(st.session_state.get("pre", {}).get("km", "")),
         "peajes":        str(st.session_state.get("pre", {}).get("peajes", "")),
         "foraneo":       str(st.session_state.get("pre", {}).get("foraneo_activo", "")),
@@ -1874,7 +1874,7 @@ def _sp_commit_borrador():
         "zocalo_activo":       sp.get("cdir_zocalo_activo", False),
         "zocalo_ml":           sp.get("cdir_zocalo_ml", 0.0),
         "agente_externo_taller": sp.get("cdir_agente_externo", False),
-        "vehiculo_entrega":    sp.get("cdir_vehiculo", "frontier"),
+        "vehiculo_entrega": "externo",
         "km":                  sp.get("cdir_km", 5.0),
         "peajes":              sp.get("cdir_peajes", 0),
         "foraneo_activo":      sp.get("cdir_foraneo", False),
@@ -2692,8 +2692,8 @@ def _cargar_en_calculadora(rid, rnum, rjson):
         if _rk.startswith("retal_id_") and _rv:
             st.session_state[_rk] = _rv
 
-    if "AIU" in rnum or datos.get("tipo_proyecto") == "Licitación AIU" \
-            or eg.get("tipo_proyecto") == "Licitación AIU":
+    if "AIU" in rnum or "aiu" in str(datos.get("tipo_proyecto", "")).lower() \
+            or "aiu" in str(eg.get("tipo_proyecto", "")).lower():
         st.session_state.aiu_items = eg.get("aiu_items", [])
         destino = "Cotizacion AIU"
     else:
@@ -3097,8 +3097,6 @@ elif pagina == "Asistente IA":
                 _sugs += ["¿Cómo reduzco el retal?"]
             if any(w in _ult for w in ["material", "mármol", "granito", "sinterizado"]):
                 _sugs += ["¿Cuál material tiene más riesgo de rotura?", "¿Sinterizado vs granito: cuál conviene más?"]
-            if any(w in _ult for w in ["logística", "transporte", "flete", "vehículo"]):
-                _sugs += ["¿Cuándo uso la Frontier vs la Cheyenne?"]
             if any(w in _ult for w in ["aiu", "imprevisto", "administración"]):
                 _sugs += ["¿Cuándo aplica la estructura AIU?", "¿El IVA va sobre todo o solo sobre la utilidad?"]
             if not _sugs:
