@@ -78,7 +78,7 @@ def calcular_merma_inteligente(piezas: list, categoria: str) -> dict:
         categorias_usadas.add(cat_pieza)
         props = PROPIEDADES_MATERIAL.get(cat_pieza, props_default)
         largo_total = float(p.get("ml", float(p.get("largo", 0.0)) * int(p.get("cantidad", 1))))
-        ancho  = float(p.get("ancho", 0.60))
+        ancho  = float(p.get("ancho_custom", p.get("ancho", 0.60)))
         area   = largo_total * ancho
         merma_pct = props["merma_base"]
         merma_m2  = area * merma_pct
@@ -552,19 +552,34 @@ def calcular_cotizacion_directa(
         c2    = acumulados["c2_mano_obra"]
         c3    = acumulados["c3_zocalos"]
 
-        # Descomponer c4 en sub-llaves legacy para el dict de salida
-        # (generador_pdf.py y el debug de app.py las leen individualmente)
-        _receta_c4 = _receta_glob   # se usa la receta del material principal para sub-desglose
-        _disco_val  = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Desgaste disco"),        2_200.0)
-        _maq_val    = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Uso máquina cortadora"), 20_000.0)
-        _cons_val   = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Consumibles"),            8_500.0)
-        _risk_val   = next((r["valor"] for r in _receta_c4 if r["nombre_interno"] == "Riesgo rotura"),          0.02)
-        m2_disco         = m2_cortados if m2_cortados > 0 else m2_real
-        costo_disco_maq  = (m2_disco * _disco_val) + (dias * _maq_val)
+        # ── Sub-desglose de c4 usando tarifas por categoría de pieza ────────────
+        # Bug #10 fix: costo_disco_maq se calcula iterando sobre cada pieza,
+        # extrayendo la tarifa "Desgaste disco" de SU propia receta de categoría,
+        # en lugar de aplicar globalmente la receta del material principal.
+        # Esto evita costo_riesgo negativo cuando se mezclan materiales con
+        # distintos valores de disco entre recetas.
+        _maq_val    = next((r["valor"] for r in _receta_glob if r["nombre_interno"] == "Uso máquina cortadora"), 20_000.0)
+        _cons_val   = next((r["valor"] for r in _receta_glob if r["nombre_interno"] == "Consumibles"),            8_500.0)
+        _risk_val   = next((r["valor"] for r in _receta_glob if r["nombre_interno"] == "Riesgo rotura"),          0.02)
+
+        costo_disco_maq = 0.0
+        for _p_disc in piezas:
+            _cat_disc    = _p_disc.get("categoria", categoria)
+            _tar_disc    = _tarifas_src.get(_cat_disc, _tarifas_src.get(categoria, TARIFAS.get("Mármol", {})))
+            _rec_disc    = _resolver_receta(_tar_disc)
+            _disco_val_p = next((r["valor"] for r in _rec_disc if r["nombre_interno"] == "Desgaste disco"), 2_200.0)
+            _largo_disc  = float(_p_disc.get("ml", float(_p_disc.get("largo", 0.0)) * int(_p_disc.get("cantidad", 1))))
+            _ancho_disc  = float(_p_disc.get("ancho_custom", _p_disc.get("ancho", 0.60)))
+            _area_disc   = ml_a_m2(_largo_disc, _ancho_disc)
+            costo_disco_maq += max(0.0, _disco_val_p * _area_disc)
+        costo_disco_maq += dias * _maq_val   # costo fijo de máquina (por día, una vez)
+
+        m2_disco          = m2_cortados if m2_cortados > 0 else m2_real
         costo_consumibles = m2_real * _cons_val
         costo_riesgo      = acumulados["c4_insumos"] - costo_disco_maq - costo_consumibles
-        # costo_riesgo puede ser negativo si hay diferencias de redondeo entre recetas
-        # de distintos materiales — lo clampamos a 0 para que el PDF no muestre negativo
+        # Clampeo robusto: nunca exponer un negativo en el PDF aunque las recetas diverjan
+        costo_disco_maq  = max(0.0, costo_disco_maq)
+        costo_consumibles = max(0.0, costo_consumibles)
         costo_riesgo = max(0.0, costo_riesgo)
         c4 = acumulados["c4_insumos"]
 
