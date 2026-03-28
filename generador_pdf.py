@@ -762,38 +762,67 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
 
 
 def _bloque_firma_cliente(E, C):
-    """Cierre de contrato premium: línea superior 2pt + celdas generosas para escritura."""
-    linea_firma = "_" * 44
+    """
+    Bloque ACEPTADO Y APROBADO POR EL CLIENTE rediseñado.
+    Encabezado azul + cuatro campos en dos columnas simétricas con borde.
+    """
+    _GAP   = 10
+    _MITAD = (_AU - _GAP) / 2.0
+    _st_lbl = E["firma_campo"]
+    _st_tit = E["firma_titulo"]
+    _st_lin = ParagraphStyle("_fl", fontSize=8.5, fontName="Helvetica",
+                              leading=11, textColor=colors.HexColor("#1C2B3A"))
+    _linea  = "_" * 32
 
-    filas_firma = [
-        [Paragraph("ACEPTADO Y APROBADO POR EL CLIENTE:", E["firma_titulo"]), ""],
-        [Paragraph("Firma:", E["firma_campo"]),          Paragraph(linea_firma, E["firma_campo"])],
-        [Paragraph("Nombre / Razón Social:", E["firma_campo"]), Paragraph(linea_firma, E["firma_campo"])],
-        [Paragraph("C.C. / NIT:", E["firma_campo"]),     Paragraph(linea_firma, E["firma_campo"])],
-        [Paragraph("Fecha de aprobación:", E["firma_campo"]), Paragraph(linea_firma, E["firma_campo"])],
-    ]
-
-    tbl_firma = Table(filas_firma, colWidths=COL_FIRMA_CLI)
-    tbl_firma.setStyle(TableStyle([
-        ("SPAN",          (0, 0), (-1, 0)),
-        ("BACKGROUND",    (0, 0), (-1, 0),  colors.HexColor("#EEF4FB")),
-        ("BACKGROUND",    (0, 1), (-1,-1),  colors.HexColor("#FAFCFF")),
-        # Línea superior 2pt — peso visual de cierre de contrato
-        ("LINEABOVE",     (0, 0), (-1, 0),  2.0, colors.HexColor("#1B5FA8")),
-        ("LINEBELOW",     (0,-1), (-1,-1),  0.5, colors.HexColor("#C8D8E8")),
-        ("LINEBELOW",     (0, 1), (-1,-2),  0.3, colors.HexColor("#E0E8F0")),
-        ("BOX",           (0, 0), (-1,-1),  0.5, colors.HexColor("#C8D8E8")),
-        ("TOPPADDING",    (0, 0), (-1, 0),  8),
-        ("BOTTOMPADDING", (0, 0), (-1, 0),  8),
-        ("TOPPADDING",    (0, 1), (-1,-1),  _PAD_FIRMA),
-        ("BOTTOMPADDING", (0, 1), (-1,-1),  _PAD_FIRMA),
-        ("LEFTPADDING",   (0, 0), (-1,-1),  10),
-        ("RIGHTPADDING",  (0, 0), (-1,-1),  10),
-        ("VALIGN",        (0, 0), (-1,-1),  "BOTTOM"),
+    tit_row = Table(
+        [[Paragraph("ACEPTADO Y APROBADO POR EL CLIENTE", _st_tit)]],
+        colWidths=[_AU],
+    )
+    tit_row.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#EEF4FB")),
+        ("LINEABOVE",     (0,0),(-1, 0), 2.0, colors.HexColor("#1B5FA8")),
+        ("TOPPADDING",    (0,0),(-1,-1), 9),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 9),
+        ("LEFTPADDING",   (0,0),(-1,-1), 10),
+        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
+        ("BOX",           (0,0),(-1,-1), 0.5, colors.HexColor("#C8D8E8")),
     ]))
 
-    # KeepTogether CONSERVADO — protege el bloque de firma
-    return [Spacer(1, _SP_SECCION), KeepTogether([tbl_firma])]
+    def _campo(etiqueta):
+        t = Table(
+            [[Paragraph(etiqueta, _st_lbl), Paragraph(_linea, _st_lin)]],
+            colWidths=[_MITAD * 0.42, _MITAD * 0.58],
+        )
+        t.setStyle(TableStyle([
+            ("TOPPADDING",    (0,0),(-1,-1), _PAD_FIRMA),
+            ("BOTTOMPADDING", (0,0),(-1,-1), _PAD_FIRMA),
+            ("LEFTPADDING",   (0,0),(-1,-1), 0),
+            ("RIGHTPADDING",  (0,0),(-1,-1), 0),
+            ("VALIGN",        (0,0),(-1,-1), "BOTTOM"),
+        ]))
+        return t
+
+    campos_row = Table(
+        [
+            [_campo("Firma:"),     _campo("Nombre / Razon Social:")],
+            [_campo("C.C. / NIT:"), _campo("Fecha de aprobacion:")],
+        ],
+        colWidths=[_MITAD, _MITAD],
+    )
+    campos_row.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FAFCFF")),
+        ("BOX",           (0,0),(-1,-1), 0.5, colors.HexColor("#C8D8E8")),
+        ("LINEBELOW",     (0,0),(-1, 0), 0.5, colors.HexColor("#C8D8E8")),
+        ("LINEBELOW",     (0,1),(-1,-1), 0.3, colors.HexColor("#E0E8F0")),
+        ("LINEBEFORE",    (1,0),( 1,-1), 0.5, colors.HexColor("#C8D8E8")),
+        ("TOPPADDING",    (0,0),(-1,-1), 2),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 2),
+        ("LEFTPADDING",   (0,0),(-1,-1), 10),
+        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
+        ("VALIGN",        (0,0),(-1,-1), "TOP"),
+    ]))
+
+    return [Spacer(1, _SP_SECCION), KeepTogether([tit_row, campos_row])]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1356,13 +1385,54 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         ])))
     story.append(Spacer(1, _SP_SECCION))
 
-    # ⑧ FIRMA PRESTADOR
-    firma = Table([[
-        Table([[Paragraph("_" * 40, E["cell"])],[Paragraph(datos_prestador.get("nombre",""), E["aviso"])],[Paragraph("Firma del Prestador", E["aviso"])]]),
-        "",
-        Table([[Paragraph("_" * 35, E["cell"])],[Paragraph("", E["aviso"])],[Paragraph("Sello / Firma del Pagador", E["aviso"])]]),
-    ]], colWidths=COL_FIRMA_CC)
-    firma.setStyle(TableStyle([("TOPPADDING",(0,0),(-1,-1),8),("VALIGN",(0,0),(-1,-1),"BOTTOM")]))
+    # ⑧ FIRMA PRESTADOR / PAGADOR — dos columnas simétricas con caja/borde
+    _f_mitad = (_AU - 12) / 2.0
+    _st_fn   = E["aviso"]
+    _st_fc   = E["cell"]
+
+    def _caja_firma(titulo, nombre_pie):
+        """Sub-tabla de firma: línea de firma + nombre + rol, con borde completo."""
+        t = Table(
+            [
+                [Paragraph("", _st_fc)],
+                [Paragraph("", _st_fc)],
+                [Paragraph("_" * 36, _st_fc)],
+                [Paragraph(nombre_pie, _st_fn)],
+                [Paragraph(titulo, _st_fn)],
+            ],
+            colWidths=[_f_mitad],
+            rowHeights=[14, 14, 12, 12, 12],
+        )
+        t.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FAFCFF")),
+            ("BOX",           (0,0),(-1,-1), 0.5, colors.HexColor("#C8D8E8")),
+            ("LINEABOVE",     (0,0),(-1, 0), 2.0, colors.HexColor("#1B5FA8")),
+            ("TOPPADDING",    (0,0),(-1,-1), 3),
+            ("BOTTOMPADDING", (0,0),(-1,-1), 3),
+            ("LEFTPADDING",   (0,0),(-1,-1), 10),
+            ("RIGHTPADDING",  (0,0),(-1,-1), 10),
+            ("ALIGN",         (0,2),(-1,-1), "LEFT"),
+            ("VALIGN",        (0,0),(-1,-1), "BOTTOM"),
+        ]))
+        return t
+
+    firma = Table(
+        [[
+            _caja_firma("Firma del Prestador", datos_prestador.get("nombre", "")),
+            _caja_firma("Sello / Firma del Pagador", ""),
+        ]],
+        colWidths=[_f_mitad, _f_mitad],
+        hAlign="CENTER",
+        spaceBefore=_SP_SECCION,
+    )
+    firma.setStyle(TableStyle([
+        ("LEFTPADDING",  (0,0),(-1,-1), 0),
+        ("RIGHTPADDING", (0,0),(-1,-1), 0),
+        ("TOPPADDING",   (0,0),(-1,-1), 0),
+        ("BOTTOMPADDING",(0,0),(-1,-1), 0),
+        ("COLPADDING",   (0,0),( 0,-1), 6),
+    ]))
+    story.append(Spacer(1, _SP_SECCION))
     story.append(firma)
 
     # ⑨ FIRMA CLIENTE — KeepTogether conservado
