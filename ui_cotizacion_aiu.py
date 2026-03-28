@@ -77,10 +77,24 @@ def _ui_cotizacion_aiu(
     fn_guardar_config,
     fn_leer_config,
     fn_clave_borrador_aiu,
+    fn_sp,
     fn_sp_set,
+    fn_sp_commit_borrador_aiu,
     fn_sp_agregar_item_aiu,
     fn_sp_eliminar_item_aiu,
     fn_sp_sync_items_aiu,
+    fn_cb_aiu_nombre_cliente,
+    fn_cb_aiu_numero,
+    fn_cb_aiu_a_pct,
+    fn_cb_aiu_i_pct,
+    fn_cb_aiu_u_pct,
+    fn_cb_aiu_anticipo,
+    fn_cb_aiu_incluir_iva,
+    fn_cb_aiu_telefono_cliente,
+    fn_cb_aiu_email_cliente,
+    fn_cb_aiu_ciudad_proyecto,
+    fn_cb_aiu_dias_entrega,
+    fn_cb_aiu_dias_validez,
 ):
     """Renderiza la pantalla completa de Cotización AIU (wizard 3 pasos)."""
 
@@ -335,17 +349,36 @@ def _ui_cotizacion_aiu(
         nombre_cliente_aiu = st.text_input(
             "Nombre de la constructora o proyecto",
             placeholder="Ej: Constructora ABC S.A.S.",
-            value=st.session_state.pre.get("nombre_cliente", ""),
-            key="aiu_nombre_cliente",
+            value=fn_sp().get("aiu_nombre_cliente", ""),
+            key="cb_aiu_nombre_cliente",
+            on_change=fn_cb_aiu_nombre_cliente,
         )
 
         _aiu_c1, _aiu_c2, _aiu_c3 = st.columns(3)
         with _aiu_c1:
-            telefono_cliente_aiu = st.text_input("Teléfono", value=st.session_state.pre.get("telefono_cliente", ""), placeholder="Ej: 300 123 4567", key="aiu_telefono_cliente")
+            telefono_cliente_aiu = st.text_input(
+                "Teléfono",
+                value=fn_sp().get("aiu_telefono_cliente", ""),
+                placeholder="Ej: 300 123 4567",
+                key="cb_aiu_telefono_cliente",
+                on_change=fn_cb_aiu_telefono_cliente,
+            )
         with _aiu_c2:
-            email_cliente_aiu = st.text_input("Correo electrónico", value=st.session_state.pre.get("email_cliente", ""), placeholder="cliente@email.com", key="aiu_email_cliente")
+            email_cliente_aiu = st.text_input(
+                "Correo electrónico",
+                value=fn_sp().get("aiu_email_cliente", ""),
+                placeholder="cliente@email.com",
+                key="cb_aiu_email_cliente",
+                on_change=fn_cb_aiu_email_cliente,
+            )
         with _aiu_c3:
-            ciudad_proyecto_aiu = st.text_input("Ciudad del proyecto", value=st.session_state.pre.get("ciudad_proyecto", ""), placeholder="Ej: Barranquilla", key="aiu_ciudad_proyecto")
+            ciudad_proyecto_aiu = st.text_input(
+                "Ciudad del proyecto",
+                value=fn_sp().get("aiu_ciudad_proyecto", ""),
+                placeholder="Ej: Barranquilla",
+                key="cb_aiu_ciudad_proyecto",
+                on_change=fn_cb_aiu_ciudad_proyecto,
+            )
 
         with st.expander("Como funciona la tabla de items", expanded=False):
             st.markdown("""
@@ -424,12 +457,16 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
 
         st.session_state.pre = {
             **st.session_state.pre,
-            "nombre_cliente": nombre_cliente_aiu,
+            "nombre_cliente":   nombre_cliente_aiu,
             "telefono_cliente": telefono_cliente_aiu,
-            "email_cliente": email_cliente_aiu,
-            "ciudad_proyecto": ciudad_proyecto_aiu,
-            "cd_total":       cd_total,
+            "email_cliente":    email_cliente_aiu,
+            "ciudad_proyecto":  ciudad_proyecto_aiu,
+            "cd_total":         cd_total,
         }
+        fn_sp_set("aiu_nombre_cliente",   nombre_cliente_aiu)
+        fn_sp_set("aiu_telefono_cliente", telefono_cliente_aiu)
+        fn_sp_set("aiu_email_cliente",    email_cliente_aiu)
+        fn_sp_set("aiu_ciudad_proyecto",  ciudad_proyecto_aiu)
 
     # ══════════════════════════════════════════════════════════════════════════
     # PASO 1 — PORCENTAJES AIU + LOGISTICA
@@ -800,17 +837,31 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
             st.markdown("**💼 Condiciones comerciales**")
             _aiu_cc1, _aiu_cc2 = st.columns(2)
             with _aiu_cc1:
-                dias_entrega_aiu = st.number_input("Días de entrega", min_value=1, max_value=365, value=int(st.session_state.pre.get("dias_entrega", 10)), step=1, key="aiu_dias_entrega")
+                dias_entrega_aiu = st.number_input(
+                    "Días de entrega",
+                    min_value=1, max_value=365,
+                    value=int(fn_sp().get("aiu_dias_entrega", 10)),
+                    step=1,
+                    key="cb_aiu_dias_entrega",
+                    on_change=fn_cb_aiu_dias_entrega,
+                )
             with _aiu_cc2:
-                dias_validez_aiu = st.number_input("Validez de la oferta (días)", min_value=1, max_value=365, value=int(st.session_state.pre.get("dias_validez", 30)), step=5, key="aiu_dias_validez")
+                dias_validez_aiu = st.number_input(
+                    "Validez de la oferta (días)",
+                    min_value=1, max_value=365,
+                    value=int(fn_sp().get("aiu_dias_validez", 30)),
+                    step=5,
+                    key="cb_aiu_dias_validez",
+                    on_change=fn_cb_aiu_dias_validez,
+                )
 
         r["dias_entrega"]    = dias_entrega_aiu
         r["dias_validez"]    = dias_validez_aiu
-        r["anticipo_pct"]    = st.session_state.pre.get("anticipo_pct", 60)
-        r["nombre_cliente"]  = nombre_cliente_aiu
-        r["telefono_cliente"] = st.session_state.pre.get("telefono_cliente", "")
-        r["email_cliente"]   = st.session_state.pre.get("email_cliente", "")
-        r["ciudad_proyecto"] = st.session_state.pre.get("ciudad_proyecto", "")
+        r["anticipo_pct"]     = st.session_state.pre.get("anticipo_pct", 60)
+        r["nombre_cliente"]   = nombre_cliente_aiu
+        r["telefono_cliente"] = fn_sp().get("aiu_telefono_cliente", st.session_state.pre.get("telefono_cliente", ""))
+        r["email_cliente"]    = fn_sp().get("aiu_email_cliente",    st.session_state.pre.get("email_cliente", ""))
+        r["ciudad_proyecto"]  = fn_sp().get("aiu_ciudad_proyecto",  st.session_state.pre.get("ciudad_proyecto", ""))
         st.session_state.cotizacion = r
 
         _ya_g_aiu         = st.session_state.get("_aiu_guardada", False)
@@ -902,6 +953,8 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
         with _an_l:
             if paso_aiu > 0:
                 if st.button("Atras", use_container_width=True, key="btn_aiu_back"):
+                    fn_sp_set("aiu_paso", paso_aiu - 1)
+                    fn_sp_commit_borrador_aiu()
                     st.session_state.aiu_paso -= 1
                     st.rerun()
 
@@ -911,6 +964,8 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
             else:
                 _lbl_aiu = "Calcular AIU" if paso_aiu == N_AIU - 2 else "Siguiente"
                 if st.button(_lbl_aiu, type="primary", use_container_width=True, key="btn_aiu_next"):
+                    fn_sp_set("aiu_paso", paso_aiu + 1)
+                    fn_sp_commit_borrador_aiu()
                     st.session_state.aiu_paso += 1
                     if st.session_state.aiu_paso == N_AIU - 1:
                         st.session_state["_recalcular_aiu"] = True
