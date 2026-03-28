@@ -770,55 +770,43 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
 def _bloque_firma_cliente(E, C):
     """
     Bloque ACEPTADO Y APROBADO POR EL CLIENTE.
-    Tabla plana de 3 filas × 4 columnas (sin sub-tablas anidadas):
-      col0=etiqueta izq  col1=línea izq  col2=etiqueta der  col3=línea der
-    Fila 0: SPAN completo — título con fondo azul claro.
-    Filas 1-2: cuatro campos de llenado en grilla 2×2.
+    Tabla plana 3×4 sin sub-tablas anidadas.
+    Líneas de escritura con HRFlowable — no desbordan.
     """
-    # Anchos proporcionales al ancho útil total — suman exactamente _AU
-    _C0 = _AU * 0.17   # etiqueta izquierda
-    _C1 = _AU * 0.33   # línea izquierda
-    _C2 = _AU * 0.20   # etiqueta derecha
-    _C3 = _AU * 0.30   # línea derecha
+    _C0 = _AU * 0.17
+    _C1 = _AU * 0.33
+    _C2 = _AU * 0.20
+    _C3 = _AU * 0.30
 
     _st_tit = E["firma_titulo"]
     _st_lbl = E["firma_campo"]
-    _st_lin = ParagraphStyle(
-        "_fc_lin", fontSize=8.5, fontName="Helvetica",
-        leading=11, textColor=colors.HexColor("#1C2B3A"),
-    )
-    _L = "_" * 30   # línea de escritura como texto
+    _LINE_COLOR = colors.HexColor("#1C2B3A")
+
+    def _hr():
+        return HRFlowable(width="100%", thickness=0.8,
+                          color=_LINE_COLOR, spaceAfter=0, spaceBefore=6)
 
     filas = [
-        # Fila 0 — título (SPAN toda la fila)
         [Paragraph("ACEPTADO Y APROBADO POR EL CLIENTE", _st_tit), "", "", ""],
-        # Fila 1 — Firma | Nombre / Razón Social
-        [Paragraph("Firma:", _st_lbl),       Paragraph(_L, _st_lin),
-         Paragraph("Nombre / Razón Social:", _st_lbl), Paragraph(_L, _st_lin)],
-        # Fila 2 — C.C./NIT | Fecha
-        [Paragraph("C.C. / NIT:", _st_lbl),  Paragraph(_L, _st_lin),
-         Paragraph("Fecha de aprobación:", _st_lbl),   Paragraph(_L, _st_lin)],
+        [Paragraph("Firma:", _st_lbl),          _hr(),
+         Paragraph("Nombre / Razón Social:", _st_lbl), _hr()],
+        [Paragraph("C.C. / NIT:", _st_lbl),     _hr(),
+         Paragraph("Fecha de aprobación:", _st_lbl),   _hr()],
     ]
 
     tbl = Table(filas, colWidths=[_C0, _C1, _C2, _C3])
     tbl.setStyle(TableStyle([
-        # Fila 0: título con fondo azul claro y línea superior 2pt
         ("SPAN",          (0, 0), (-1,  0)),
         ("BACKGROUND",    (0, 0), (-1,  0), colors.HexColor("#EEF4FB")),
         ("LINEABOVE",     (0, 0), (-1,  0), 2.0, colors.HexColor("#1B5FA8")),
         ("TOPPADDING",    (0, 0), (-1,  0), 9),
         ("BOTTOMPADDING", (0, 0), (-1,  0), 9),
-        # Filas de campos: fondo blanco suave
         ("BACKGROUND",    (0, 1), (-1, -1), colors.HexColor("#FAFCFF")),
         ("TOPPADDING",    (0, 1), (-1, -1), _PAD_FIRMA),
         ("BOTTOMPADDING", (0, 1), (-1, -1), _PAD_FIRMA),
-        # Separador horizontal entre fila 1 y 2
         ("LINEBELOW",     (0, 1), (-1,  1), 0.4, colors.HexColor("#E0E8F0")),
-        # Separador vertical central entre col1 y col2
         ("LINEBEFORE",    (2, 1), ( 2, -1), 0.8, colors.HexColor("#C8D8E8")),
-        # Borde exterior completo
         ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
-        # Padding global
         ("LEFTPADDING",   (0, 0), (-1, -1), 8),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
         ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
@@ -1388,18 +1376,17 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     story.append(Spacer(1, _SP_SECCION))
 
     # ⑧ FIRMA PRESTADOR / PAGADOR — dos columnas simétricas con caja/borde
-    _GAP_CC  = 8
-    _f_mitad = (_AU - _GAP_CC) / 2.0
+    _f_mitad = (_AU - 12) / 2.0
     _st_fn   = E["aviso"]
     _st_fc   = E["cell"]
 
     def _caja_firma(titulo, nombre_pie):
-        """Sub-tabla de firma: espacio de escritura + nombre + rol, con borde completo."""
+        """Sub-tabla de firma: línea de firma + nombre + rol, con borde completo."""
         t = Table(
             [
                 [Paragraph("", _st_fc)],
                 [Paragraph("", _st_fc)],
-                [Paragraph("_" * 34, _st_fc)],
+                [Paragraph("_" * 36, _st_fc)],
                 [Paragraph(nombre_pie, _st_fn)],
                 [Paragraph(titulo, _st_fn)],
             ],
@@ -1422,17 +1409,18 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
     firma = Table(
         [[
             _caja_firma("Firma del Prestador", datos_prestador.get("nombre", "")),
-            Spacer(_GAP_CC, 1),
             _caja_firma("Sello / Firma del Pagador", ""),
         ]],
-        colWidths=[_f_mitad, _GAP_CC, _f_mitad],
+        colWidths=[_f_mitad, _f_mitad],
         hAlign="CENTER",
+        spaceBefore=_SP_SECCION,
     )
     firma.setStyle(TableStyle([
         ("LEFTPADDING",  (0,0),(-1,-1), 0),
         ("RIGHTPADDING", (0,0),(-1,-1), 0),
         ("TOPPADDING",   (0,0),(-1,-1), 0),
         ("BOTTOMPADDING",(0,0),(-1,-1), 0),
+        ("COLPADDING",   (0,0),( 0,-1), 6),
     ]))
     story.append(Spacer(1, _SP_SECCION))
     story.append(firma)
