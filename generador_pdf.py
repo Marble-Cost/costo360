@@ -763,66 +763,63 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
 
 def _bloque_firma_cliente(E, C):
     """
-    Bloque ACEPTADO Y APROBADO POR EL CLIENTE rediseñado.
-    Encabezado azul + cuatro campos en dos columnas simétricas con borde.
+    Bloque ACEPTADO Y APROBADO POR EL CLIENTE.
+    Tabla plana de 5 filas × 4 columnas (sin anidamiento):
+      col0=etiqueta izq  col1=línea izq  col2=etiqueta der  col3=línea der
+    La fila 0 hace SPAN completo para el título.
+    Anchos: etiqueta 18% | línea 32% | etiqueta 18% | línea 32% del ancho útil.
     """
-    _GAP   = 10
-    _MITAD = (_AU - _GAP) / 2.0
-    _st_lbl = E["firma_campo"]
+    _C0 = _AU * 0.18   # etiqueta izquierda
+    _C1 = _AU * 0.32   # línea izquierda
+    _C2 = _AU * 0.18   # etiqueta derecha
+    _C3 = _AU * 0.32   # línea derecha
+
     _st_tit = E["firma_titulo"]
-    _st_lin = ParagraphStyle("_fl", fontSize=8.5, fontName="Helvetica",
-                              leading=11, textColor=colors.HexColor("#1C2B3A"))
-    _linea  = "_" * 32
-
-    tit_row = Table(
-        [[Paragraph("ACEPTADO Y APROBADO POR EL CLIENTE", _st_tit)]],
-        colWidths=[_AU],
+    _st_lbl = E["firma_campo"]
+    _st_lin = ParagraphStyle(
+        "_fc_lin", fontSize=8.5, fontName="Helvetica",
+        leading=11, textColor=colors.HexColor("#1C2B3A"),
     )
-    tit_row.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#EEF4FB")),
-        ("LINEABOVE",     (0,0),(-1, 0), 2.0, colors.HexColor("#1B5FA8")),
-        ("TOPPADDING",    (0,0),(-1,-1), 9),
-        ("BOTTOMPADDING", (0,0),(-1,-1), 9),
-        ("LEFTPADDING",   (0,0),(-1,-1), 10),
-        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
-        ("BOX",           (0,0),(-1,-1), 0.5, colors.HexColor("#C8D8E8")),
+
+    # Línea de escritura como texto subrayado visual
+    _L = Paragraph("_" * 28, _st_lin)
+
+    filas = [
+        # fila 0 — título (SPAN toda la fila)
+        [Paragraph("ACEPTADO Y APROBADO POR EL CLIENTE", _st_tit), "", "", ""],
+        # fila 1 — Firma | Nombre / Razón Social
+        [Paragraph("Firma:", _st_lbl), _L,
+         Paragraph("Nombre / Razón Social:", _st_lbl), _L],
+        # fila 2 — C.C./NIT | Fecha
+        [Paragraph("C.C. / NIT:", _st_lbl), _L,
+         Paragraph("Fecha de aprobación:", _st_lbl), _L],
+    ]
+
+    tbl = Table(filas, colWidths=[_C0, _C1, _C2, _C3])
+    tbl.setStyle(TableStyle([
+        # Título: span + fondo azul claro + línea superior 2pt
+        ("SPAN",          (0, 0), (-1,  0)),
+        ("BACKGROUND",    (0, 0), (-1,  0), colors.HexColor("#EEF4FB")),
+        ("LINEABOVE",     (0, 0), (-1,  0), 2.0, colors.HexColor("#1B5FA8")),
+        ("TOPPADDING",    (0, 0), (-1,  0), 9),
+        ("BOTTOMPADDING", (0, 0), (-1,  0), 9),
+        # Filas de campos: fondo blanco suave
+        ("BACKGROUND",    (0, 1), (-1, -1), colors.HexColor("#FAFCFF")),
+        ("TOPPADDING",    (0, 1), (-1, -1), _PAD_FIRMA),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), _PAD_FIRMA),
+        # Separador horizontal entre fila 1 y fila 2
+        ("LINEBELOW",     (0, 1), (-1,  1), 0.4, colors.HexColor("#E0E8F0")),
+        # Separador vertical central (entre col1 y col2)
+        ("LINEBEFORE",    (2, 1), ( 2, -1), 0.8, colors.HexColor("#C8D8E8")),
+        # Borde exterior de toda la tabla
+        ("BOX",           (0, 0), (-1, -1), 0.5, colors.HexColor("#C8D8E8")),
+        # Padding global
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
     ]))
 
-    def _campo(etiqueta):
-        t = Table(
-            [[Paragraph(etiqueta, _st_lbl), Paragraph(_linea, _st_lin)]],
-            colWidths=[_MITAD * 0.42, _MITAD * 0.58],
-        )
-        t.setStyle(TableStyle([
-            ("TOPPADDING",    (0,0),(-1,-1), _PAD_FIRMA),
-            ("BOTTOMPADDING", (0,0),(-1,-1), _PAD_FIRMA),
-            ("LEFTPADDING",   (0,0),(-1,-1), 0),
-            ("RIGHTPADDING",  (0,0),(-1,-1), 0),
-            ("VALIGN",        (0,0),(-1,-1), "BOTTOM"),
-        ]))
-        return t
-
-    campos_row = Table(
-        [
-            [_campo("Firma:"),     _campo("Nombre / Razon Social:")],
-            [_campo("C.C. / NIT:"), _campo("Fecha de aprobacion:")],
-        ],
-        colWidths=[_MITAD, _MITAD],
-    )
-    campos_row.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FAFCFF")),
-        ("BOX",           (0,0),(-1,-1), 0.5, colors.HexColor("#C8D8E8")),
-        ("LINEBELOW",     (0,0),(-1, 0), 0.5, colors.HexColor("#C8D8E8")),
-        ("LINEBELOW",     (0,1),(-1,-1), 0.3, colors.HexColor("#E0E8F0")),
-        ("LINEBEFORE",    (1,0),( 1,-1), 0.5, colors.HexColor("#C8D8E8")),
-        ("TOPPADDING",    (0,0),(-1,-1), 2),
-        ("BOTTOMPADDING", (0,0),(-1,-1), 2),
-        ("LEFTPADDING",   (0,0),(-1,-1), 10),
-        ("RIGHTPADDING",  (0,0),(-1,-1), 10),
-        ("VALIGN",        (0,0),(-1,-1), "TOP"),
-    ]))
-
-    return [Spacer(1, _SP_SECCION), KeepTogether([tit_row, campos_row])]
+    return [Spacer(1, _SP_SECCION), KeepTogether([tbl])]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
