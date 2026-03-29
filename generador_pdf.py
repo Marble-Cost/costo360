@@ -1,5 +1,4 @@
-# generador_pdf.py — CostoMármol v10 · Propuesta Comercial B2B Premium
-# MARMOLES COLLANTE & CASTRO LTDA.
+# generador_pdf.py — Costo360 Motor PDF
 #
 # ARQUITECTURA v10 (Balance Premium):
 #   - Sistema de espaciado jerárquico: _SP_SECCION=10, _SP_BLOQUE=4, _SP_HEADER=3
@@ -65,18 +64,18 @@ from calculos import cop
 
 # ── Paleta corporativa B2B ────────────────────────────────────────────────────
 _DEFAULT_PALETTE = {
-    "header_dark": "#1A252C",
-    "primary":     "#0D2137",
-    "secondary":   "#1B5FA8",
-    "accent":      "#C9A84C",
-    "light":       "#D6E8FA",
-    "ultralight":  "#F5F8FC",
+    "header_dark": "#1F6F54",
+    "primary":     "#1F6F54",
+    "secondary":   "#1F6F54",
+    "accent":      "#C9A45C",
+    "light":       "#D4EDE4",
+    "ultralight":  "#F2F8F5",
     "zebra_a":     "#FFFFFF",
-    "zebra_b":     "#F2F5F9",
-    "total_bg":    "#0D2137",
+    "zebra_b":     "#F2F8F5",
+    "total_bg":    "#1F6F54",
     "anticipo_bg": "#FFF8E7",
     "gray":        "#6B85A0",
-    "text":        "#1C2B3A",
+    "text":        "#1C1C1C",
     "white":       "#FFFFFF",
     "terms_text":  "#4A5568",
     "border":      "#C8D8E8",
@@ -128,7 +127,7 @@ def _extraer_paleta_logo(logo_bytes):
         lt   = lighten(avg_r, avg_g, avg_b, 0.82)
         ult  = lighten(avg_r, avg_g, avg_b, 0.94)
         is_cool = avg_b > avg_r and avg_b > avg_g
-        accent = "#C9A84C" if is_cool else to_hex(
+        accent = "#C9A45C" if is_cool else to_hex(
             min(255, int(avg_b*0.8+100)), min(255, int(avg_g*0.6+80)), min(255, int(avg_r*0.3)))
         pal = _DEFAULT_PALETTE.copy()
         pal.update({
@@ -265,7 +264,7 @@ def _estilos(C):
         "nota_legal":  ParagraphStyle("nota_legal", fontSize=8, fontName="Helvetica-Oblique",
                                        leading=10, textColor=colors.HexColor("#4A5568")),
         "terms_title": ParagraphStyle("terms_title", fontSize=9, fontName="Helvetica-Bold",
-                                       leading=11, textColor=colors.HexColor("#0D2137")),
+                                       leading=11, textColor=colors.HexColor("#1F6F54")),
         "terms_body":  ParagraphStyle("terms_body", fontSize=8.5, fontName="Helvetica",
                                        leading=12, textColor=colors.HexColor("#4A5568")),
         "inc_hdr":     ParagraphStyle("inc_hdr", fontSize=8.5, fontName="Helvetica-Bold",
@@ -278,9 +277,9 @@ def _estilos(C):
         "accent_s":    ParagraphStyle("accent_s", fontSize=8.5, fontName="Helvetica-Bold",
                                        leading=11, textColor=C["accent"]),
         "firma_titulo":ParagraphStyle("firma_titulo", fontSize=9, fontName="Helvetica-Bold",
-                                       leading=11, textColor=colors.HexColor("#1C2B3A")),
+                                       leading=11, textColor=colors.HexColor("#1C1C1C")),
         "firma_campo": ParagraphStyle("firma_campo", fontSize=8.5, fontName="Helvetica",
-                                       leading=11, textColor=colors.HexColor("#1C2B3A")),
+                                       leading=11, textColor=colors.HexColor("#1C1C1C")),
 
         # ── Matriz inclusiones/exclusiones ────────────────────────────────────
         "matriz_inc":     ParagraphStyle("matriz_inc", fontSize=8.5, fontName="Helvetica-Bold",
@@ -290,10 +289,10 @@ def _estilos(C):
                                           leading=11, textColor=colors.HexColor("#FFFFFF"),
                                           alignment=TA_CENTER, spaceAfter=0),
         "matriz_inc_row": ParagraphStyle("matriz_inc_row", fontSize=8.5, fontName="Helvetica",
-                                          leading=11, textColor=colors.HexColor("#1C2B3A"),
+                                          leading=11, textColor=colors.HexColor("#1C1C1C"),
                                           leftIndent=0, firstLineIndent=0, spaceAfter=0),
         "matriz_exc_row": ParagraphStyle("matriz_exc_row", fontSize=8.5, fontName="Helvetica",
-                                          leading=11, textColor=colors.HexColor("#1C2B3A"),
+                                          leading=11, textColor=colors.HexColor("#1C1C1C"),
                                           leftIndent=0, firstLineIndent=0, spaceAfter=0),
     }
 
@@ -318,7 +317,7 @@ def _encabezado_doc(E, C, doc_type, numero, fecha_str, empresa_info, logo_bytes,
     if logo_img:
         izq.append(logo_img)
         izq.append(Spacer(1, 4))
-    izq.append(Paragraph(emp.get("nombre", "MARMOLES COLLANTE & CASTRO LTDA."), E["doc_empresa"]))
+    izq.append(Paragraph(emp.get("nombre", "Costo360 - Plataforma B2B"), E["doc_empresa"]))
     if emp.get("nit"):
         izq.append(Paragraph(emp["nit"], E["doc_emp_sub"]))
     if emp.get("tel") and emp.get("email"):
@@ -387,8 +386,7 @@ def _tabla_2col(E, C, filas_datos):
 def _footer_doc(E, C, emp_nombre, fecha_str, numero="", ciudad="Barranquilla"):
     _ciudad_str = ciudad.strip() if ciudad and ciudad.strip() else "Barranquilla"
     linea = (
-        f"MÁRMOLES COLLANTE & CASTRO LTDA.  |  "
-        f"Distribuidor Oficial de GRANITOS Y MÁRMOLES S.A.S  |  "
+        f"{emp_nombre or 'Costo360 - Plataforma B2B'}  |  "
         f"{_ciudad_str}  •  {fecha_str}"
     )
     _footer_style = ParagraphStyle(
@@ -516,17 +514,17 @@ def _seccion_adicionales_alcance(E, C, adicionales_detalle, c7_adicionales):
     story += _seccion_header("Alcance del Proyecto: Servicios Adicionales", E)
 
     _s_hdr    = ParagraphStyle("aaic_hdr", fontSize=9, fontName="Helvetica-Bold",
-                                leading=11, textColor=colors.HexColor("#0D2137"))
+                                leading=11, textColor=colors.HexColor("#1F6F54"))
     _s_item   = ParagraphStyle("aaic_item", fontSize=9, fontName="Helvetica",
-                                leading=11, textColor=colors.HexColor("#1C2B3A"))
+                                leading=11, textColor=colors.HexColor("#1C1C1C"))
     _s_val    = ParagraphStyle("aaic_val",  fontSize=9, fontName="Helvetica-Bold",
-                                leading=11, textColor=colors.HexColor("#1B5FA8"), alignment=TA_RIGHT)
+                                leading=11, textColor=colors.HexColor("#1F6F54"), alignment=TA_RIGHT)
     _s_tot_l  = ParagraphStyle("aaic_tot_l", fontSize=9, fontName="Helvetica-Bold",
-                                leading=11, textColor=colors.HexColor("#1B5FA8"))
+                                leading=11, textColor=colors.HexColor("#1F6F54"))
     _s_tot_v  = ParagraphStyle("aaic_tot_v", fontSize=9, fontName="Helvetica-Bold",
-                                leading=11, textColor=colors.HexColor("#1B5FA8"), alignment=TA_RIGHT)
+                                leading=11, textColor=colors.HexColor("#1F6F54"), alignment=TA_RIGHT)
     _s_vhdr   = ParagraphStyle("aaic_vhdr", fontSize=9, fontName="Helvetica-Bold",
-                                leading=11, textColor=colors.HexColor("#0D2137"), alignment=TA_RIGHT)
+                                leading=11, textColor=colors.HexColor("#1F6F54"), alignment=TA_RIGHT)
     _s_vacio  = ParagraphStyle("aaic_vacio", fontSize=9, fontName="Helvetica-Oblique",
                                 leading=11, textColor=colors.HexColor("#6B85A0"))
 
@@ -551,8 +549,8 @@ def _seccion_adicionales_alcance(E, C, adicionales_detalle, c7_adicionales):
         ("BACKGROUND",    (0, 0),  (-1, 0),  colors.HexColor("#EBF3FB")),
         ("ROWBACKGROUNDS",(0, 1),  (-1,-2),  [colors.HexColor("#F7FAFD"), colors.HexColor("#FFFFFF")]),
         ("BACKGROUND",    (0,-1),  (-1,-1),  colors.HexColor("#EBF3FB")),
-        ("LINEABOVE",     (0, 0),  (-1, 0),  1.5, colors.HexColor("#1B5FA8")),
-        ("LINEBELOW",     (0,-1),  (-1,-1),  1.5, colors.HexColor("#1B5FA8")),
+        ("LINEABOVE",     (0, 0),  (-1, 0),  1.5, colors.HexColor("#1F6F54")),
+        ("LINEBELOW",     (0,-1),  (-1,-1),  1.5, colors.HexColor("#1F6F54")),
         ("LINEBELOW",     (0, 0),  (-1,-2),  0.3, colors.HexColor("#C8D8E8")),
         ("TOPPADDING",    (0, 0),  (-1, 0),  _PAD_HDR), ("BOTTOMPADDING",(0,0),(-1,0),_PAD_HDR),
         ("TOPPADDING",    (0, 1),  (-1,-1),  _PAD_DATA), ("BOTTOMPADDING",(0,1),(-1,-1),_PAD_DATA),
@@ -570,9 +568,9 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
     story += _seccion_header("Resumen Financiero", E)
 
     _s_adic_l = ParagraphStyle("adic_l", fontSize=9, fontName="Helvetica-Bold",
-                                leading=11, textColor=colors.HexColor("#1B5FA8"))
+                                leading=11, textColor=colors.HexColor("#1F6F54"))
     _s_adic_v = ParagraphStyle("adic_v", fontSize=9, fontName="Helvetica-Bold",
-                                leading=11, textColor=colors.HexColor("#1B5FA8"), alignment=TA_RIGHT)
+                                leading=11, textColor=colors.HexColor("#1F6F54"), alignment=TA_RIGHT)
     _tiene_adicionales = c7_adicionales and c7_adicionales > 0
     filas_fin = []
 
@@ -619,8 +617,8 @@ def _seccion_resumen_financiero(E, C, precio_sugerido_total, anticipo_pct, inclu
     if _tiene_adicionales:
         _adic_styles = [
             ("BACKGROUND", (0,1),(-1,1), colors.HexColor("#EBF3FB")),
-            ("LINEABOVE",  (0,1),(-1,1), 1.2, colors.HexColor("#1B5FA8")),
-            ("LINEBELOW",  (0,1),(-1,1), 1.2, colors.HexColor("#1B5FA8")),
+            ("LINEABOVE",  (0,1),(-1,1), 1.2, colors.HexColor("#1F6F54")),
+            ("LINEBELOW",  (0,1),(-1,1), 1.2, colors.HexColor("#1F6F54")),
         ]
 
     tbl_fin = Table(filas_fin, colWidths=COL_2_75_25)
@@ -651,7 +649,7 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
     _exc = exclusiones if exclusiones is not None else []
 
     # ── Paleta corporativa: azul primario para inclusiones, gris plomo para exclusiones ──
-    _INC_HDR = colors.HexColor("#1B5FA8")   # Azul corporativo
+    _INC_HDR = colors.HexColor("#1F6F54")   # Azul corporativo
     _EXC_HDR = colors.HexColor("#6B85A0")   # Gris plomo elegante (sin rastro de rojo)
     _ZEBRA_INC = colors.HexColor("#F0F5FB") # Azul ultralight para filas pares de inclusión
     _ZEBRA_EXC = colors.HexColor("#F4F6F8") # Gris ultralight para filas pares de exclusión
@@ -669,7 +667,7 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
                                  leading=11, textColor=colors.HexColor("#FFFFFF"),
                                  alignment=TA_CENTER, spaceAfter=0, spaceBefore=0)
     _S_INC = ParagraphStyle("_minc", fontSize=8.5, fontName="Helvetica",
-                             leading=11, textColor=colors.HexColor("#0D2137"),
+                             leading=11, textColor=colors.HexColor("#1F6F54"),
                              leftIndent=0, firstLineIndent=0, spaceAfter=0, spaceBefore=0, wordWrap="LTR")
     _S_EXC = ParagraphStyle("_mexc", fontSize=8.5, fontName="Helvetica",
                              leading=11, textColor=colors.HexColor("#4A5568"),
@@ -680,10 +678,10 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
 
     _tbl_tit = Table([[Paragraph("ALCANCE DE LA PROPUESTA — INCLUSIONES Y EXCLUSIONES", _S_TIT)]], colWidths=[_AU])
     _tbl_tit.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#1A252C")),
+        ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#1F6F54")),
         ("TOPPADDING",    (0,0),(-1,-1), _PAD_HDR), ("BOTTOMPADDING",(0,0),(-1,-1),_PAD_HDR),
         ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
-        ("LINEBELOW",     (0,0),(-1,-1), 2.0, colors.HexColor("#C9A84C")),
+        ("LINEBELOW",     (0,0),(-1,-1), 2.0, colors.HexColor("#C9A45C")),
     ]))
 
     rows = [[Paragraph("☑  INCLUYE", _S_HDR_INC), Paragraph("☒  NO INCLUYE", _S_HDR_EXC)]]
@@ -707,7 +705,7 @@ def _seccion_alcance(E, C, inclusiones=None, exclusiones=None):
         ("TOPPADDING",     (0,1),(-1,-1), _PAD_DATA), ("BOTTOMPADDING",(0,1),(-1,-1),_PAD_DATA),
         ("LEFTPADDING",    (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
         ("GRID",           (0,0),(-1,-1), 0.4, _GRID),
-        ("BOX",            (0,0),(-1,-1), 1.2, colors.HexColor("#1A252C")),
+        ("BOX",            (0,0),(-1,-1), 1.2, colors.HexColor("#1F6F54")),
         ("LINEBEFORE",     (1,0),(1,-1),  0.8, _GRID),
         # Fondo de contenido: gris casi blanco para limpieza visual
         ("ROWBACKGROUNDS", (0,1),(-1,-1), [_CONTENT_BG, _WHITE]),
@@ -742,7 +740,7 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
     story += _seccion_header("Términos y Condiciones Comerciales", E)
 
     _titulo_tc = ParagraphStyle("tc_titulo", fontSize=9, fontName="Helvetica-Bold",
-                                 leading=11, textColor=colors.HexColor("#0D2137"), spaceAfter=6)
+                                 leading=11, textColor=colors.HexColor("#1F6F54"), spaceAfter=6)
     # leading=12 para mayor escaneo visual
     _viñeta_tc = ParagraphStyle("tc_viñeta", fontSize=8.5, fontName="Helvetica",
                                  leading=12, textColor=colors.HexColor("#4A5568"),
@@ -780,7 +778,7 @@ def _bloque_firma_cliente(E, C):
 
     _st_tit = E["firma_titulo"]
     _st_lbl = E["firma_campo"]
-    _LINE_COLOR = colors.HexColor("#1C2B3A")
+    _LINE_COLOR = colors.HexColor("#1C1C1C")
 
     def _hr():
         return HRFlowable(width="100%", thickness=0.8,
@@ -798,7 +796,7 @@ def _bloque_firma_cliente(E, C):
     tbl.setStyle(TableStyle([
         ("SPAN",          (0, 0), (-1,  0)),
         ("BACKGROUND",    (0, 0), (-1,  0), colors.HexColor("#EEF4FB")),
-        ("LINEABOVE",     (0, 0), (-1,  0), 2.0, colors.HexColor("#1B5FA8")),
+        ("LINEABOVE",     (0, 0), (-1,  0), 2.0, colors.HexColor("#1F6F54")),
         ("TOPPADDING",    (0, 0), (-1,  0), 9),
         ("BOTTOMPADDING", (0, 0), (-1,  0), 9),
         ("BACKGROUND",    (0, 1), (-1, -1), colors.HexColor("#FAFCFF")),
@@ -1087,12 +1085,12 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
 
     _CD_BG    = colors.HexColor("#E8F0FB")
     _AIU_BG   = colors.HexColor("#F4F6F9")
-    _TOTAL_BG = colors.HexColor("#1A252C")
-    _BORDE_CD = colors.HexColor("#1B5FA8")
-    _BORDE_AIU= colors.HexColor("#C9A84C")
+    _TOTAL_BG = colors.HexColor("#1F6F54")
+    _BORDE_CD = colors.HexColor("#1F6F54")
+    _BORDE_AIU= colors.HexColor("#C9A45C")
 
-    s_cd_lbl  = ParagraphStyle("s_cd_lbl",  fontSize=9.5, fontName="Helvetica-Bold",   leading=12, textColor=colors.HexColor("#0D2137"))
-    s_cd_val  = ParagraphStyle("s_cd_val",  fontSize=9.5, fontName="Helvetica-Bold",   leading=12, textColor=colors.HexColor("#0D2137"), alignment=TA_RIGHT)
+    s_cd_lbl  = ParagraphStyle("s_cd_lbl",  fontSize=9.5, fontName="Helvetica-Bold",   leading=12, textColor=colors.HexColor("#1F6F54"))
+    s_cd_val  = ParagraphStyle("s_cd_val",  fontSize=9.5, fontName="Helvetica-Bold",   leading=12, textColor=colors.HexColor("#1F6F54"), alignment=TA_RIGHT)
     s_aiu_lbl = ParagraphStyle("s_aiu_lbl", fontSize=9,   fontName="Helvetica",        leading=11, textColor=C["text"])
     s_aiu_pct = ParagraphStyle("s_aiu_pct", fontSize=9,   fontName="Helvetica-Bold",   leading=11, textColor=C["secondary"], alignment=TA_CENTER)
     s_aiu_val = ParagraphStyle("s_aiu_val", fontSize=9,   fontName="Helvetica-Bold",   leading=11, textColor=C["text"], alignment=TA_RIGHT)
@@ -1370,7 +1368,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
             ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FFF9EC")),
             ("LEFTPADDING",   (0,0),(-1,-1), 10), ("RIGHTPADDING",(0,0),(-1,-1),10),
             ("TOPPADDING",    (0,0),(-1,-1), _PAD_DATA+1), ("BOTTOMPADDING",(0,0),(-1,-1),_PAD_DATA+1),
-            ("LINEABOVE",     (0,0),(-1, 0), 1.5, colors.HexColor("#C9A84C")),
+            ("LINEABOVE",     (0,0),(-1, 0), 1.5, colors.HexColor("#C9A45C")),
             ("BOX",           (0,0),(-1,-1), 0.4, colors.HexColor("#C8D8E8")),
         ])))
     story.append(Spacer(1, _SP_SECCION))
@@ -1396,7 +1394,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
         t.setStyle(TableStyle([
             ("BACKGROUND",    (0,0),(-1,-1), colors.HexColor("#FAFCFF")),
             ("BOX",           (0,0),(-1,-1), 0.5, colors.HexColor("#C8D8E8")),
-            ("LINEABOVE",     (0,0),(-1, 0), 2.0, colors.HexColor("#1B5FA8")),
+            ("LINEABOVE",     (0,0),(-1, 0), 2.0, colors.HexColor("#1F6F54")),
             ("TOPPADDING",    (0,0),(-1,-1), 3),
             ("BOTTOMPADDING", (0,0),(-1,-1), 3),
             ("LEFTPADDING",   (0,0),(-1,-1), 10),
