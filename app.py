@@ -1805,6 +1805,11 @@ def _sp_init():
         "aiu_u_pct": 5.0,
         "aiu_anticipo_pct": 50,
         "aiu_incluir_iva": True,
+        "aiu_telefono_cliente": "",
+        "aiu_email_cliente": "",
+        "aiu_ciudad_proyecto": "",
+        "aiu_dias_entrega": 10,
+        "aiu_dias_validez": 30,
         # ── Parámetros ───────────────────────────────────────────────────────
         "params_tarifas": None,         # dict completo tarifas o None → usa TARIFAS
         "params_logistica": None,       # dict completo logistica o None → usa LOGISTICA
@@ -1944,6 +1949,11 @@ def _sp_commit_borrador_aiu():
         "aiu_u_pct":         sp.get("aiu_u_pct", 5.0),
         "aiu_anticipo_pct":  sp.get("aiu_anticipo_pct", 50),
         "aiu_incluir_iva":   sp.get("aiu_incluir_iva", True),
+        "aiu_telefono_cliente": sp.get("aiu_telefono_cliente", ""),
+        "aiu_email_cliente": sp.get("aiu_email_cliente", ""),
+        "aiu_ciudad_proyecto": sp.get("aiu_ciudad_proyecto", ""),
+        "aiu_dias_entrega":  sp.get("aiu_dias_entrega", 10),
+        "aiu_dias_validez":  sp.get("aiu_dias_validez", 30),
         "aiu_paso":          sp.get("aiu_paso", 0),
     }
     st.session_state.aiu_items = sp.get("aiu_items", [])
@@ -2111,6 +2121,26 @@ def _cb_aiu_anticipo():
 
 def _cb_aiu_incluir_iva():
     _sp_set("aiu_incluir_iva", st.session_state.get("cb_aiu_incluir_iva", True))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_telefono_cliente():
+    _sp_set("aiu_telefono_cliente", st.session_state.get("cb_aiu_telefono_cliente", ""))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_email_cliente():
+    _sp_set("aiu_email_cliente", st.session_state.get("cb_aiu_email_cliente", ""))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_ciudad_proyecto():
+    _sp_set("aiu_ciudad_proyecto", st.session_state.get("cb_aiu_ciudad_proyecto", ""))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_dias_entrega():
+    _sp_set("aiu_dias_entrega", st.session_state.get("cb_aiu_dias_entrega", 10))
+    _sp_commit_borrador_aiu()
+
+def _cb_aiu_dias_validez():
+    _sp_set("aiu_dias_validez", st.session_state.get("cb_aiu_dias_validez", 30))
     _sp_commit_borrador_aiu()
 
 
@@ -2835,6 +2865,11 @@ elif pagina == "Cotizacion AIU":
         fn_cb_aiu_u_pct=_cb_aiu_u_pct,
         fn_cb_aiu_anticipo=_cb_aiu_anticipo,
         fn_cb_aiu_incluir_iva=_cb_aiu_incluir_iva,
+        fn_cb_aiu_telefono_cliente=_cb_aiu_telefono_cliente,
+        fn_cb_aiu_email_cliente=_cb_aiu_email_cliente,
+        fn_cb_aiu_ciudad_proyecto=_cb_aiu_ciudad_proyecto,
+        fn_cb_aiu_dias_entrega=_cb_aiu_dias_entrega,
+        fn_cb_aiu_dias_validez=_cb_aiu_dias_validez,
     )
 elif pagina == "Historial":
     _ui_historial(
