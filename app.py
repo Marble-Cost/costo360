@@ -2825,6 +2825,16 @@ elif pagina == "Cotizacion AIU":
         fn_sp_agregar_item_aiu=_sp_agregar_item_aiu,
         fn_sp_eliminar_item_aiu=_sp_eliminar_item_aiu,
         fn_sp_sync_items_aiu=_sp_sync_items_aiu,
+        # --- Dependencias de Estado (Anti-Amnesia) restauradas ---
+        fn_sp=_sp,
+        fn_sp_commit_borrador_aiu=_sp_commit_borrador_aiu,
+        fn_cb_aiu_nombre_cliente=_cb_aiu_nombre_cliente,
+        fn_cb_aiu_numero=_cb_aiu_numero,
+        fn_cb_aiu_a_pct=_cb_aiu_a_pct,
+        fn_cb_aiu_i_pct=_cb_aiu_i_pct,
+        fn_cb_aiu_u_pct=_cb_aiu_u_pct,
+        fn_cb_aiu_anticipo=_cb_aiu_anticipo,
+        fn_cb_aiu_incluir_iva=_cb_aiu_incluir_iva,
     )
 elif pagina == "Historial":
     _ui_historial(
