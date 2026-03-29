@@ -1,5 +1,4 @@
-# app.py — CostoMármol v9 · Token Session Auth · Mar 2026
-# Mármoles Collante & Castro Ltda.
+# app.py — Costo360 SaaS
 
 import io
 import html as _html_mod   # M-04: escape de caracteres HTML en respuestas IA (XSS)
@@ -45,7 +44,7 @@ from ui_configuracion import _ui_configuracion
 from ui_parametros import _ui_parametros
 
 st.set_page_config(
-    page_title="CostoMármol — Mármoles Collante & Castro",
+    page_title="Costo360 | Plataforma de Costos B2B",
     page_icon="🪨",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -55,7 +54,7 @@ st.set_page_config(
 # CookieManager bloquea el renderizado con st.stop() hasta que el componente
 # React haya inyectado las cookies del navegador, eliminando la necesidad del
 # flag cookies_ok y el rerun manual anterior.
-cookies = CookieManager(prefix="ccmarmol_")
+cookies = CookieManager(prefix="costo360_")
 if not cookies.ready():
     st.stop()   # Bloqueo estricto — el script no avanza hasta que React hidrate
 _COOKIE_TOKEN = "cm_tok"   # Transporta el UUID del token al navegador
@@ -1459,7 +1458,7 @@ def _pantalla_login() -> None:
     .login-title {
         font-family: 'Playfair Display', serif;
         font-size: 1.45rem; font-weight: 700;
-        color: #1B5FA8; margin-bottom: 4px; text-align: center;
+        color: #1F6F54; margin-bottom: 4px; text-align: center;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -1482,8 +1481,8 @@ def _pantalla_login() -> None:
         else:
             st.markdown(
                 '<div style="text-align:center;padding:10px 0 6px">'
-                '<span style="color:#C9A84C;font-size:2.4rem;font-weight:900;'
-                'font-family:serif;line-height:1">CC</span></div>',
+                '<span style="color:#C9A45C;font-size:2.4rem;font-weight:900;'
+                'font-family:serif;line-height:1">C360</span></div>',
                 unsafe_allow_html=True
             )
 
@@ -1544,7 +1543,7 @@ def _pantalla_login() -> None:
                 letter-spacing:0.03em'>Sistema de uso exclusivo</span>
                 <span style='color:#9ca3af;font-size:0.75rem'> · </span>
                 <span style='font-style:italic;font-weight:600;color:#6b7280;
-                font-size:0.75rem'>Marmoles Collante &amp; Castro</span>
+                font-size:0.75rem'>Costo360 Plataforma B2B</span>
                 </div>""",
                 unsafe_allow_html=True
             )
@@ -1605,7 +1604,7 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     transition: all 0.18s ease !important; padding: 0.45rem 1rem !important;
 }
 .stButton > button[kind="primary"] {
-    background: #1B5FA8 !important; color: white !important; border: none !important;
+    background: #1F6F54 !important; color: white !important; border: none !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; text-transform: uppercase !important;
 }
 .stButton > button[kind="primary"]:hover { filter: brightness(1.1); transform: translateY(-2px) !important; }
@@ -1643,7 +1642,7 @@ def bloque_costos(items_label_valor, total_label, total_val):
             <span style="font-size:0.87rem;">{label}</span><span style="font-size:0.87rem;font-weight:600">{cop(valor)}</span></div>"""
     
     html += f"""<div style="display:flex;justify-content:space-between;padding:10px 0 0 0; border-bottom:1px solid var(--border-color); color:var(--text-color);">
-            <span style="font-size:0.95rem;font-weight:800">{total_label}</span><span style="font-size:0.95rem;font-weight:800;color:#1B5FA8">{cop(total_val)}</span></div>"""
+            <span style="font-size:0.95rem;font-weight:800">{total_label}</span><span style="font-size:0.95rem;font-weight:800;color:#1F6F54">{cop(total_val)}</span></div>"""
     st.markdown(f'<div class="card-custom">{html}</div>', unsafe_allow_html=True)
 
 def numero_completo(valor):
@@ -1682,10 +1681,10 @@ _defaults = {
     "tarifas_custom": None, "logistica_custom": None, "viaticos_custom": None,
     "logo_bytes": None, "logo_mime": None,
     "empresa_info": {
-        "nombre": "MÁRMOLES COLLANTE & CASTRO LTDA.", "nit": "NIT: 900.111.561-1",
-        "tel": "+57 300 000 0000", "email": "ventas@marmolescc.com",
-        "ciudad": "Barranquilla, Atlántico — Colombia", "banco": "Davivienda",
-        "cuenta_tipo": "Cuenta Corriente Empresas", "cuenta_numero": "108900027484",
+        "nombre": "Costo360 - Plataforma B2B", "nit": "",
+        "tel": "", "email": "",
+        "ciudad": "Barranquilla, Atlántico — Colombia", "banco": "",
+        "cuenta_tipo": "", "cuenta_numero": "",
     },
     "cat_sel": "Mármol",
     "adicionales_custom": None,
@@ -1804,13 +1803,8 @@ def _sp_init():
         "aiu_a_pct": 2.0,
         "aiu_i_pct": 2.0,
         "aiu_u_pct": 5.0,
-        "aiu_anticipo_pct":     50,
-        "aiu_incluir_iva":      True,
-        "aiu_telefono_cliente": "",
-        "aiu_email_cliente":    "",
-        "aiu_ciudad_proyecto":  "",
-        "aiu_dias_entrega":     10,
-        "aiu_dias_validez":     30,
+        "aiu_anticipo_pct": 50,
+        "aiu_incluir_iva": True,
         # ── Parámetros ───────────────────────────────────────────────────────
         "params_tarifas": None,         # dict completo tarifas o None → usa TARIFAS
         "params_logistica": None,       # dict completo logistica o None → usa LOGISTICA
@@ -1942,20 +1936,15 @@ def _sp_commit_borrador_aiu():
     """Persiste el estado del borrador de Cotización AIU en BD."""
     sp = _sp()
     _snapshot = {
-        "aiu_items":             sp.get("aiu_items", []),
-        "aiu_nombre_cliente":    sp.get("aiu_nombre_cliente", ""),
-        "aiu_numero":            sp.get("aiu_numero", ""),
-        "aiu_a_pct":             sp.get("aiu_a_pct", 2.0),
-        "aiu_i_pct":             sp.get("aiu_i_pct", 2.0),
-        "aiu_u_pct":             sp.get("aiu_u_pct", 5.0),
-        "aiu_anticipo_pct":      sp.get("aiu_anticipo_pct", 50),
-        "aiu_incluir_iva":       sp.get("aiu_incluir_iva", True),
-        "aiu_paso":              sp.get("aiu_paso", 0),
-        "aiu_telefono_cliente":  sp.get("aiu_telefono_cliente", ""),
-        "aiu_email_cliente":     sp.get("aiu_email_cliente", ""),
-        "aiu_ciudad_proyecto":   sp.get("aiu_ciudad_proyecto", ""),
-        "aiu_dias_entrega":      sp.get("aiu_dias_entrega", 10),
-        "aiu_dias_validez":      sp.get("aiu_dias_validez", 30),
+        "aiu_items":         sp.get("aiu_items", []),
+        "aiu_nombre_cliente": sp.get("aiu_nombre_cliente", ""),
+        "aiu_numero":        sp.get("aiu_numero", ""),
+        "aiu_a_pct":         sp.get("aiu_a_pct", 2.0),
+        "aiu_i_pct":         sp.get("aiu_i_pct", 2.0),
+        "aiu_u_pct":         sp.get("aiu_u_pct", 5.0),
+        "aiu_anticipo_pct":  sp.get("aiu_anticipo_pct", 50),
+        "aiu_incluir_iva":   sp.get("aiu_incluir_iva", True),
+        "aiu_paso":          sp.get("aiu_paso", 0),
     }
     st.session_state.aiu_items = sp.get("aiu_items", [])
     try:
@@ -2122,26 +2111,6 @@ def _cb_aiu_anticipo():
 
 def _cb_aiu_incluir_iva():
     _sp_set("aiu_incluir_iva", st.session_state.get("cb_aiu_incluir_iva", True))
-    _sp_commit_borrador_aiu()
-
-def _cb_aiu_telefono_cliente():
-    _sp_set("aiu_telefono_cliente", st.session_state.get("cb_aiu_telefono_cliente", ""))
-    _sp_commit_borrador_aiu()
-
-def _cb_aiu_email_cliente():
-    _sp_set("aiu_email_cliente", st.session_state.get("cb_aiu_email_cliente", ""))
-    _sp_commit_borrador_aiu()
-
-def _cb_aiu_ciudad_proyecto():
-    _sp_set("aiu_ciudad_proyecto", st.session_state.get("cb_aiu_ciudad_proyecto", ""))
-    _sp_commit_borrador_aiu()
-
-def _cb_aiu_dias_entrega():
-    _sp_set("aiu_dias_entrega", st.session_state.get("cb_aiu_dias_entrega", 10))
-    _sp_commit_borrador_aiu()
-
-def _cb_aiu_dias_validez():
-    _sp_set("aiu_dias_validez", st.session_state.get("cb_aiu_dias_validez", 30))
     _sp_commit_borrador_aiu()
 
 
@@ -2392,10 +2361,10 @@ with st.sidebar:
     else:
         st.markdown(
             '<div style="text-align:center;padding:14px 0 8px">'
-            '<span style="color:#C9A84C;font-size:2rem;font-weight:900;'
-            'font-family:Playfair Display,serif">CC</span><br>'
+            '<span style="color:#C9A45C;font-size:2rem;font-weight:900;'
+            'font-family:Playfair Display,serif">C360</span><br>'
             '<span style="font-size:0.72rem;font-weight:700;opacity:0.8">'
-            'MARMOLES COLLANTE &amp; CASTRO</span>'
+            'COSTO360 — PLATAFORMA B2B</span>'
             '</div>',
             unsafe_allow_html=True
         )
@@ -2453,7 +2422,7 @@ with st.sidebar:
     _usr_ses = st.session_state.get("usuario_actual", {})
     _rol_ses = _usr_ses.get("rol", "")
     _nom_ses = _usr_ses.get("nombre_completo") or _usr_ses.get("username", "")
-    _badge_rol = ("#1B5FA8", "Admin") if _rol_ses == "Admin" else ("#6b7280", "Operario")
+    _badge_rol = ("#1F6F54", "Admin") if _rol_ses == "Admin" else ("#6b7280", "Operario")
     st.markdown(
         f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
         border-radius:8px;padding:8px 12px;margin-bottom:8px">
@@ -2474,7 +2443,7 @@ with st.sidebar:
     with st.sidebar.popover("✨ Copiloto IA", use_container_width=True):
         st.markdown(
             "<div style='font-size:0.82rem;font-weight:700;margin-bottom:8px;"
-            "color:#1B5FA8'>Asistente contextual</div>"
+            "color:#1F6F54'>Asistente contextual</div>"
             "<div style='font-size:0.73rem;opacity:0.6;margin-bottom:10px'>"
             "Toca una pregunta rápida o escribe la tuya.</div>",
             unsafe_allow_html=True
@@ -2582,9 +2551,9 @@ with st.sidebar:
             ).replace("\n", "<br>")
             st.markdown(
                 f"<div style='background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.25);"
-                f"border-left:3px solid #1B5FA8;border-radius:8px;"
+                f"border-left:3px solid #1F6F54;border-radius:8px;"
                 f"padding:10px 12px;margin-top:8px;font-size:0.8rem;line-height:1.6'>"
-                f"<div style='font-size:0.65rem;font-weight:700;color:#1B5FA8;"
+                f"<div style='font-size:0.65rem;font-weight:700;color:#1F6F54;"
                 f"text-transform:uppercase;margin-bottom:6px'>✨ Copiloto responde</div>"
                 f"{_respuesta_escapada}"
                 f"</div>",
@@ -2609,7 +2578,7 @@ if st.session_state.get("onboarding_activo"):
                 f"<div style='display:flex;align-items:center;justify-content:space-between;"
                 f"margin-bottom:14px'>"
                 f"<span style='font-size:0.70rem;font-weight:900;letter-spacing:0.18em;"
-                f"color:#C9A84C;text-transform:uppercase;border-bottom:2px solid #C9A84C;"
+                f"color:#C9A45C;text-transform:uppercase;border-bottom:2px solid #C9A45C;"
                 f"padding-bottom:3px'>{_etiqueta}</span>"
                 f"<span style='font-size:0.62rem;font-weight:600;letter-spacing:0.06em;"
                 f"opacity:0.4;text-transform:uppercase'>PASO {_op + 1} DE {_total}</span>"
@@ -2621,7 +2590,7 @@ if st.session_state.get("onboarding_activo"):
                 f"<div style='display:flex;align-items:center;justify-content:space-between;"
                 f"margin-bottom:14px'>"
                 f"<span style='font-size:0.62rem;font-weight:800;letter-spacing:0.16em;"
-                f"color:#C9A84C;text-transform:uppercase'>{_etiqueta}</span>"
+                f"color:#C9A45C;text-transform:uppercase'>{_etiqueta}</span>"
                 f"<span style='font-size:0.62rem;font-weight:600;letter-spacing:0.06em;"
                 f"opacity:0.4;text-transform:uppercase'>PASO {_op + 1} DE {_total}</span>"
                 f"</div>",
@@ -2632,7 +2601,7 @@ if st.session_state.get("onboarding_activo"):
             # Paso bienvenida: título prominente sin ícono lateral
             st.markdown(
                 f"<h3 style='margin:0 0 2px;font-family:Playfair Display,serif;"
-                f"color:#1B5FA8;font-size:1.35rem;line-height:1.2'>"
+                f"color:#1F6F54;font-size:1.35rem;line-height:1.2'>"
                 f"{_paso['titulo']}</h3>",
                 unsafe_allow_html=True,
             )
@@ -2647,7 +2616,7 @@ if st.session_state.get("onboarding_activo"):
             with _col_text:
                 st.markdown(
                     f"<h3 style='margin:0 0 2px;font-family:Playfair Display,serif;"
-                    f"color:#1B5FA8;font-size:1.25rem;line-height:1.2'>"
+                    f"color:#1F6F54;font-size:1.25rem;line-height:1.2'>"
                     f"{_paso['titulo']}</h3>",
                     unsafe_allow_html=True,
                 )
@@ -2775,9 +2744,9 @@ def _cargar_en_calculadora(rid, rnum, rjson):
 
 if pagina == "Inicio":
     st.markdown(f"""
-    <div style="background:var(--secondary-background-color); border-radius:16px;padding:40px 44px;margin-bottom:28px; border:2px solid #1B5FA8;">
-      <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
-        Mármoles Collante &amp; Castro Ltda.
+    <div style="background:var(--secondary-background-color); border-radius:16px;padding:40px 44px;margin-bottom:28px; border:2px solid #1F6F54;">
+      <div style="color:#C9A45C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
+        Costo360 — Plataforma B2B
       </div>
       <div style="font-size:2.4rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:14px; color:var(--text-color);">
         Sistema de Cotización<br>Profesional
@@ -2852,24 +2821,10 @@ elif pagina == "Cotizacion AIU":
         fn_guardar_config=_guardar_config,
         fn_leer_config=_leer_config,
         fn_clave_borrador_aiu=_clave_borrador_aiu,
-        fn_sp=_sp,
         fn_sp_set=_sp_set,
-        fn_sp_commit_borrador_aiu=_sp_commit_borrador_aiu,
         fn_sp_agregar_item_aiu=_sp_agregar_item_aiu,
         fn_sp_eliminar_item_aiu=_sp_eliminar_item_aiu,
         fn_sp_sync_items_aiu=_sp_sync_items_aiu,
-        fn_cb_aiu_nombre_cliente=_cb_aiu_nombre_cliente,
-        fn_cb_aiu_numero=_cb_aiu_numero,
-        fn_cb_aiu_a_pct=_cb_aiu_a_pct,
-        fn_cb_aiu_i_pct=_cb_aiu_i_pct,
-        fn_cb_aiu_u_pct=_cb_aiu_u_pct,
-        fn_cb_aiu_anticipo=_cb_aiu_anticipo,
-        fn_cb_aiu_incluir_iva=_cb_aiu_incluir_iva,
-        fn_cb_aiu_telefono_cliente=_cb_aiu_telefono_cliente,
-        fn_cb_aiu_email_cliente=_cb_aiu_email_cliente,
-        fn_cb_aiu_ciudad_proyecto=_cb_aiu_ciudad_proyecto,
-        fn_cb_aiu_dias_entrega=_cb_aiu_dias_entrega,
-        fn_cb_aiu_dias_validez=_cb_aiu_dias_validez,
     )
 elif pagina == "Historial":
     _ui_historial(
@@ -2952,7 +2907,7 @@ elif pagina == "Asistente IA":
         padding: 0 4px;
     }
     .burbuja-user {
-        background: #1B5FA8;
+        background: #1F6F54;
         color: white;
         border-radius: 18px 18px 4px 18px;
         padding: 10px 16px;
@@ -2981,7 +2936,7 @@ elif pagina == "Asistente IA":
         height: 100%;
         transition: border-color 0.15s;
     }
-    .arranque-card:hover { border-color: #1B5FA8; }
+    .arranque-card:hover { border-color: #1F6F54; }
     .arranque-icono   { font-size: 1.3rem; margin-bottom: 8px; }
     .arranque-titulo  { font-weight: 700; font-size: 0.9rem; margin-bottom: 5px; }
     .arranque-desc    { opacity: 0.52; font-size: 0.79rem; line-height: 1.5; }
@@ -2991,14 +2946,14 @@ elif pagina == "Asistente IA":
         display: inline-flex;
         align-items: center;
         gap: 7px;
-        border: 1.5px solid #1B5FA8;
+        border: 1.5px solid #1F6F54;
         border-radius: 10px;
         padding: 7px 13px;
         font-size: 0.81rem;
         font-weight: 600;
         margin: 8px 0 4px;
         background: rgba(27,95,168,0.06);
-        color: #1B5FA8;
+        color: #1F6F54;
     }
     .pill-proyecto span { opacity: 0.65; font-weight: 400; }
 
@@ -3297,7 +3252,7 @@ elif pagina == "Gestion de Equipo":
     # ── Tab: Registrar nuevo usuario con st.form ──────────────────────────────
     with _ge_tab_crear:
         st.markdown(
-            "<div style='background:rgba(27,95,168,0.06);border-left:3px solid #1B5FA8;"
+            "<div style='background:rgba(27,95,168,0.06);border-left:3px solid #1F6F54;"
             "border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.8rem;margin-bottom:18px'>"
             "Todos los campos marcados con <strong>*</strong> son obligatorios. "
             "El <strong>PIN</strong> de 4 dígitos sirve para que el usuario recupere su contraseña "
@@ -3454,7 +3409,7 @@ elif pagina == "Gestion de Equipo":
                 )
                 _gc2.markdown(
                     f"<div style='padding-top:8px'>"
-                    f"<span style='background:{'#1B5FA8' if _ge_urol=='Admin' else '#6b7280'};"
+                    f"<span style='background:{'#1F6F54' if _ge_urol=='Admin' else '#6b7280'};"
                     f"color:white;font-size:0.63rem;font-weight:700;padding:3px 9px;"
                     f"border-radius:4px;text-transform:uppercase'>{_ge_urol}</span>"
                     f"{'<span style="font-size:0.65rem;opacity:0.4;margin-left:6px">(tú)</span>' if _ge_yo else ''}"
