@@ -56,23 +56,28 @@ def _ui_configuracion(
         c1, c2 = st.columns(2)
         st.session_state.empresa_info["nombre"] = c1.text_input(
             "Razón Social",
-            st.session_state.empresa_info.get("nombre", "MÁRMOLES COLLANTE & CASTRO LTDA."),
+            st.session_state.empresa_info.get("nombre", ""),
+            placeholder="Ej: Mi Empresa S.A.S.",
         )
         st.session_state.empresa_info["nit"] = c2.text_input(
             "NIT",
-            st.session_state.empresa_info.get("nit", "NIT: 900.111.561-1"),
+            st.session_state.empresa_info.get("nit", ""),
+            placeholder="Ej: NIT: 900.000.000-0",
         )
         st.session_state.empresa_info["ciudad"] = c1.text_input(
             "Ciudad / Dirección",
-            st.session_state.empresa_info.get("ciudad", "Barranquilla, Atlántico — Colombia"),
+            st.session_state.empresa_info.get("ciudad", ""),
+            placeholder="Ej: Bogotá, Cundinamarca — Colombia",
         )
         st.session_state.empresa_info["tel"] = c2.text_input(
             "Teléfono Comercial",
-            st.session_state.empresa_info.get("tel", "+57 300 000 0000"),
+            st.session_state.empresa_info.get("tel", ""),
+            placeholder="Ej: +57 300 000 0000",
         )
         st.session_state.empresa_info["email"] = st.text_input(
             "Correo de contacto",
-            st.session_state.empresa_info.get("email", "ventas@marmolescc.com"),
+            st.session_state.empresa_info.get("email", ""),
+            placeholder="Ej: ventas@miempresa.com",
         )
 
         st.markdown("---")
@@ -103,7 +108,8 @@ def _ui_configuracion(
         b1, b2 = st.columns(2)
         st.session_state.empresa_info["banco"] = b1.text_input(
             "Banco",
-            st.session_state.empresa_info.get("banco", "Davivienda"),
+            st.session_state.empresa_info.get("banco", ""),
+            placeholder="Ej: Bancolombia",
         )
         _tipos_cuenta = ["Cuenta Corriente Empresas", "Cuenta de Ahorros", "Cuenta Corriente Personal"]
         _tipo_actual  = st.session_state.empresa_info.get("cuenta_tipo", "Cuenta Corriente Empresas")
@@ -113,7 +119,8 @@ def _ui_configuracion(
         )
         st.session_state.empresa_info["cuenta_numero"] = b1.text_input(
             "Número de Cuenta",
-            st.session_state.empresa_info.get("cuenta_numero", "108900027484"),
+            st.session_state.empresa_info.get("cuenta_numero", ""),
+            placeholder="Ej: 123456789012",
         )
 
         st.markdown("---")
@@ -329,7 +336,7 @@ def _ui_configuracion(
                         f"<span style='background:{'#1B5FA8' if _u_rol == 'Admin' else '#6b7280'};"
                         f"color:white;font-size:0.63rem;font-weight:700;padding:3px 8px;"
                         f"border-radius:4px;text-transform:uppercase'>{_u_rol}</span>"
-                        f"{'<span style=\"font-size:0.65rem;opacity:0.4;margin-left:5px\">(tú)</span>' if _es_yo else ''}"
+                        f"{'<span style=\\\"font-size:0.65rem;opacity:0.4;margin-left:5px\\\">(tú)</span>' if _es_yo else ''}"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
