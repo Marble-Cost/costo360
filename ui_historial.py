@@ -1,4 +1,4 @@
-# ui_historial.py — CostoMármol
+# ui_historial.py — Costo360
 # Módulo independiente: Historial de Cotizaciones.
 # Extraído de app.py mediante el Patrón de Estrangulamiento.
 # Todas las dependencias externas se inyectan como parámetros — sin imports de app.py.
