@@ -1,5 +1,5 @@
 # motor_planos.py — Motor de Despiece Paramétrico SVG
-# CostoMármol — Mármoles Collante & Castro Ltda.
+# Costo360 — Mármoles Collante & Castro Ltda.
 #
 # Genera planos técnicos 2D en SVG puro (sin librerías externas de dibujo).
 # Entrada : dict JSON con piezas y perforaciones
