@@ -58,7 +58,7 @@ def _bloque_costos(items_label_valor, total_label, total_val):
             unsafe_allow_html=True,
         )
     st.markdown(
-        f"<div style='border-top:2px solid #1B5FA8;margin-top:6px;padding-top:8px;"
+        f"<div style='border-top:2px solid #1F6F54;margin-top:6px;padding-top:8px;"
         f"display:flex;justify-content:space-between;font-weight:900;font-size:1rem'>"
         f"<span>{total_label}</span><span>{_numero_completo(total_val)}</span></div>",
         unsafe_allow_html=True,
@@ -163,15 +163,15 @@ def _ui_cotizacion_aiu(
 
         st.markdown(
             f"""
-        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+        <div style="background:linear-gradient(135deg,#1C1C1C 0%,#1F6F54 100%);
                     border-radius:18px;padding:40px 44px 32px;margin-bottom:24px;color:white;
-                    box-shadow:0 8px 32px rgba(27,95,168,0.35)">
+                    box-shadow:0 8px 32px rgba(31,111,84,0.35)">
           <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
             <div style="width:52px;height:52px;background:rgba(201,168,76,0.25);border-radius:50%;
-                        display:flex;align-items:center;justify-content:center;font-size:1.6rem">&#10003;</div>
+                        display:flex;align-items:center;justify-content:center;font-size:1.6rem">&#1C1C1C;</div>
             <div>
               <div style="font-size:0.7rem;letter-spacing:0.14em;text-transform:uppercase;
-                          color:#C9A84C;font-weight:700;margin-bottom:2px">OFERTA AIU FINALIZADA</div>
+                          color:#C9A45C;font-weight:700;margin-bottom:2px">OFERTA AIU FINALIZADA</div>
               <div style="font-size:1.1rem;font-weight:700">{nombre_cliente_aiu or "Sin nombre de proyecto"}</div>
             </div>
           </div>
@@ -298,14 +298,14 @@ def _ui_cotizacion_aiu(
     _pasos_aiu_html = ""
     for _i, _p in enumerate(WIZARD_AIU_PASOS):
         if _i < paso_aiu:
-            _ds = "background:#1B5FA8;color:white;border:2px solid #1B5FA8"
-            _ls = "color:#1B5FA8;font-weight:700"
-            _dc = "&#10003;"
-            _cb = "#1B5FA8"
+            _ds = "background:#1F6F54;color:white;border:2px solid #1F6F54"
+            _ls = "color:#1F6F54;font-weight:700"
+            _dc = "&#1C1C1C;"
+            _cb = "#1F6F54"
             _co = "1"
         elif _i == paso_aiu:
-            _ds = "background:#1B5FA8;color:white;border:2px solid #1B5FA8;box-shadow:0 0 0 4px rgba(27,95,168,0.18)"
-            _ls = "color:#1B5FA8;font-weight:900"
+            _ds = "background:#1F6F54;color:white;border:2px solid #1F6F54;box-shadow:0 0 0 4px rgba(31,111,84,0.18)"
+            _ls = "color:#1F6F54;font-weight:900"
             _dc = str(_i + 1)
             _cb = "var(--border-color)"
             _co = "0.25"
@@ -449,13 +449,13 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
                     )
                     st.markdown(
                         f"<div style='margin-top:-12px;margin-bottom:10px;font-size:0.85rem;"
-                        f"color:#1B5FA8;font-weight:600;'>Equivalencia: {cop(punit)}</div>",
+                        f"color:#1F6F54;font-weight:600;'>Equivalencia: {cop(punit)}</div>",
                         unsafe_allow_html=True,
                     )
                 sub = cant * punit
                 cd_total += sub
                 st.markdown(
-                    f'<div style="font-size:0.78rem;font-weight:700;color:#1B5FA8;'
+                    f'<div style="font-size:0.78rem;font-weight:700;color:#1F6F54;'
                     f'text-align:right;margin-top:2px">Subtotal: {_numero_completo(sub)}</div>',
                     unsafe_allow_html=True,
                 )
@@ -469,9 +469,9 @@ que es la base sobre la que se aplican los porcentajes A, I y U.
             st.rerun()
 
         st.markdown(
-            f"<div style='background:var(--secondary-background-color);border:1px solid #1B5FA8;"
-            f"border-left:4px solid #1B5FA8;border-radius:8px;padding:12px 18px;margin-top:16px;"
-            f"font-size:1.1rem;font-weight:900;color:#1B5FA8'>"
+            f"<div style='background:var(--secondary-background-color);border:1px solid #1F6F54;"
+            f"border-left:4px solid #1F6F54;border-radius:8px;padding:12px 18px;margin-top:16px;"
+            f"font-size:1.1rem;font-weight:900;color:#1F6F54'>"
             f"Costo Directo total: {_numero_completo(cd_total)}</div>",
             unsafe_allow_html=True,
         )
@@ -602,7 +602,7 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
               <span>I: <strong>{_numero_completo(_val_i_prev)}</strong></span>
               <span>U: <strong>{_numero_completo(_val_u_prev)}</strong></span>
               <span>{_iva_label}</span>
-              <span style="color:#1B5FA8;font-weight:900">Total: {_numero_completo(_total_prev)}</span>
+              <span style="color:#1F6F54;font-weight:900">Total: {_numero_completo(_total_prev)}</span>
             </div></div>""",
             unsafe_allow_html=True,
         )
@@ -808,9 +808,9 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
         # Hero card
         st.markdown(
             f"""
-        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+        <div style="background:linear-gradient(135deg,#1C1C1C 0%,#1F6F54 100%);
                     border-radius:14px;padding:28px 36px;margin-bottom:20px;color:white;">
-          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;
+          <div style="color:#C9A45C;font-size:0.68rem;text-transform:uppercase;
                       letter-spacing:0.14em;font-weight:700;margin-bottom:8px">
             Precio total del contrato (AIU)
           </div>
