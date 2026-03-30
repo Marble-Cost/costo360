@@ -1,4 +1,4 @@
-# ui_retales.py — CostoMármol
+# ui_retales.py — Costo360
 # Módulo independiente: Banco de Retales (Sobrantes Aprovechables).
 # Extraído de app.py mediante el Patrón de Estrangulamiento.
 # Todas las funciones de BD se inyectan como parámetros — sin imports de app.py.
