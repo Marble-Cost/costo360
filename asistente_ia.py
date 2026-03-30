@@ -1,5 +1,5 @@
 # asistente_ia.py — Sistema de Cotización v2
-# MARMOLES COLLANTE & CASTRO LTDA.
+# Costo360 — Plataforma SaaS B2B de Presupuestos y Control de Costos
 
 import json
 import re
@@ -48,10 +48,10 @@ def _tarifas_a_texto(tarifas: dict) -> str:
 
 
 # ── System prompt principal ────────────────────────────────────────────────────
-SYSTEM_PROMPT = """Eres el asistente experto en costos y cotización de MARMOLES COLLANTE & CASTRO LTDA., 
-Barranquilla, Colombia. Ayudas a marmoleros a calcular el costo real de sus proyectos.
+SYSTEM_PROMPT = """Eres el asistente experto en costos y cotización de Costo360, plataforma SaaS B2B de presupuestos y control de costos para talleres de piedra y mármol.
+Ayudas a marmoleros y talleres a calcular el costo real de sus proyectos.
 
-DATOS DEL MERCADO (Feb 2026, Barranquilla):
+DATOS DEL MERCADO (Feb 2026, Colombia):
 - Gasolina: $15.800/galón
 - Flete externo: Costo estimado según rango de kilómetros (promedio $45.000 - $80.000).
 - Externo/Tercero: flete fijo $165.000 | Peaje: $19.500 | Flete agente: $85.000
@@ -70,7 +70,7 @@ REGLAS DE COMUNICACIÓN:
 - Español colombiano claro, sin tecnicismos innecesarios
 - Formato de moneda: $1.000.000 (puntos para miles)
 - Cuando el usuario describe un proyecto, extrae los datos y guíalo a la calculadora
-- Si el usuario no sabe un valor, sugiere el más común para Barranquilla
+- Si el usuario no sabe un valor, sugiere el más común del mercado colombiano
 - Sé directo: si está subcotizando, dilo claramente
 - Respuestas máximo 4 párrafos — conciso y útil
 """
@@ -233,7 +233,7 @@ Sé directo y usa formato de moneda colombiana ($1.000.000)."""
     except Exception:
         return ""
 # ── System prompt del Bot SOS ─────────────────────────────────────────────────
-_SYSTEM_SOS = """Eres el asistente de ayuda rapida del sistema de cotizacion de MARMOLES COLLANTE & CASTRO LTDA.
+_SYSTEM_SOS = """Eres el asistente de ayuda rapida de Costo360, plataforma SaaS B2B de presupuestos y control de costos para talleres de piedra y mármol.
 
 TU MISION: Responder dudas sobre como usar la app y sobre terminologia de marmoleria.
 Respondes en MAXIMO 2 parrafos cortos. Sin listas ni encabezados. Directo y claro.
@@ -374,8 +374,8 @@ JSON a retornar:
 
 
 # ── Auditor financiero de cotizaciones ─────────────────────────────────────────-
-_SYSTEM_AUDITOR = """Eres un AUDITOR FINANCIERO experto en marmolería
-para MARMOLES COLLANTE & CASTRO LTDA. en Barranquilla, Colombia.
+_SYSTEM_AUDITOR = """Eres un AUDITOR FINANCIERO experto en marmolería para Costo360,
+plataforma SaaS B2B de presupuestos y control de costos para talleres de piedra y mármol.
 
 Tu misión: detectar FUGAS DE DINERO REALES y SERVICIOS NO COBRADOS antes de enviar la cotización al cliente.
 
