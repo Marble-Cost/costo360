@@ -1,4 +1,4 @@
-# ui_express.py — CostoMármol
+# ui_express.py — Costo360
 # Módulo independiente: Modo Express — Cotización ultrarrápida en una sola pantalla.
 # Extraído de app.py mediante el Patrón de Estrangulamiento.
 # Todas las dependencias están declaradas aquí. No requiere imports de app.py.
@@ -62,7 +62,7 @@ def _ui_cotizacion_express():
         'border-radius:14px;padding:20px 26px;margin-bottom:22px">'
         '<div style="font-size:0.67rem;font-weight:800;letter-spacing:0.13em;'
         'color:rgba(255,255,255,0.5);text-transform:uppercase;margin-bottom:4px">'
-        'CostoMármol</div>'
+        'Costo360</div>'
         '<div style="font-size:1.25rem;font-weight:900;color:white;margin-bottom:3px">'
         '⚡ Modo Express — Cotización en segundos</div>'
         '<div style="font-size:0.8rem;color:rgba(255,255,255,0.6)">'
