@@ -31,7 +31,7 @@ def _bloque_costos(items_label_valor, total_label, total_val):
         f'<div style="display:flex;justify-content:space-between;padding:10px 0 0 0;'
         f'border-bottom:1px solid var(--border-color);color:var(--text-color);">'
         f'<span style="font-size:0.95rem;font-weight:800">{total_label}</span>'
-        f'<span style="font-size:0.95rem;font-weight:800;color:#1B5FA8">{cop(total_val)}</span></div>'
+        f'<span style="font-size:0.95rem;font-weight:800;color:#1F6F54">{cop(total_val)}</span></div>'
     )
     st.markdown(f'<div class="card-custom">{html}</div>', unsafe_allow_html=True)
 
@@ -58,7 +58,7 @@ def _ui_cotizacion_express():
     para logística local. Sin wizard, sin pasos, sin esperas.
     """
     st.markdown(
-        '<div style="background:linear-gradient(135deg,#0B2432,#1B5FA8);'
+        '<div style="background:linear-gradient(135deg,#1C1C1C,#1F6F54);'
         'border-radius:14px;padding:20px 26px;margin-bottom:22px">'
         '<div style="font-size:0.67rem;font-weight:800;letter-spacing:0.13em;'
         'color:rgba(255,255,255,0.5);text-transform:uppercase;margin-bottom:4px">'
@@ -278,10 +278,10 @@ def _ui_cotizacion_express():
 
         if not _r:
             st.markdown(
-                '<div style="border:2px dashed #C8D8E8;border-radius:12px;'
-                'padding:52px 24px;text-align:center;background:#F8FAFD;color:#6B85A0;margin-top:8px">'
+                '<div style="border:2px dashed #D5CBB9;border-radius:12px;'
+                'padding:52px 24px;text-align:center;background:#FAFAFA;color:#1F6F54;margin-top:8px">'
                 '<div style="font-size:2.8rem;margin-bottom:12px">⚡</div>'
-                '<div style="font-size:1rem;font-weight:700;color:#1C2B3A;margin-bottom:6px">'
+                '<div style="font-size:1rem;font-weight:700;color:#1C1C1C;margin-bottom:6px">'
                 'El resultado aparecerá aquí</div>'
                 '<div style="font-size:0.82rem;line-height:1.6">'
                 'Completa los campos y presiona<br><strong>⚡ Calcular cotización</strong>.</div>'
@@ -303,7 +303,7 @@ def _ui_cotizacion_express():
 
             # Tarjeta de precio principal
             st.markdown(
-                f'<div style="background:linear-gradient(135deg,#0B2432,#1B5FA8);'
+                f'<div style="background:linear-gradient(135deg,#1C1C1C,#1F6F54);'
                 f'border-radius:14px;padding:22px 24px;color:white;margin-bottom:16px">'
                 f'<div style="font-size:0.67rem;font-weight:800;letter-spacing:0.12em;'
                 f'opacity:0.55;text-transform:uppercase;margin-bottom:4px">'
