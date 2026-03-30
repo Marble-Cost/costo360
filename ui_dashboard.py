@@ -1,4 +1,4 @@
-# ui_dashboard.py — CostoMármol
+# ui_dashboard.py — Costo360
 # Módulo independiente: Dashboard de Business Intelligence y Analíticas.
 # Extraído de app.py mediante el Patrón de Estrangulamiento.
 # Todas las dependencias están declaradas aquí.
