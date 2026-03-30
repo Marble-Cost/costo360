@@ -141,16 +141,16 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
         st.markdown(
             f"""
             <div style="
-                background: linear-gradient(135deg, rgba(201,168,76,0.10) 0%, rgba(27,95,168,0.08) 100%);
+                background: linear-gradient(135deg, rgba(201,168,76,0.10) 0%, rgba(31,111,84,0.08) 100%);
                 border: 1px solid rgba(201,168,76,0.45);
-                border-left: 5px solid #C9A84C;
+                border-left: 5px solid #C9A45C;
                 border-radius: 12px;
                 padding: 16px 20px;
                 margin: 4px 0 20px 0;
             ">
                 <div style="
                     font-size: 0.68rem; font-weight: 800; letter-spacing: 0.16em;
-                    text-transform: uppercase; color: #C9A84C; margin-bottom: 6px;
+                    text-transform: uppercase; color: #C9A45C; margin-bottom: 6px;
                 ">💎 Capital Inmovilizado Recuperable</div>
                 <div style="
                     font-size: 1.8rem; font-weight: 900;
@@ -174,7 +174,7 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
             with st.expander("📦 Ver desglose por material"):
                 _cols_ret = st.columns(min(len(_sr["por_categoria"]), 4))
                 for _ci, (_rcat, _rpzs, _rm2c, _rvalc) in enumerate(_sr["por_categoria"]):
-                    _bg, _fg = BADGE_COLORS.get(_rcat, ("#e8f0f8", "#1a4a8a"))
+                    _bg, _fg = BADGE_COLORS.get(_rcat, ("#ede6da", "#1f6f54"))
                     _cols_ret[_ci % 4].markdown(
                         f'<div style="background:{_bg};color:{_fg};border-radius:8px;'
                         f'padding:12px 14px;text-align:center;margin-bottom:6px">'
@@ -237,8 +237,8 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
                 x=_df_mat["Material"],
                 y=_df_mat["Facturación"],
                 marker=dict(
-                    color="#1B5FA8",
-                    line=dict(color="#0d3d73", width=1.2),
+                    color="#1F6F54",
+                    line=dict(color="#1f6f54", width=1.2),
                 ),
                 customdata=list(zip(
                     [_fmt_cop(v) for v in _df_mat["Facturación"]],
@@ -270,8 +270,8 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
                     showgrid=False,
                 ),
                 hoverlabel=dict(
-                    bgcolor="#0d2a4a",
-                    bordercolor="#1B5FA8",
+                    bgcolor="#144d3a",
+                    bordercolor="#1F6F54",
                     font=dict(color="white", size=12, family="monospace"),
                     align="left",
                 ),
@@ -332,9 +332,9 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
                 x=_df_mes["MesLabel"],
                 y=_df_mes["Facturación"],
                 mode="lines+markers",
-                line=dict(color="#C9A84C", width=2.5, shape="spline"),
+                line=dict(color="#C9A45C", width=2.5, shape="spline"),
                 marker=dict(
-                    color="#C9A84C", size=8,
+                    color="#C9A45C", size=8,
                     line=dict(color="#0d0d0d", width=2),
                 ),
                 fill="tozeroy",
@@ -370,8 +370,8 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
                 ),
                 hoverlabel=dict(
                     bgcolor="#1a1408",
-                    bordercolor="#C9A84C",
-                    font=dict(color="#f5e6c0", size=12, family="monospace"),
+                    bordercolor="#C9A45C",
+                    font=dict(color="#EDE6DA", size=12, family="monospace"),
                     align="left",
                 ),
             )
@@ -417,9 +417,9 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
         def _color_margen(val):
             try:
                 v = float(str(val).replace("%", ""))
-                if v < 25:   return "color:#e53e3e;font-weight:700"
-                if v >= 35:  return "color:#2f855a;font-weight:700"
-                return "color:#b7791f;font-weight:600"
+                if v < 25:   return "color:#C9A45C;font-weight:700"
+                if v >= 35:  return "color:#1F6F54;font-weight:700"
+                return "color:#C9A45C;font-weight:600"
             except Exception:
                 return ""
 
