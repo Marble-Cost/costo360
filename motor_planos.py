@@ -1,5 +1,5 @@
 # motor_planos.py — Motor de Despiece Paramétrico SVG
-# Costo360 — Mármoles Collante & Castro Ltda.
+# Costo360 · Plataforma B2B
 #
 # Genera planos técnicos 2D en SVG puro (sin librerías externas de dibujo).
 # Entrada : dict JSON con piezas y perforaciones
@@ -115,7 +115,7 @@ def _titulo(ancho_px, n_piezas, area_total):
         f'Área total: {area_total:.2f} m\u00b2</text>'
         f'<text x="{ancho_px - 12:.1f}" y="26" text-anchor="end" '
         f'font-family="Helvetica,Arial,sans-serif" font-size="9" fill="{_DORADO}">'
-        f'MÁRMOLES COLLANTE &amp; CASTRO · Plano Paramétrico</text>'
+        f'Costo360 · Plataforma B2B</text>'
     )
 
 
@@ -773,7 +773,7 @@ def _generar_svg_nesting(
         f'</text>'
         f'<text x="{canvas_w - 12:.0f}" y="28" text-anchor="end" '
         f'font-family="Helvetica,Arial,sans-serif" font-size="9" fill="{_DORADO}">'
-        f'MÁRMOLES COLLANTE &amp; CASTRO · Optimización de Corte</text>'
+        f'Costo360 · Plataforma B2B</text>'
     )
 
     # ════════════════════════════════════════════════════════════════════════
