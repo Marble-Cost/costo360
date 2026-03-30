@@ -50,6 +50,54 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+def _inyectar_css_global():
+    st.markdown("""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        
+        html, body, [class*="css"] {
+            font-family: 'Inter', sans-serif !important;
+        }
+
+        /* Botones primarios */
+        .stButton > button[kind="primary"] {
+            background-color: #1F6F54 !important;
+            color: #FFFFFF !important;
+            border: none !important;
+            transition: all 0.3s ease;
+        }
+        .stButton > button[kind="primary"]:hover {
+            background-color: #144D3A !important;
+            transform: scale(1.02);
+        }
+
+        /* Botones secundarios */
+        .stButton > button[kind="secondary"] {
+            background-color: transparent !important;
+            border: 1px solid #1F6F54 !important;
+            color: #1C1C1C !important;
+            transition: all 0.3s ease;
+        }
+        .stButton > button[kind="secondary"]:hover {
+            border-color: #1F6F54 !important;
+            color: #1F6F54 !important;
+            box-shadow: 0 2px 4px rgba(31, 111, 84, 0.2);
+        }
+
+        /* Color de texto general */
+        .stMarkdown, .stText {
+            color: #1C1C1C;
+        }
+        
+        /* Fondo de la barra lateral */
+        [data-testid="stSidebar"] {
+            background-color: #EDE6DA !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+_inyectar_css_global()
+
 # ── GESTOR DE COOKIES HTTP (st-cookies-manager) ──────────────────────────────
 # CookieManager bloquea el renderizado con st.stop() hasta que el componente
 # React haya inyectado las cookies del navegador, eliminando la necesidad del
@@ -1590,34 +1638,6 @@ def _pantalla_login() -> None:
 
 
 
-# ── CSS NATIVO (ADAPTABLE A MODO CLARO/OSCURO) ────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600;700&display=swap');
-
-* { box-sizing: border-box; }
-html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-
-/* ── BUTTONS ── */
-.stButton > button {
-    border-radius: 6px !important; font-weight: 600 !important; font-size: 0.85rem !important;
-    transition: all 0.18s ease !important; padding: 0.45rem 1rem !important;
-}
-.stButton > button[kind="primary"] {
-    background: #1F6F54 !important; color: white !important; border: none !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; text-transform: uppercase !important;
-}
-.stButton > button[kind="primary"]:hover { filter: brightness(1.1); transform: translateY(-2px) !important; }
-
-/* ── CARDS (Usa las variables de color del tema del celular/PC) ── */
-.card-custom {
-    background: var(--secondary-background-color);
-    border: 1px solid var(--border-color); 
-    border-radius: 10px; padding: 16px 18px; margin-bottom: 12px;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # ── HELPERS UI NATIVOS ────────────────────────────────────────────────────────
 def alerta(texto, tipo="info"):
     """Reemplazo de la alerta CSS por componentes nativos de Streamlit (100% compatibles con modo claro/oscuro)"""
@@ -2580,7 +2600,7 @@ with st.sidebar:
                 st.session_state["_sos_ultima_respuesta"]
             ).replace("\n", "<br>")
             st.markdown(
-                f"<div style='background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.25);"
+                f"<div style='background:rgba(31,111,84,0.08);border:1px solid rgba(31,111,84,0.25);"
                 f"border-left:3px solid #1F6F54;border-radius:8px;"
                 f"padding:10px 12px;margin-top:8px;font-size:0.8rem;line-height:1.6'>"
                 f"<div style='font-size:0.65rem;font-weight:700;color:#1F6F54;"
@@ -2997,7 +3017,7 @@ elif pagina == "Asistente IA":
         font-size: 0.81rem;
         font-weight: 600;
         margin: 8px 0 4px;
-        background: rgba(27,95,168,0.06);
+        background: rgba(31,111,84,0.06);
         color: #1F6F54;
     }
     .pill-proyecto span { opacity: 0.65; font-weight: 400; }
@@ -3297,7 +3317,7 @@ elif pagina == "Gestion de Equipo":
     # ── Tab: Registrar nuevo usuario con st.form ──────────────────────────────
     with _ge_tab_crear:
         st.markdown(
-            "<div style='background:rgba(27,95,168,0.06);border-left:3px solid #1F6F54;"
+            "<div style='background:rgba(31,111,84,0.06);border-left:3px solid #1F6F54;"
             "border-radius:0 8px 8px 0;padding:10px 14px;font-size:0.8rem;margin-bottom:18px'>"
             "Todos los campos marcados con <strong>*</strong> son obligatorios. "
             "El <strong>PIN</strong> de 4 dígitos sirve para que el usuario recupere su contraseña "
