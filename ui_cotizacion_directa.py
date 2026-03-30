@@ -78,7 +78,7 @@ def _bloque_costos(items_label_valor, total_label, total_val):
             unsafe_allow_html=True,
         )
     st.markdown(
-        f"<div style='border-top:2px solid #1B5FA8;margin-top:6px;padding-top:8px;"
+        f"<div style='border-top:2px solid #1F6F54;margin-top:6px;padding-top:8px;"
         f"display:flex;justify-content:space-between;font-weight:900;font-size:1rem'>"
         f"<span>{total_label}</span><span>{_numero_completo(total_val)}</span></div>",
         unsafe_allow_html=True,
@@ -218,9 +218,9 @@ def _ui_cotizacion_directa(
         _enum = st.session_state.get("editando_num", "")
         st.markdown(
             f'<div style="background:rgba(201,168,76,0.10);border:1px solid rgba(201,168,76,0.45);'
-            f'border-left:4px solid #C9A84C;border-radius:10px;'
+            f'border-left:4px solid #C9A45C;border-radius:10px;'
             f'padding:14px 18px;margin-bottom:20px">'
-            f'<div style="font-size:0.70rem;font-weight:800;color:#C9A84C;'
+            f'<div style="font-size:0.70rem;font-weight:800;color:#C9A45C;'
             f'text-transform:uppercase;letter-spacing:0.09em;margin-bottom:3px">✏️ Modo edición activo</div>'
             f'<div style="font-size:0.90rem;font-weight:600">Modificando cotización: '
             f'<strong>{_enum}</strong></div>'
@@ -337,15 +337,15 @@ def _ui_cotizacion_directa(
         _precio_final = r["precio_sugerido"] + _iva_monto
 
         st.markdown(f"""
-        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+        <div style="background:linear-gradient(135deg,#1C1C1C 0%,#1F6F54 100%);
                     border-radius:18px;padding:40px 44px 32px;margin-bottom:24px;color:white;
-                    box-shadow:0 8px 32px rgba(27,95,168,0.35)">
+                    box-shadow:0 8px 32px rgba(31,111,84,0.35)">
           <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
             <div style="width:52px;height:52px;background:rgba(201,168,76,0.25);border-radius:50%;
                         display:flex;align-items:center;justify-content:center;font-size:1.6rem">✅</div>
             <div>
               <div style="font-size:0.7rem;letter-spacing:0.14em;text-transform:uppercase;
-                          color:#C9A84C;font-weight:700;margin-bottom:2px">COTIZACIÓN FINALIZADA</div>
+                          color:#C9A45C;font-weight:700;margin-bottom:2px">COTIZACIÓN FINALIZADA</div>
               <div style="font-size:1.1rem;font-weight:700">{r.get("nombre_cliente","") or "Sin nombre de cliente"}</div>
             </div>
           </div>
@@ -359,7 +359,7 @@ def _ui_cotizacion_directa(
             Margen: {r["margen_pct"]:.0f}% &nbsp;·&nbsp; Utilidad: {_numero_completo(r["utilidad"])}
             &nbsp;·&nbsp; {r.get("tipo_proyecto","Proyecto")} — {r.get("categoria","")}
           </div>
-          {f'<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.2);font-size:1.05rem;font-weight:700;color:#C9A84C">+ IVA 19%: {_numero_completo(_iva_monto)} &nbsp;→&nbsp; <span style="color:white">Total: {_numero_completo(_precio_final)}</span></div>' if _iva_act else ""}
+          {f'<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.2);font-size:1.05rem;font-weight:700;color:#C9A45C">+ IVA 19%: {_numero_completo(_iva_monto)} &nbsp;→&nbsp; <span style="color:white">Total: {_numero_completo(_precio_final)}</span></div>' if _iva_act else ""}
         </div>""", unsafe_allow_html=True)
 
         with st.expander("📊 Ver desglose de costos", expanded=False):
@@ -389,9 +389,9 @@ def _ui_cotizacion_directa(
                 border-radius:10px;padding:14px 18px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
                   <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">{"Sin IVA" if _iva_act else "Precio total"}</span>
-                  <span style="font-size:1.15rem;font-weight:900;color:#1B5FA8">{_numero_completo(_sim_p)}</span>
+                  <span style="font-size:1.15rem;font-weight:900;color:#1F6F54">{_numero_completo(_sim_p)}</span>
                 </div>
-                {f'<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px;margin-bottom:4px"><span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span><span style="font-size:1.15rem;font-weight:900;color:#C9A84C">{_numero_completo(_sim_p + _sim_iva)}</span></div>' if _iva_act else ""}
+                {f'<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px;margin-bottom:4px"><span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span><span style="font-size:1.15rem;font-weight:900;color:#C9A45C">{_numero_completo(_sim_p + _sim_iva)}</span></div>' if _iva_act else ""}
                 <div style="font-size:0.72rem;opacity:0.5">Utilidad: {_numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
                 </div>""",
                 unsafe_allow_html=True
@@ -517,13 +517,13 @@ def _ui_cotizacion_directa(
                         st.warning(f"🟡 **RIESGO MODERADO** — {_margen_txt}", icon="⚠️")
                     _col_alertas, _col_sugs = st.columns(2)
                     with _col_alertas:
-                        st.markdown('<div style="font-size:0.78rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#dc2626;margin-bottom:8px">⚠️ Alertas Críticas</div>', unsafe_allow_html=True)
+                        st.markdown('<div style="font-size:0.78rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#C9A45C;margin-bottom:8px">⚠️ Alertas Críticas</div>', unsafe_allow_html=True)
                         for _a in (_alertas or ["Sin alertas detectadas."]):
-                            st.markdown(f'<div style="background:rgba(220,38,38,0.07);border-left:3px solid #dc2626;border-radius:0 6px 6px 0;padding:6px 10px;margin-bottom:6px;font-size:0.83rem;line-height:1.4">{_a}</div>', unsafe_allow_html=True)
+                            st.markdown(f'<div style="background:rgba(201,168,76,0.07);border-left:3px solid #C9A45C;border-radius:0 6px 6px 0;padding:6px 10px;margin-bottom:6px;font-size:0.83rem;line-height:1.4">{_a}</div>', unsafe_allow_html=True)
                     with _col_sugs:
-                        st.markdown('<div style="font-size:0.78rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#1B5FA8;margin-bottom:8px">💡 Oportunidades</div>', unsafe_allow_html=True)
+                        st.markdown('<div style="font-size:0.78rem;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#1F6F54;margin-bottom:8px">💡 Oportunidades</div>', unsafe_allow_html=True)
                         for _s in (_sugerencias or ["Sin oportunidades adicionales."]):
-                            st.markdown(f'<div style="background:rgba(27,95,168,0.07);border-left:3px solid #1B5FA8;border-radius:0 6px 6px 0;padding:6px 10px;margin-bottom:6px;font-size:0.83rem;line-height:1.4">{_s}</div>', unsafe_allow_html=True)
+                            st.markdown(f'<div style="background:rgba(31,111,84,0.07);border-left:3px solid #1F6F54;border-radius:0 6px 6px 0;padding:6px 10px;margin-bottom:6px;font-size:0.83rem;line-height:1.4">{_s}</div>', unsafe_allow_html=True)
 
         st.markdown("---")
 
@@ -566,7 +566,7 @@ def _ui_cotizacion_directa(
             _inc_col, _exc_col = st.columns(2)
             with _inc_col:
                 st.markdown(
-                    "<div style='font-size:0.75rem;font-weight:700;color:#15803d;"
+                    "<div style='font-size:0.75rem;font-weight:700;color:#1F6F54;"
                     "text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px'>"
                     "✔ Inclusiones</div>",
                     unsafe_allow_html=True,
@@ -581,7 +581,7 @@ def _ui_cotizacion_directa(
                 ]
             with _exc_col:
                 st.markdown(
-                    "<div style='font-size:0.75rem;font-weight:700;color:#dc2626;"
+                    "<div style='font-size:0.75rem;font-weight:700;color:#C9A45C;"
                     "text-transform:uppercase;letter-spacing:0.07em;margin-bottom:6px'>"
                     "✗ Exclusiones</div>",
                     unsafe_allow_html=True,
@@ -676,7 +676,7 @@ def _ui_cotizacion_directa(
     if pre and (pre.get("nombre_cliente") or pre.get("piezas") or pre.get("materiales_proyecto")):
         with st.popover("🗑️ Reiniciar cotización", use_container_width=False):
             st.markdown(
-                "<div style='font-size:0.88rem;font-weight:700;color:#dc2626;margin-bottom:6px'>"
+                "<div style='font-size:0.88rem;font-weight:700;color:#C9A45C;margin-bottom:6px'>"
                 "⚠️ ¿Estás seguro?</div>"
                 "<div style='font-size:0.80rem;line-height:1.55;opacity:0.80;margin-bottom:14px'>"
                 "Se perderán <strong>todos los datos</strong> del formulario actual: "
@@ -704,14 +704,14 @@ def _ui_cotizacion_directa(
     _pasos_html = ""
     for _i, _p in enumerate(WIZARD_PASOS):
         if _i < paso:
-            _dot_style = "background:#1B5FA8;color:white;border:2px solid #1B5FA8"
-            _lbl_style = "color:#1B5FA8;font-weight:700"
-            _dot_char  = "&#10003;"
-            _conn_bg   = "#1B5FA8"
+            _dot_style = "background:#1F6F54;color:white;border:2px solid #1F6F54"
+            _lbl_style = "color:#1F6F54;font-weight:700"
+            _dot_char  = "&#1C1C1C;"
+            _conn_bg   = "#1F6F54"
             _conn_op   = "1"
         elif _i == paso:
-            _dot_style = "background:#1B5FA8;color:white;border:2px solid #1B5FA8;box-shadow:0 0 0 4px rgba(27,95,168,0.18)"
-            _lbl_style = "color:#1B5FA8;font-weight:900"
+            _dot_style = "background:#1F6F54;color:white;border:2px solid #1F6F54;box-shadow:0 0 0 4px rgba(31,111,84,0.18)"
+            _lbl_style = "color:#1F6F54;font-weight:900"
             _dot_char  = str(_i + 1)
             _conn_bg   = "var(--border-color)"
             _conn_op   = "0.25"
@@ -829,7 +829,7 @@ def _ui_cotizacion_directa(
                         "Precio por m² (COP)", min_value=10_000, max_value=5_000_000,
                         value=int(mat_item.get("precio_m2") or 220_000), step=1_000, key=f"mpm2_{midx}",
                     )
-                    st.markdown(f"<div style='margin-top:-12px;margin-bottom:10px;font-size:0.85rem;color:#1B5FA8;font-weight:600;'>💰 Equivalencia: {cop(precio_m2_m)}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin-top:-12px;margin-bottom:10px;font-size:0.85rem;color:#1F6F54;font-weight:600;'>💰 Equivalencia: {cop(precio_m2_m)}</div>", unsafe_allow_html=True)
                 with cold:
                     _area_leg   = float(mat_item.get("area_placa") or 5.94)
                     _cant_prev  = int(mat_item.get("placas_cant") or 1)
@@ -851,7 +851,7 @@ def _ui_cotizacion_directa(
                     f'<div style="background:var(--secondary-background-color);border-radius:8px;'
                     f'padding:8px 14px;margin-top:4px;font-size:0.85rem">'
                     f'<span style="opacity:0.6">{_numero_completo(precio_m2_m)}/m² × {area_placa_m:.3f} m² = </span>'
-                    f'<strong style="color:#1B5FA8">{_numero_completo(costo_m)}</strong></div>',
+                    f'<strong style="color:#1F6F54">{_numero_completo(costo_m)}</strong></div>',
                     unsafe_allow_html=True
                 )
 
@@ -879,9 +879,9 @@ def _ui_cotizacion_directa(
                         _num_piezas = len(_retales_disp)
                         _orig_txt   = _retales_disp[0][3] if _num_piezas == 1 else f"{_num_piezas} sobrantes disponibles"
                         st.markdown(
-                            f'<div style="border:1px solid #1B5FA8;border-left:4px solid #1B5FA8;'
-                            f'border-radius:8px;padding:10px 16px;margin:8px 0;background:rgba(27,95,168,0.06);">'
-                            f'<div style="font-size:0.8rem;font-weight:700;color:#1B5FA8;margin-bottom:4px">'
+                            f'<div style="border:1px solid #1F6F54;border-left:4px solid #1F6F54;'
+                            f'border-radius:8px;padding:10px 16px;margin:8px 0;background:rgba(31,111,84,0.06);">'
+                            f'<div style="font-size:0.8rem;font-weight:700;color:#1F6F54;margin-bottom:4px">'
                             f'♻️ Tienes {_fmt_m2(_m2_total_retal, 2)} de sobrante de este material</div>'
                             f'<div style="font-size:0.75rem;opacity:0.65">Origen: {_orig_txt}</div></div>',
                             unsafe_allow_html=True
@@ -894,9 +894,9 @@ def _ui_cotizacion_directa(
 
                     elif _seleccionando:
                         st.markdown(
-                            '<div style="border:1px solid #C9A84C;border-left:4px solid #C9A84C;'
+                            '<div style="border:1px solid #C9A45C;border-left:4px solid #C9A45C;'
                             'border-radius:8px;padding:10px 16px;margin:8px 0;background:rgba(201,168,76,0.07);">'
-                            '<div style="font-size:0.78rem;font-weight:700;color:#C9A84C;margin-bottom:6px">'
+                            '<div style="font-size:0.78rem;font-weight:700;color:#C9A45C;margin-bottom:6px">'
                             '🗂️ Selecciona el sobrante que quieres usar</div></div>',
                             unsafe_allow_html=True
                         )
@@ -944,9 +944,9 @@ def _ui_cotizacion_directa(
                         _mat_dict["retal_id"]   = _rid_activo
                         _prec_txt = f"Precio/m²: {_numero_completo(_precio_rec)}" if _precio_rec > 0 else "Precio fijado en $0"
                         st.markdown(
-                            f'<div style="border:1px solid #15803d;border-left:4px solid #15803d;border-radius:8px;'
-                            f'padding:10px 16px;margin:8px 0;background:rgba(21,128,61,0.06);">'
-                            f'<div style="font-size:0.8rem;font-weight:700;color:#15803d;margin-bottom:3px">'
+                            f'<div style="border:1px solid #1F6F54;border-left:4px solid #1F6F54;border-radius:8px;'
+                            f'padding:10px 16px;margin:8px 0;background:rgba(31,111,84,0.06);">'
+                            f'<div style="font-size:0.8rem;font-weight:700;color:#1F6F54;margin-bottom:3px">'
                             f'♻️ Sobrante activo — {_prec_txt} · Área: {_fmt_m2(_rm2_activo,3)}</div>'
                             f'<div style="font-size:0.75rem;opacity:0.65">El margen subirá al 80-90%+</div></div>',
                             unsafe_allow_html=True
@@ -1065,10 +1065,10 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
 
         if not st.session_state.piezas:
             st.markdown(
-                '<div style="background:rgba(27,95,168,0.04);border:2px dashed rgba(27,95,168,0.3);'
+                '<div style="background:rgba(31,111,84,0.04);border:2px dashed rgba(31,111,84,0.3);'
                 'border-radius:12px;padding:40px 20px;text-align:center;margin-bottom:16px">'
                 '<div style="font-size:2.8rem;margin-bottom:12px">📭</div>'
-                '<div style="font-size:1.15rem;font-weight:800;color:#1B5FA8;margin-bottom:6px">No hay piezas en tu cotización</div>'
+                '<div style="font-size:1.15rem;font-weight:800;color:#1F6F54;margin-bottom:6px">No hay piezas en tu cotización</div>'
                 '<div style="font-size:0.85rem;opacity:0.75;max-width:400px;margin:0 auto;">'
                 'Usa el <strong>✨ Asistente Mágico</strong> de arriba o agrega una pieza manualmente.'
                 '</div></div>', unsafe_allow_html=True
@@ -1115,11 +1115,11 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     with _col_m2:
                         _m2_desc = f"{ml_p:.2f} ml × {ancho_p:.2f} m × {cantidad_p}" if cantidad_p > 1 else f"{ml_p:.2f} ml × {ancho_p:.2f} m"
                         st.markdown(
-                            f"""<div style="background:rgba(27,95,168,0.08);border:1px solid rgba(27,95,168,0.22);
+                            f"""<div style="background:rgba(31,111,84,0.08);border:1px solid rgba(31,111,84,0.22);
                             border-radius:10px;padding:10px 14px;margin-top:4px">
                             <div style="font-size:0.65rem;font-weight:700;text-transform:uppercase;
-                                 letter-spacing:0.1em;color:#1B5FA8;opacity:0.8">m² calculados</div>
-                            <div style="font-size:1.45rem;font-weight:900;color:#1B5FA8;
+                                 letter-spacing:0.1em;color:#1F6F54;opacity:0.8">m² calculados</div>
+                            <div style="font-size:1.45rem;font-weight:900;color:#1F6F54;
                                  font-family:'Playfair Display',serif;line-height:1.2">{_fmt_m2(m2_p)}</div>
                             <div style="font-size:0.7rem;opacity:0.6;margin-top:2px">{_m2_desc}</div>
                             </div>""",
@@ -1207,14 +1207,14 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 _ml_zoc_total = _zoc_geo_p1["ml"]
                 html_dim = (
                     f'<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);border-radius:10px;padding:12px 18px;text-align:center">'
-                    f'<div style="font-size:0.7rem;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total</div>'
+                    f'<div style="font-size:0.7rem;color:#1F6F54;text-transform:uppercase;letter-spacing:0.08em;font-weight:700">Total</div>'
                     f'<div style="font-size:2rem;font-weight:900;font-family:\'Playfair Display\',serif">{_fmt_ml(_ml_total)}</div>'
                     f'<div style="font-size:0.85rem;opacity:0.7">{_fmt_m2(m2_real)} de material</div>'
                 )
                 if _ml_zoc_total > 0:
                     _zoc_m2_p1 = _zoc_geo_p1["m2"]
                     _zoc_m2_txt = f" · {_zoc_m2_p1:.3f} m²" if _zoc_m2_p1 > 0 else ""
-                    html_dim += f'<div style="font-size:0.75rem;margin-top:4px;opacity:0.75;border-top:1px solid rgba(27,95,168,0.15);padding-top:4px">📐 Zócalo: <strong>{_ml_zoc_total:.2f} ml</strong><span style="opacity:0.7">{_zoc_m2_txt} de piedra</span></div>'
+                    html_dim += f'<div style="font-size:0.75rem;margin-top:4px;opacity:0.75;border-top:1px solid rgba(31,111,84,0.15);padding-top:4px">📐 Zócalo: <strong>{_ml_zoc_total:.2f} ml</strong><span style="opacity:0.7">{_zoc_m2_txt} de piedra</span></div>'
                 html_dim += "</div>"
                 st.markdown(html_dim, unsafe_allow_html=True)
 
@@ -1222,7 +1222,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         _mats_rv  = st.session_state.get("materiales_proyecto", [])
         _piezas_rv = piezas_nuevas
         if _mats_rv:
-            st.markdown("<p style='font-size:0.72rem;font-weight:700;color:#1B5FA8;text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px 0'>🪨 Estado de consumo por lote</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.72rem;font-weight:700;color:#1F6F54;text-transform:uppercase;letter-spacing:0.08em;margin:10px 0 4px 0'>🪨 Estado de consumo por lote</p>", unsafe_allow_html=True)
             for _li, _lm in enumerate(_mats_rv):
                 _ll = float(_lm.get("placas_largo") or _lm.get("largo") or 0.0)
                 _la = float(_lm.get("placas_ancho") or _lm.get("ancho") or 0.0)
@@ -1244,7 +1244,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 if _overflow:
                     st.error(f"🔴 **{_lote_lbl}** · Área: **{_area_lote:.2f} m²** · Consumido: **{_consumido:.2f} m²** · ⚠️ Déficit: **{abs(_retal_lote):.2f} m²**")
                 else:
-                    st.markdown(f"<div style='font-size:0.78rem;margin-bottom:2px'><strong>{_lote_lbl}</strong> <span style='opacity:0.65'>Comprado: {_area_lote:.2f} m² · Usado: {_consumido:.2f} m² · <span style='color:#16A34A;font-weight:700'>Retal: {max(0.0,_retal_lote):.2f} m²</span></span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size:0.78rem;margin-bottom:2px'><strong>{_lote_lbl}</strong> <span style='opacity:0.65'>Comprado: {_area_lote:.2f} m² · Usado: {_consumido:.2f} m² · <span style='color:#1F6F54;font-weight:700'>Retal: {max(0.0,_retal_lote):.2f} m²</span></span></div>", unsafe_allow_html=True)
                     st.progress(_pct)
 
         st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -1364,7 +1364,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
         st.markdown("""
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
           <span style="font-weight:700;font-size:1rem">Desperdicio en cortes</span>
-          <span style="background:#1B5FA8;color:white;font-size:0.65rem;font-weight:700;padding:3px 8px;border-radius:20px;letter-spacing:0.05em">RETAL</span>
+          <span style="background:#1F6F54;color:white;font-size:0.65rem;font-weight:700;padding:3px 8px;border-radius:20px;letter-spacing:0.05em">RETAL</span>
         </div>
         <p style="font-size:0.82rem;opacity:0.65;margin:0 0 10px">Todo corte genera sobrante. Elige el perfil de tu proyecto.</p>""", unsafe_allow_html=True)
 
@@ -1402,7 +1402,7 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                     st.caption(f"Equivale al **{pct_real:.1f}%** del proyecto")
                 else:
                     extra_corte = round(m2_real * pct_auto, 2)
-                    color_pct   = "#16a34a" if pct_auto <= 0.12 else "#d97706" if pct_auto <= 0.17 else "#dc2626"
+                    color_pct   = "#1F6F54" if pct_auto <= 0.12 else "#C9A45C" if pct_auto <= 0.17 else "#C9A45C"
                     st.markdown(f'<div style="background:var(--secondary-background-color);border:2px solid {color_pct};border-radius:8px;padding:10px 14px;display:inline-flex;align-items:baseline;gap:8px"><span style="font-size:1.8rem;font-weight:900;color:{color_pct}">{_fmt_m2(extra_corte)}</span><span style="font-size:0.8rem;color:{color_pct};font-weight:700">({pct_auto*100:.0f}%)</span></div>', unsafe_allow_html=True)
                     st.caption(f"Calculado automáticamente ({pct_auto*100:.0f}% de {_fmt_m2(m2_real)})")
 
@@ -1418,8 +1418,8 @@ Si el ancho es diferente, elige **Personalizado** y ajusta.
                 <div style="background:var(--secondary-background-color);border:1px solid var(--border-color);border-radius:8px;padding:10px 14px;font-size:0.82rem">
                   <div style="font-size:0.72rem;font-weight:700;opacity:0.5;margin-bottom:6px;text-transform:uppercase">Impacto en costo disco</div>
                   <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border-color)"><span style="opacity:0.7">Proyecto</span><span style="font-weight:600">{_numero_completo(_costo_disco_base)}</span></div>
-                  <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border-color)"><span style="opacity:0.7">Retal</span><span style="font-weight:600;color:#d97706">+{_numero_completo(_costo_disco_ret)}</span></div>
-                  <div style="display:flex;justify-content:space-between;padding:4px 0 0"><span style="font-weight:700">Total disco</span><span style="font-weight:800;color:#1B5FA8">{_numero_completo(_costo_disco_base+_costo_disco_ret)}</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border-color)"><span style="opacity:0.7">Retal</span><span style="font-weight:600;color:#C9A45C">+{_numero_completo(_costo_disco_ret)}</span></div>
+                  <div style="display:flex;justify-content:space-between;padding:4px 0 0"><span style="font-weight:700">Total disco</span><span style="font-weight:800;color:#1F6F54">{_numero_completo(_costo_disco_base+_costo_disco_ret)}</span></div>
                 </div>""", unsafe_allow_html=True)
 
         m2_cortados_total = m2_real + extra_corte
@@ -1728,9 +1728,9 @@ El cliente paga **únicamente por los metros reales** que se van a instalar en s
 
         # Hero card
         st.markdown(f"""
-        <div style="background:linear-gradient(135deg,#0D2137 0%,#1B5FA8 100%);
+        <div style="background:linear-gradient(135deg,#1C1C1C 0%,#1F6F54 100%);
                     border-radius:14px;padding:28px 36px;margin-bottom:20px;color:white;">
-          <div style="color:#C9A84C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:8px">
+          <div style="color:#C9A45C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;margin-bottom:8px">
             Precio de venta sugerido {"(sin IVA)" if _iva_act else ""}
           </div>
           <div style="font-size:clamp(1.5rem,5vw,3.2rem);font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:8px;word-break:break-word">
@@ -1739,7 +1739,7 @@ El cliente paga **únicamente por los metros reales** que se van a instalar en s
           <div style="opacity:0.8;font-size:0.85rem">
             Margen: {r["margen_pct"]:.0f}% &nbsp;·&nbsp; Utilidad: {_numero_completo(r["utilidad"])}
           </div>
-          {"" if not _iva_act else f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.2)"><span style="color:#C9A84C;font-weight:700">+ IVA 19%: {_numero_completo(_iva_mont)}</span> &nbsp;→&nbsp; <span style="font-weight:900">Total: {_numero_completo(_pf)}</span></div>'}
+          {"" if not _iva_act else f'<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.2)"><span style="color:#C9A45C;font-weight:700">+ IVA 19%: {_numero_completo(_iva_mont)}</span> &nbsp;→&nbsp; <span style="font-weight:900">Total: {_numero_completo(_pf)}</span></div>'}
         </div>""", unsafe_allow_html=True)
 
         _gan_retal = r.get("ganancia_oculta_retal", 0.0)
@@ -1777,9 +1777,9 @@ El cliente paga **únicamente por los metros reales** que se van a instalar en s
                 f"""<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);border-radius:10px;padding:12px 16px">
                 <div style="display:flex;justify-content:space-between;align-items:center{';margin-bottom:6px' if _iva_act else ''}">
                   <span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">{"Sin IVA" if _iva_act else "Precio total"}</span>
-                  <span style="font-size:1.1rem;font-weight:900;color:#1B5FA8">{_numero_completo(_sim_p)}</span>
+                  <span style="font-size:1.1rem;font-weight:900;color:#1F6F54">{_numero_completo(_sim_p)}</span>
                 </div>
-                {"" if not _iva_act else f'<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px;margin-bottom:4px"><span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span><span style="font-size:1.1rem;font-weight:900;color:#C9A84C">{_numero_completo(_sim_p + _sim_iva)}</span></div>'}
+                {"" if not _iva_act else f'<div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--border-color);padding-top:6px;margin-bottom:4px"><span style="font-size:0.75rem;font-weight:700;opacity:0.55;text-transform:uppercase">Con IVA 19%</span><span style="font-size:1.1rem;font-weight:900;color:#C9A45C">{_numero_completo(_sim_p + _sim_iva)}</span></div>'}
                 <div style="font-size:0.72rem;opacity:0.5">Utilidad: {_numero_completo(_sim_ut)} · Margen: {_sim_m}%</div>
                 </div>""",
                 unsafe_allow_html=True
@@ -1791,7 +1791,7 @@ El cliente paga **únicamente por los metros reales** que se van a instalar en s
             _lv = [(l,v) for l,v in zip(_labels_pie,_values_pie) if v > 0]
             if _lv:
                 _lf, _vf = zip(*_lv)
-                _fig_pie = go.Figure(go.Pie(labels=list(_lf), values=list(_vf), hole=0.42, textinfo="percent", textfont_size=11, marker=dict(colors=["#1B5FA8","#C9A84C","#2E86AB","#A23B72","#F18F01","#C73E1D","#3B1F2B"][:len(_vf)])))
+                _fig_pie = go.Figure(go.Pie(labels=list(_lf), values=list(_vf), hole=0.42, textinfo="percent", textfont_size=11, marker=dict(colors=["#1F6F54","#C9A45C","#C9A45C","#A23B72","#F18F01","#C73E1D","#3B1F2B"][:len(_vf)])))
                 _fig_pie.update_layout(margin=dict(t=10,b=10,l=10,r=10), height=240, showlegend=True, legend=dict(font=dict(size=10),orientation="v"), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(_fig_pie, use_container_width=True, config={"displayModeBar": False})
 
