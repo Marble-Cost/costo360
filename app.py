@@ -50,49 +50,78 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Logos de alta resolución en Base64 (carga única al arrancar) ─────────────
+def _cargar_logo_b64(ruta: str) -> str:
+    """Lee un archivo de imagen y devuelve su contenido como string Base64 UTF-8.
+    Devuelve string vacío si el archivo no existe o no puede leerse.
+    """
+    try:
+        if os.path.exists(ruta):
+            with open(ruta, "rb") as _lf:
+                import base64 as _b64_mod
+                return _b64_mod.b64encode(_lf.read()).decode("utf-8")
+    except Exception:
+        pass
+    return ""
+
+_APP_DIR        = os.path.dirname(os.path.abspath(__file__))
+_LOGO_LIGHT_B64 = _cargar_logo_b64(os.path.join(_APP_DIR, "Logo_principal.png"))
+_LOGO_DARK_B64  = _cargar_logo_b64(os.path.join(_APP_DIR, "Logo_para_versiones_oscuras.png"))
+# Mime type real de los archivos (JPEG encapsulados en .png)
+_LOGO_MIME      = "image/jpeg"
+
+
 def _inyectar_css_global():
     st.markdown("""
-    <style>
+        <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
         
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif !important;
         }
-        
-        /* Respetamos variables nativas para fondos y textos. Solo alteramos la marca (Brand) */
-        
-        /* Botones Primarios (Verde Esmeralda) */
+
+        /* Botones primarios */
         .stButton > button[kind="primary"] {
             background-color: #1F6F54 !important;
             color: #FFFFFF !important;
             border: none !important;
+            transition: all 0.3s ease;
         }
         .stButton > button[kind="primary"]:hover {
-            background-color: #16523D !important;
+            background-color: #144D3A !important;
+            transform: scale(1.02);
         }
-        
-        /* Botones Secundarios */
+
+        /* Botones secundarios */
         .stButton > button[kind="secondary"] {
+            background-color: transparent !important;
             border: 1px solid #1F6F54 !important;
             color: var(--text-color) !important;
-            background-color: transparent !important;
+            transition: all 0.3s ease;
         }
-        
-        /* Detalles Oro en contenedores importantes (Preservando el fondo nativo) */
+        .stButton > button[kind="secondary"]:hover {
+            border-color: #1F6F54 !important;
+            color: #1F6F54 !important;
+            box-shadow: 0 2px 4px rgba(31, 111, 84, 0.2);
+        }
+
+        /* Métricas en verde de marca */
         div[data-testid="stMetricValue"] {
             color: #1F6F54 !important;
         }
-        
-        /* Swapping de Logo Automático según el esquema del Sistema Operativo */
-        @media (prefers-color-scheme: dark) {
-            img.logo-light { display: none !important; }
-            img.logo-dark { display: block !important; width: 100%; max-width: 220px; margin: 0 auto; }
-        }
+
+        /* ── Swap automático de logos según esquema del SO ────────────────── */
+        /* Modo claro: muestra logo principal, oculta el oscuro              */
         @media (prefers-color-scheme: light) {
-            img.logo-light { display: block !important; width: 100%; max-width: 220px; margin: 0 auto; }
-            img.logo-dark { display: none !important; }
+            img.img-logo-light { display: inline-block !important; }
+            img.img-logo-dark  { display: none         !important; }
         }
-    </style>
+        /* Modo oscuro: muestra logo para fondos oscuros, oculta el claro   */
+        @media (prefers-color-scheme: dark) {
+            img.img-logo-light { display: none         !important; }
+            img.img-logo-dark  { display: inline-block !important; }
+        }
+        </style>
     """, unsafe_allow_html=True)
 
 _inyectar_css_global()
@@ -1510,31 +1539,44 @@ def _pantalla_login() -> None:
     </style>
     """, unsafe_allow_html=True)
 
-    # ── Logo centrado ─────────────────────────────────────────────────────────
-    _login_base_dir = os.path.dirname(os.path.abspath(__file__))
-    _login_logo = next(
-        (os.path.join(_login_base_dir, n) for n in
-         ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
-          "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
-         if os.path.exists(os.path.join(_login_base_dir, n))),
-        None
+    # ── Logo centrado — bimodal (Light / Dark automático) ────────────────────
+    _logo_img_style = (
+        "width:220px;max-width:90%;height:auto;"
+        "object-fit:contain;display:inline-block;"
     )
-    _col1, _col2, _col3 = st.columns([1.5, 2, 1.5])
-    with _col2:
+    if _LOGO_LIGHT_B64 or _LOGO_DARK_B64:
+        _src_light = f"data:{_LOGO_MIME};base64,{_LOGO_LIGHT_B64}" if _LOGO_LIGHT_B64 else ""
+        _src_dark  = f"data:{_LOGO_MIME};base64,{_LOGO_DARK_B64}"  if _LOGO_DARK_B64  else ""
+        # Si sólo existe uno de los dos, usarlo en ambas variantes
+        _src_light = _src_light or _src_dark
+        _src_dark  = _src_dark  or _src_light
+        st.markdown(
+            f'<div style="text-align:center;margin-bottom:15px;padding-top:8px">'
+            f'<img src="{_src_light}" class="img-logo-light" style="{_logo_img_style}" alt="Costo360"/>'
+            f'<img src="{_src_dark}"  class="img-logo-dark"  style="{_logo_img_style}" alt="Costo360"/>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        # Fallback: logo subido en Configuración (BD) o texto C360
         if st.session_state.get("logo_bytes"):
-            st.image(st.session_state.logo_bytes, width=200)
-        elif _login_logo:
-            st.image(_login_logo, width=200)
+            _l_b64 = _base64.b64encode(st.session_state.logo_bytes).decode("utf-8")
+            st.markdown(
+                f'<div style="text-align:center;margin-bottom:15px;padding-top:8px">'
+                f'<img src="data:image/jpeg;base64,{_l_b64}" '
+                f'style="{_logo_img_style}" alt="Costo360"/></div>',
+                unsafe_allow_html=True,
+            )
         else:
             st.markdown(
-                '<div style="text-align:center;padding:10px 0 6px">'
+                '<div style="text-align:center;padding:10px 0 12px">'
                 '<span style="color:#C9A45C;font-size:2.4rem;font-weight:900;'
                 'font-family:serif;line-height:1">C360</span></div>',
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
 
     st.markdown(
-        '<div class="login-title" style="margin-top:4px;margin-bottom:8px">Iniciar Sesión</div>',
+        '<div class="login-title" style="margin-top:-20px;margin-bottom:8px">Iniciar Sesión</div>',
         unsafe_allow_html=True
     )
 
@@ -2391,32 +2433,47 @@ def get_adicionales():
 
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
-    # ── Logo corporativo — busca entre extensiones posibles automáticamente ───
-    _base_dir  = os.path.dirname(os.path.abspath(__file__))
-    _logo_path = next(
-        (os.path.join(_base_dir, n) for n in
-         ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
-          "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
-         if os.path.exists(os.path.join(_base_dir, n))),
-        None
+    # ── Logo corporativo — bimodal (Light / Dark automático) ─────────────────
+    _sb_logo_style = (
+        "width:100%;max-width:220px;height:auto;"
+        "object-fit:contain;display:inline-block;"
     )
-    # 1. Prioridad a la imagen subida en Configuración (Memoria)
-    if st.session_state.get("logo_bytes"):
-        st.image(st.session_state.logo_bytes, use_container_width=True)
-    # 2. Si no hay en memoria, busca en el disco duro
-    elif _logo_path:
-        st.image(_logo_path, use_container_width=True)
-    # 3. Fallback (Texto)
-    else:
-        st.markdown(
-            '<div style="text-align:center;padding:14px 0 8px">'
-            '<span style="color:#C9A45C;font-size:2rem;font-weight:900;'
-            'font-family:Playfair Display,serif">C360</span><br>'
-            '<span style="font-size:0.72rem;font-weight:700;opacity:0.8">'
-            'COSTO360 — PLATAFORMA B2B</span>'
-            '</div>',
-            unsafe_allow_html=True
+    if _LOGO_LIGHT_B64 or _LOGO_DARK_B64:
+        _sb_src_light = f"data:{_LOGO_MIME};base64,{_LOGO_LIGHT_B64}" if _LOGO_LIGHT_B64 else ""
+        _sb_src_dark  = f"data:{_LOGO_MIME};base64,{_LOGO_DARK_B64}"  if _LOGO_DARK_B64  else ""
+        _sb_src_light = _sb_src_light or _sb_src_dark
+        _sb_src_dark  = _sb_src_dark  or _sb_src_light
+        st.sidebar.markdown(
+            f'<div style="text-align:center;padding:10px 0 4px">'
+            f'<img src="{_sb_src_light}" class="img-logo-light" style="{_sb_logo_style}" alt="Costo360"/>'
+            f'<img src="{_sb_src_dark}"  class="img-logo-dark"  style="{_sb_logo_style}" alt="Costo360"/>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
+    else:
+        # Fallback: logo subido en Configuración (BD) → archivo legacy → texto
+        _base_dir  = os.path.dirname(os.path.abspath(__file__))
+        _logo_path = next(
+            (os.path.join(_base_dir, n) for n in
+             ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
+              "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
+             if os.path.exists(os.path.join(_base_dir, n))),
+            None
+        )
+        if st.session_state.get("logo_bytes"):
+            st.image(st.session_state.logo_bytes, use_container_width=True)
+        elif _logo_path:
+            st.image(_logo_path, use_container_width=True)
+        else:
+            st.markdown(
+                '<div style="text-align:center;padding:14px 0 8px">'
+                '<span style="color:#C9A45C;font-size:2rem;font-weight:900;'
+                'font-family:Playfair Display,serif">C360</span><br>'
+                '<span style="font-size:0.72rem;font-weight:700;opacity:0.8">'
+                'COSTO360 — PLATAFORMA B2B</span>'
+                '</div>',
+                unsafe_allow_html=True
+            )
 
     st.markdown(
         '<div style="text-align:center;margin:2px 0 14px;padding-bottom:10px;'
