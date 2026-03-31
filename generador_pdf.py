@@ -81,7 +81,7 @@ _DEFAULT_PALETTE = {
     "border":      "#C8D8E8",
 }
 
-_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_cc.jpeg")
+_LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_corporativo.png")
 
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
@@ -131,13 +131,13 @@ def _extraer_paleta_logo(logo_bytes):
             min(255, int(avg_b*0.8+100)), min(255, int(avg_g*0.6+80)), min(255, int(avg_r*0.3)))
         pal = _DEFAULT_PALETTE.copy()
         pal.update({
-            "header_dark": to_hex(*pr),
-            "primary":     to_hex(*pr),
-            "secondary":   to_hex(*sec),
-            "accent":      accent,
+            "header_dark": "#1F6F54",
+            "primary":     "#1F6F54",
+            "secondary":   "#1F6F54",
+            "accent":      "#C9A45C",
             "light":       to_hex(*lt),
             "ultralight":  to_hex(*ult),
-            "total_bg":    to_hex(*pr),
+            "total_bg":    "#1F6F54",
             "text":        to_hex(*darken(avg_r, avg_g, avg_b, 0.16)),
         })
         return pal
@@ -214,7 +214,7 @@ def _estilos(C):
 
         # ── NIVEL 1: Títulos de sección ───────────────────────────────────────
         "seccion":     ParagraphStyle("seccion", fontSize=10, fontName="Helvetica-Bold",
-                                       leading=12, textColor=C["secondary"], letterSpacing=0.8),
+                                       leading=12, textColor=C["secondary"], letterSpacing=1.2),
 
         # ── NIVEL 2: Labels / subtítulos ──────────────────────────────────────
         "cell_b":      ParagraphStyle("cell_b", fontSize=9, fontName="Helvetica-Bold",
@@ -250,7 +250,7 @@ def _estilos(C):
 
         # ── TOTAL: máxima jerarquía visual ────────────────────────────────────
         "total_label": ParagraphStyle("total_label", fontSize=11, fontName="Helvetica-Bold",
-                                       leading=14, textColor=C["white"]),
+                                       leading=14, textColor=C["white"], letterSpacing=1.0),
         "total_val":   ParagraphStyle("total_val", fontSize=11, fontName="Helvetica-Bold",
                                        leading=14, textColor=C["white"], alignment=TA_RIGHT),
         "letras":      ParagraphStyle("letras", fontSize=8, fontName="Helvetica-Bold",
@@ -294,6 +294,9 @@ def _estilos(C):
         "matriz_exc_row": ParagraphStyle("matriz_exc_row", fontSize=8.5, fontName="Helvetica",
                                           leading=11, textColor=colors.HexColor("#1C1C1C"),
                                           leftIndent=0, firstLineIndent=0, spaceAfter=0),
+        "resumen_ia":     ParagraphStyle("resumen_ia", fontSize=10, fontName="Helvetica-Oblique",
+                                          leading=14, textColor=colors.HexColor("#374151"),
+                                          leftIndent=15, rightIndent=15, spaceBefore=4, spaceAfter=4),
     }
 
 
@@ -317,7 +320,7 @@ def _encabezado_doc(E, C, doc_type, numero, fecha_str, empresa_info, logo_bytes,
     if logo_img:
         izq.append(logo_img)
         izq.append(Spacer(1, 4))
-    izq.append(Paragraph(emp.get("nombre", "Costo360 - Plataforma B2B"), E["doc_empresa"]))
+    izq.append(Paragraph(emp.get("nombre") or "Costo360 · Soluciones B2B", E["doc_empresa"]))
     if emp.get("nit"):
         izq.append(Paragraph(emp["nit"], E["doc_emp_sub"]))
     if emp.get("tel") and emp.get("email"):
@@ -383,11 +386,12 @@ def _tabla_2col(E, C, filas_datos):
     return _tabla_datos_cliente(E, C, filas_datos)
 
 
-def _footer_doc(E, C, emp_nombre, fecha_str, numero="", ciudad="Barranquilla"):
-    _ciudad_str = ciudad.strip() if ciudad and ciudad.strip() else "Barranquilla"
+def _footer_doc(E, C, emp_nombre, fecha_str, numero="", ciudad=""):
+    _ciudad_str = ciudad.strip() if ciudad and ciudad.strip() else ""
+    _sep_ciudad = f"{_ciudad_str}  •  " if _ciudad_str else ""
     linea = (
-        f"{emp_nombre or 'Costo360 - Plataforma B2B'}  |  "
-        f"{_ciudad_str}  •  {fecha_str}"
+        f"{emp_nombre or 'Costo360 · Soluciones B2B'}  |  "
+        f"{_sep_ciudad}{fecha_str}"
     )
     _footer_style = ParagraphStyle(
         "footer_premium", fontSize=6.5, fontName="Helvetica-Bold",
@@ -756,7 +760,7 @@ def _seccion_terminos(E, C, nota_iva, anticipo_pct):
         "Los precios cotizados son válidos durante el período indicado en el encabezado. "
         "El prestador se reserva el derecho de ajustar precios por variación superior al 5% "
         "en los materiales durante el período de validez.",
-        "Barranquilla, Colombia.",
+        "Generado por Costo360.",
     ]
 
     # Sin KeepTogether — flujo natural
@@ -819,7 +823,7 @@ def _bloque_firma_cliente(E, C):
 
 def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
                             logo_bytes=None, incluir_iva=True,
-                            inclusiones=None, exclusiones=None):
+                            inclusiones=None, exclusiones=None, resumen_ia=""):
     if numero is None:
         numero = f"COT-{_hoy().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
@@ -916,6 +920,11 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, _SP_SECCION))
 
+    # --- INYECCIÓN RESUMEN IA B2B ---
+    if resumen_ia and str(resumen_ia).strip():
+        story.append(Paragraph(str(resumen_ia).strip(), E["resumen_ia"]))
+        story.append(Spacer(1, _SP_SECCION))
+
     # ③ SERVICIOS ADICIONALES (si aplica)
     if _c7_adicionales > 0:
         story += _seccion_adicionales_alcance(E, C, _adicionales_detalle, _c7_adicionales)
@@ -957,7 +966,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
     story += _bloque_firma_cliente(E, C)
 
     # ⑨ FOOTER
-    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
+    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad",""))
 
     doc.build(story)
     return buf.getvalue()
@@ -967,7 +976,7 @@ def generar_pdf_cotizacion(resultado, numero=None, empresa_info=None,
 # COTIZACIÓN AIU
 # ══════════════════════════════════════════════════════════════════════════════
 
-def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None, incluir_iva=True, inclusiones=None, exclusiones=None):
+def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_bytes=None, incluir_iva=True, inclusiones=None, exclusiones=None, resumen_ia=""):
     if numero is None:
         numero = f"COT-AIU-{_hoy().strftime('%Y%m%d')}-001"
     fecha_str = _fecha_es()
@@ -1025,6 +1034,11 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
     ]
     story.append(_tabla_datos_cliente(E, C, datos_filas))
     story.append(Spacer(1, _SP_SECCION))
+
+    # --- INYECCIÓN RESUMEN IA B2B ---
+    if resumen_ia and str(resumen_ia).strip():
+        story.append(Paragraph(str(resumen_ia).strip(), E["resumen_ia"]))
+        story.append(Spacer(1, _SP_SECCION))
 
     # ③ COSTO DIRECTO
     story += _seccion_header("Costo Directo (CD) — Items del Contrato", E)
@@ -1177,14 +1191,14 @@ def generar_pdf_cotizacion_aiu(resultado, numero=None, empresa_info=None, logo_b
         "Utilidad (U), conforme al Art. 3 del Decreto 1372/1992 y conceptos DIAN. "
         "El IVA NO se aplica sobre Costo Directo (CD), Administración (A) ni Imprevistos (I). "
         f"Anticipo requerido: {anticipo_pct}% del total al inicio de la obra. "
-        "Barranquilla, Colombia."
+        "Generado por Costo360."
     )
     story += _seccion_alcance(E, C, inclusiones=inclusiones, exclusiones=exclusiones)
     story.append(Spacer(1, _SP_SECCION))
     story += _seccion_terminos(E, C, nota_aiu, anticipo_pct)
     story.append(Spacer(1, _SP_BLOQUE))
     story += _bloque_firma_cliente(E, C)
-    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad","Barranquilla"))
+    story += _footer_doc(E, C, emp.get("nombre",""), fecha_str, numero, ciudad=emp.get("ciudad",""))
 
     doc.build(story)
     return buf.getvalue()
@@ -1428,7 +1442,7 @@ def generar_cuenta_cobro(resultado, datos_prestador, datos_pagador,
 
     # ⑩ FOOTER
     story += _footer_doc(E, C, datos_prestador.get("nombre",""), fecha_str, numero,
-                          ciudad=datos_prestador.get("ciudad","Barranquilla"))
+                          ciudad=datos_prestador.get("ciudad",""))
 
     doc.build(story)
     return buf.getvalue()
