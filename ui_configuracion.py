@@ -188,7 +188,7 @@ def _ui_configuracion(
             if st.button("🗑️ Restablecer Logos de Costo360", type="secondary", use_container_width=True):
                 try:
                     st.session_state.logo_bytes = None
-                    fn_guardar_logo(None)
+                    fn_guardar_logo(b"")
                     st.success("✅ Logo personalizado eliminado. Se han restaurado los logos duales (Claro/Oscuro).")
                     time.sleep(1)
                     st.rerun()
