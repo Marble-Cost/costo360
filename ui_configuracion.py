@@ -17,6 +17,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 import os
+import time
 
 import streamlit as st
 
@@ -184,18 +185,19 @@ def _ui_configuracion(
         if st.session_state.get("logo_bytes"):
             st.image(st.session_state.logo_bytes, width=220)
             st.caption("✅ Logo personalizado activo (subido por el usuario)")
-            if st.button("🗑️ Eliminar logo personalizado", type="secondary", key="btn_eliminar_logo"):
-                st.session_state.logo_bytes = None
+            if st.button("🗑️ Restablecer Logos de Costo360", type="secondary", use_container_width=True):
                 try:
+                    st.session_state.logo_bytes = None
                     fn_guardar_logo(None)
-                except Exception:
-                    pass
-                st.rerun()
+                    st.success("✅ Logo personalizado eliminado. Se han restaurado los logos duales (Claro/Oscuro).")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al limpiar la base de datos: {e}")
         else:
             st.info(
-                "Actualmente se están utilizando los logos corporativos por defecto "
-                "(**Logo principal.png** / **Logo para versiones oscuras.png**) configurados en el sistema.",
-                icon="🖼️",
+                "🛡️ Modo Dual Activo: El sistema está usando los logos oficiales de alta resolución "
+                "que se adaptan automáticamente al modo claro y oscuro de tu dispositivo."
             )
 
         logo = st.file_uploader("Subir nuevo logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
