@@ -52,109 +52,47 @@ st.set_page_config(
 
 def _inyectar_css_global():
     st.markdown("""
-        <style>
+    <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
         
         html, body, [class*="css"] {
             font-family: 'Inter', sans-serif !important;
         }
-
-        /* Botones primarios */
+        
+        /* Respetamos variables nativas para fondos y textos. Solo alteramos la marca (Brand) */
+        
+        /* Botones Primarios (Verde Esmeralda) */
         .stButton > button[kind="primary"] {
             background-color: #1F6F54 !important;
             color: #FFFFFF !important;
             border: none !important;
-            transition: all 0.3s ease;
         }
         .stButton > button[kind="primary"]:hover {
-            background-color: #144D3A !important;
-            transform: scale(1.02);
-        }
-
-        /* Botones secundarios */
-        .stButton > button[kind="secondary"] {
-            background-color: transparent !important;
-            border: 1px solid #1F6F54 !important;
-            color: #1C1C1C !important;
-            transition: all 0.3s ease;
-        }
-        .stButton > button[kind="secondary"]:hover {
-            border-color: #1F6F54 !important;
-            color: #1F6F54 !important;
-            box-shadow: 0 2px 4px rgba(31, 111, 84, 0.2);
-        }
-
-        /* Color de texto general */
-        .stMarkdown, .stText {
-            color: #1C1C1C;
+            background-color: #16523D !important;
         }
         
-        /* Fondo de la barra lateral — modo claro */
-        [data-testid="stSidebar"] {
-            background-color: #EDE6DA !important;
+        /* Botones Secundarios */
+        .stButton > button[kind="secondary"] {
+            border: 1px solid #1F6F54 !important;
+            color: var(--text-color) !important;
+            background-color: transparent !important;
         }
-
-        /* ── MODO OSCURO ─────────────────────────────────────────────────── */
+        
+        /* Detalles Oro en contenedores importantes (Preservando el fondo nativo) */
+        div[data-testid="stMetricValue"] {
+            color: #1F6F54 !important;
+        }
+        
+        /* Swapping de Logo Automático según el esquema del Sistema Operativo */
         @media (prefers-color-scheme: dark) {
-
-            /* Sidebar: gris carbón oscuro, elimina el beige */
-            [data-testid="stSidebar"] {
-                background-color: #212121 !important;
-            }
-
-            /* Texto principal: blanco/gris claro nativo */
-            .stMarkdown, .stText {
-                color: #E8E8E8 !important;
-            }
-
-            /* Tarjetas y contenedores custom en markdown:
-               fondo oscuro con borde sutil en oro */
-            div.stMarkdown > div > p {
-                background-color: #1A1A1A !important;
-                border: 1px solid rgba(201, 164, 92, 0.35) !important;
-                border-radius: 8px !important;
-                padding: 8px 12px !important;
-            }
-
-            /* Botones primarios — mantiene Verde Esmeralda con contraste legible */
-            .stButton > button[kind="primary"] {
-                background-color: #1F6F54 !important;
-                color: #FFFFFF !important;
-                border: none !important;
-            }
-            .stButton > button[kind="primary"]:hover {
-                background-color: #27906C !important;
-            }
-
-            /* Botones secundarios — borde oro en oscuro para mayor visibilidad */
-            .stButton > button[kind="secondary"] {
-                background-color: transparent !important;
-                border: 1px solid #C9A45C !important;
-                color: #E8E8E8 !important;
-            }
-            .stButton > button[kind="secondary"]:hover {
-                border-color: #C9A45C !important;
-                color: #C9A45C !important;
-                box-shadow: 0 2px 6px rgba(201, 164, 92, 0.25);
-            }
-
-            /* Inputs y selectboxes: fondo oscuro consistente */
-            .stTextInput > div > div > input,
-            .stSelectbox > div > div,
-            .stNumberInput > div > div > input,
-            .stTextArea > div > div > textarea {
-                background-color: #2A2A2A !important;
-                color: #E8E8E8 !important;
-                border-color: rgba(201, 164, 92, 0.30) !important;
-            }
-
-            /* Containers con border (st.container(border=True)) */
-            [data-testid="stVerticalBlockBorderWrapper"] {
-                border-color: rgba(201, 164, 92, 0.25) !important;
-                background-color: #1E1E1E !important;
-            }
+            img.logo-light { display: none !important; }
+            img.logo-dark { display: block !important; width: 100%; max-width: 220px; margin: 0 auto; }
         }
-        </style>
+        @media (prefers-color-scheme: light) {
+            img.logo-light { display: block !important; width: 100%; max-width: 220px; margin: 0 auto; }
+            img.logo-dark { display: none !important; }
+        }
+    </style>
     """, unsafe_allow_html=True)
 
 _inyectar_css_global()
