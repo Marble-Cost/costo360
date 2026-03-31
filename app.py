@@ -89,9 +89,70 @@ def _inyectar_css_global():
             color: #1C1C1C;
         }
         
-        /* Fondo de la barra lateral */
+        /* Fondo de la barra lateral — modo claro */
         [data-testid="stSidebar"] {
             background-color: #EDE6DA !important;
+        }
+
+        /* ── MODO OSCURO ─────────────────────────────────────────────────── */
+        @media (prefers-color-scheme: dark) {
+
+            /* Sidebar: gris carbón oscuro, elimina el beige */
+            [data-testid="stSidebar"] {
+                background-color: #212121 !important;
+            }
+
+            /* Texto principal: blanco/gris claro nativo */
+            .stMarkdown, .stText {
+                color: #E8E8E8 !important;
+            }
+
+            /* Tarjetas y contenedores custom en markdown:
+               fondo oscuro con borde sutil en oro */
+            div.stMarkdown > div > p {
+                background-color: #1A1A1A !important;
+                border: 1px solid rgba(201, 164, 92, 0.35) !important;
+                border-radius: 8px !important;
+                padding: 8px 12px !important;
+            }
+
+            /* Botones primarios — mantiene Verde Esmeralda con contraste legible */
+            .stButton > button[kind="primary"] {
+                background-color: #1F6F54 !important;
+                color: #FFFFFF !important;
+                border: none !important;
+            }
+            .stButton > button[kind="primary"]:hover {
+                background-color: #27906C !important;
+            }
+
+            /* Botones secundarios — borde oro en oscuro para mayor visibilidad */
+            .stButton > button[kind="secondary"] {
+                background-color: transparent !important;
+                border: 1px solid #C9A45C !important;
+                color: #E8E8E8 !important;
+            }
+            .stButton > button[kind="secondary"]:hover {
+                border-color: #C9A45C !important;
+                color: #C9A45C !important;
+                box-shadow: 0 2px 6px rgba(201, 164, 92, 0.25);
+            }
+
+            /* Inputs y selectboxes: fondo oscuro consistente */
+            .stTextInput > div > div > input,
+            .stSelectbox > div > div,
+            .stNumberInput > div > div > input,
+            .stTextArea > div > div > textarea {
+                background-color: #2A2A2A !important;
+                color: #E8E8E8 !important;
+                border-color: rgba(201, 164, 92, 0.30) !important;
+            }
+
+            /* Containers con border (st.container(border=True)) */
+            [data-testid="stVerticalBlockBorderWrapper"] {
+                border-color: rgba(201, 164, 92, 0.25) !important;
+                background-color: #1E1E1E !important;
+            }
         }
         </style>
     """, unsafe_allow_html=True)
@@ -1520,12 +1581,12 @@ def _pantalla_login() -> None:
          if os.path.exists(os.path.join(_login_base_dir, n))),
         None
     )
-    _col1, _col2, _col3 = st.columns([1.2, 1, 1.2])
+    _col1, _col2, _col3 = st.columns([1.5, 2, 1.5])
     with _col2:
         if st.session_state.get("logo_bytes"):
-            st.image(st.session_state.logo_bytes, use_container_width=True)
+            st.image(st.session_state.logo_bytes, width=200)
         elif _login_logo:
-            st.image(_login_logo, use_container_width=True)
+            st.image(_login_logo, width=200)
         else:
             st.markdown(
                 '<div style="text-align:center;padding:10px 0 6px">'
