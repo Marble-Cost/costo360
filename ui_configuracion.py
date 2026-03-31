@@ -176,7 +176,7 @@ def _ui_configuracion(
         _logo_path_cfg = next(
             (
                 os.path.join(_base_dir_cfg, n)
-                for n in ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png", "Logo_cc.jpeg"]
+                for n in ["logo_corporativo.png", "logo_corporativo.jpg", "logo_corporativo.jpeg"]
                 if os.path.exists(os.path.join(_base_dir_cfg, n))
             ),
             None,
@@ -333,7 +333,7 @@ def _ui_configuracion(
                     )
                     _uc2.markdown(
                         f"<div style='padding-top:7px'>"
-                        f"<span style='background:{'#1B5FA8' if _u_rol == 'Admin' else '#6b7280'};"
+                        f"<span style='background:{'#1F6F54' if _u_rol == 'Admin' else '#6b7280'};"
                         f"color:white;font-size:0.63rem;font-weight:700;padding:3px 8px;"
                         f"border-radius:4px;text-transform:uppercase'>{_u_rol}</span>"
                         f"{'<span style=\\\"font-size:0.65rem;opacity:0.4;margin-left:5px\\\">(tú)</span>' if _es_yo else ''}"
