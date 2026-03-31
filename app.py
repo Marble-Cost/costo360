@@ -51,6 +51,8 @@ st.set_page_config(
 )
 
 # ── Logos de alta resolución en Base64 (carga única al arrancar) ─────────────
+import base64 as _base64_mod
+
 def _cargar_logo_b64(ruta: str) -> str:
     """Lee un archivo de imagen y devuelve su contenido como string Base64 UTF-8.
     Devuelve string vacío si el archivo no existe o no puede leerse.
@@ -58,17 +60,32 @@ def _cargar_logo_b64(ruta: str) -> str:
     try:
         if os.path.exists(ruta):
             with open(ruta, "rb") as _lf:
-                import base64 as _b64_mod
-                return _b64_mod.b64encode(_lf.read()).decode("utf-8")
+                return _base64_mod.b64encode(_lf.read()).decode("utf-8")
     except Exception:
         pass
     return ""
 
+def _resolver_logo(nombres_candidatos: list) -> str:
+    """Prueba una lista de nombres de archivo en _APP_DIR y devuelve el primero que exista en b64."""
+    _dir = os.path.dirname(os.path.abspath(__file__))
+    for _n in nombres_candidatos:
+        _b = _cargar_logo_b64(os.path.join(_dir, _n))
+        if _b:
+            return _b
+    return ""
+
 _APP_DIR        = os.path.dirname(os.path.abspath(__file__))
-_LOGO_LIGHT_B64 = _cargar_logo_b64(os.path.join(_APP_DIR, "Logo_principal.png"))
-_LOGO_DARK_B64  = _cargar_logo_b64(os.path.join(_APP_DIR, "Logo_para_versiones_oscuras.png"))
-# Mime type real de los archivos (JPEG encapsulados en .png)
-_LOGO_MIME      = "image/jpeg"
+# Nombres con espacio (originales) y con guion bajo (versiones renombradas por el SO/repo)
+_LOGO_LIGHT_B64 = _resolver_logo([
+    "Logo principal.png",
+    "Logo_principal.png",
+])
+_LOGO_DARK_B64  = _resolver_logo([
+    "Logo para versiones oscuras.png",
+    "Logo_para_versiones_oscuras.png",
+])
+# MIME real — ambos archivos son JPEG aunque tengan extensión .png
+_LOGO_MIME = "image/jpeg"
 
 
 def _inyectar_css_global():
@@ -111,12 +128,16 @@ def _inyectar_css_global():
         }
 
         /* ── Swap automático de logos según esquema del SO ────────────────── */
-        /* Modo claro: muestra logo principal, oculta el oscuro              */
+        /* Estado por defecto: muestra logo claro, oculta el oscuro          */
+        img.img-logo-light { display: inline-block !important; }
+        img.img-logo-dark  { display: none         !important; }
+
+        /* Modo claro explícito */
         @media (prefers-color-scheme: light) {
             img.img-logo-light { display: inline-block !important; }
             img.img-logo-dark  { display: none         !important; }
         }
-        /* Modo oscuro: muestra logo para fondos oscuros, oculta el claro   */
+        /* Modo oscuro: intercambia a la versión para fondos oscuros         */
         @media (prefers-color-scheme: dark) {
             img.img-logo-light { display: none         !important; }
             img.img-logo-dark  { display: inline-block !important; }
@@ -1540,9 +1561,10 @@ def _pantalla_login() -> None:
     """, unsafe_allow_html=True)
 
     # ── Logo centrado — bimodal (Light / Dark automático) ────────────────────
+    # IMPORTANTE: los <img> NO llevan display en el style inline para que las
+    # media queries de CSS puedan controlar su visibilidad sin ser sobreescritas.
     _logo_img_style = (
-        "width:220px;max-width:90%;height:auto;"
-        "object-fit:contain;display:inline-block;"
+        "width:220px;max-width:90%;height:auto;object-fit:contain;"
     )
     if _LOGO_LIGHT_B64 or _LOGO_DARK_B64:
         _src_light = f"data:{_LOGO_MIME};base64,{_LOGO_LIGHT_B64}" if _LOGO_LIGHT_B64 else ""
@@ -1560,7 +1582,7 @@ def _pantalla_login() -> None:
     else:
         # Fallback: logo subido en Configuración (BD) o texto C360
         if st.session_state.get("logo_bytes"):
-            _l_b64 = _base64.b64encode(st.session_state.logo_bytes).decode("utf-8")
+            _l_b64 = _base64_mod.b64encode(st.session_state.logo_bytes).decode("utf-8")
             st.markdown(
                 f'<div style="text-align:center;margin-bottom:15px;padding-top:8px">'
                 f'<img src="data:image/jpeg;base64,{_l_b64}" '
@@ -2434,9 +2456,10 @@ def get_adicionales():
 # ── SIDEBAR NAV ───────────────────────────────────────────────────────────────
 with st.sidebar:
     # ── Logo corporativo — bimodal (Light / Dark automático) ─────────────────
+    # IMPORTANTE: los <img> NO llevan display en el style inline para que las
+    # media queries de CSS puedan controlar su visibilidad sin ser sobreescritas.
     _sb_logo_style = (
-        "width:100%;max-width:220px;height:auto;"
-        "object-fit:contain;display:inline-block;"
+        "width:100%;max-width:220px;height:auto;object-fit:contain;"
     )
     if _LOGO_LIGHT_B64 or _LOGO_DARK_B64:
         _sb_src_light = f"data:{_LOGO_MIME};base64,{_LOGO_LIGHT_B64}" if _LOGO_LIGHT_B64 else ""
