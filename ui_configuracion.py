@@ -183,10 +183,20 @@ def _ui_configuracion(
         )
         if st.session_state.get("logo_bytes"):
             st.image(st.session_state.logo_bytes, width=220)
-            st.caption("✅ Logo en memoria (subido en esta sesión)")
-        elif _logo_path_cfg:
-            st.image(_logo_path_cfg, width=220)
-            st.caption(f"📁 Logo desde disco: `{os.path.basename(_logo_path_cfg)}`")
+            st.caption("✅ Logo personalizado activo (subido por el usuario)")
+            if st.button("🗑️ Eliminar logo personalizado", type="secondary", key="btn_eliminar_logo"):
+                st.session_state.logo_bytes = None
+                try:
+                    fn_guardar_logo(None)
+                except Exception:
+                    pass
+                st.rerun()
+        else:
+            st.info(
+                "Actualmente se están utilizando los logos corporativos por defecto "
+                "(**Logo principal.png** / **Logo para versiones oscuras.png**) configurados en el sistema.",
+                icon="🖼️",
+            )
 
         logo = st.file_uploader("Subir nuevo logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
         if logo:
