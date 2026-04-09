@@ -704,35 +704,35 @@ def _ui_cotizacion_directa(
     _pasos_html = ""
     for _i, _p in enumerate(WIZARD_PASOS):
         if _i < paso:
-            _dot_style = "background:#1F6F54;color:white;border:2px solid #1F6F54"
-            _lbl_style = "color:#1F6F54;font-weight:700"
-            _dot_char  = "✓"
+            _dot_style = "background:#1F6F54;color:white;border:2px solid #1F6F54;"
+            _lbl_style = "color:#1F6F54;font-weight:700;"
+            _dot_char  = "&#10003;"
             _conn_bg   = "#1F6F54"
             _conn_op   = "1"
         elif _i == paso:
-            _dot_style = "background:#1F6F54;color:white;border:2px solid #1F6F54;box-shadow:0 0 0 4px rgba(31,111,84,0.18)"
-            _lbl_style = "color:#1F6F54;font-weight:900"
+            _dot_style = "background:#1F6F54;color:white;border:2px solid #1F6F54;box-shadow:0 0 0 4px rgba(31,111,84,0.18);"
+            _lbl_style = "color:#1F6F54;font-weight:900;"
             _dot_char  = str(_i + 1)
             _conn_bg   = "var(--border-color)"
             _conn_op   = "0.25"
         else:
-            _dot_style = "background:transparent;color:var(--text-color);border:2px solid var(--border-color);opacity:0.4"
-            _lbl_style = "opacity:0.4"
+            _dot_style = "background:transparent;color:var(--text-color);border:2px solid var(--border-color);opacity:0.4;"
+            _lbl_style = "opacity:0.4;"
             _dot_char  = str(_i + 1)
             _conn_bg   = "var(--border-color)"
             _conn_op   = "0.25"
 
         _pasos_html += (
-            '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px">'
-            '<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;'
-            'justify-content:center;font-size:0.78rem;font-weight:800;' + _dot_style + '">' + _dot_char + '</div>'
-            '<div style="font-size:0.65rem;text-align:center;' + _lbl_style + '">' + _p["label"] + '</div>'
-            '</div>'
+            f'<div style="display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px;">'
+            f'<div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;'
+            f'justify-content:center;font-size:0.78rem;font-weight:800;{_dot_style}">{_dot_char}</div>'
+            f'<div style="font-size:0.65rem;text-align:center;{_lbl_style}">{_p["label"]}</div>'
+            f'</div>'
         )
         if _i < N_PASOS - 1:
             _pasos_html += (
-                '<div style="flex:1;height:2px;background:' + _conn_bg + ';opacity:' + _conn_op + ';'
-                'margin-bottom:14px;align-self:flex-start;margin-top:16px"></div>'
+                f'<div style="flex:1;height:2px;background:{_conn_bg};opacity:{_conn_op};'
+                f'margin-bottom:14px;align-self:flex-start;margin-top:16px;"></div>'
             )
 
     st.markdown(
