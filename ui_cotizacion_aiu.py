@@ -168,7 +168,7 @@ def _ui_cotizacion_aiu(
                     box-shadow:0 8px 32px rgba(31,111,84,0.35)">
           <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
             <div style="width:52px;height:52px;background:rgba(201,168,76,0.25);border-radius:50%;
-                        display:flex;align-items:center;justify-content:center;font-size:1.6rem">&#1C1C1C;</div>
+                        display:flex;align-items:center;justify-content:center;font-size:1.6rem">✔</div>
             <div>
               <div style="font-size:0.7rem;letter-spacing:0.14em;text-transform:uppercase;
                           color:#C9A45C;font-weight:700;margin-bottom:2px">OFERTA AIU FINALIZADA</div>
@@ -300,7 +300,7 @@ def _ui_cotizacion_aiu(
         if _i < paso_aiu:
             _ds = "background:#1F6F54;color:white;border:2px solid #1F6F54"
             _ls = "color:#1F6F54;font-weight:700"
-            _dc = "&#1C1C1C;"
+            _dc = "✔"
             _cb = "#1F6F54"
             _co = "1"
         elif _i == paso_aiu:
