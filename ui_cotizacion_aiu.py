@@ -753,7 +753,14 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
         pers_aiu      = st.session_state.pre.get("personas",  2)
         incluir_iva_aiu = _current_iva
 
-        if not st.session_state.cotizacion or st.session_state.get("_recalcular_aiu"):
+        _cot_aiu = st.session_state.cotizacion
+        _cot_es_aiu = (
+            isinstance(_cot_aiu, dict)
+            and "val_u" in _cot_aiu
+            and "precio_total" in _cot_aiu
+            and "margen_pct" in _cot_aiu
+        )
+        if not _cot_es_aiu or st.session_state.get("_recalcular_aiu"):
             with st.spinner("Calculando AIU..."):
                 res_aiu = calcular_aiu(
                     cd_total, pct_a, pct_i, pct_u, vehiculo_aiu, km_aiu, peajes_aiu,
@@ -800,6 +807,12 @@ El IVA (19%) se aplica **solo sobre la Utilidad (U)** - Decreto 1372/92 Colombia
                     pass
 
         r = st.session_state.cotizacion
+
+        # Guarda defensiva: si la cotización no es AIU (le faltan claves clave),
+        # forzar recálculo en lugar de lanzar KeyError al usuario.
+        if not isinstance(r, dict) or "precio_total" not in r or "val_u" not in r:
+            st.session_state["_recalcular_aiu"] = True
+            st.rerun()
 
         _num_auto_aiu = f"AIU-{_hoy().strftime('%Y%m%d')}-{_rr.randint(100, 999)}"
         if "aiu_num_auto" not in st.session_state:
