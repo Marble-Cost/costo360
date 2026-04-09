@@ -706,7 +706,7 @@ def _ui_cotizacion_directa(
         if _i < paso:
             _dot_style = "background:#1F6F54;color:white;border:2px solid #1F6F54"
             _lbl_style = "color:#1F6F54;font-weight:700"
-            _dot_char  = "&#1C1C1C;"
+            _dot_char  = "✓"
             _conn_bg   = "#1F6F54"
             _conn_op   = "1"
         elif _i == paso:
