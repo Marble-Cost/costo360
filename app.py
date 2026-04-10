@@ -58,20 +58,8 @@ def _cargar_logo_b64(ruta: str) -> str:
     Devuelve string vacío si el archivo no existe o no puede leerse.
     """
     try:
-        # Insensible a mayúsculas: busca coincidencia exacta primero, luego case-insensitive en el directorio
-        _target = ruta
-        if not os.path.exists(_target):
-            _dir = os.path.dirname(ruta)
-            _name = os.path.basename(ruta).strip()
-            try:
-                for _f in os.listdir(_dir):
-                    if _f.strip().lower() == _name.lower():
-                        _target = os.path.join(_dir, _f)
-                        break
-            except Exception:
-                pass
-        if os.path.exists(_target):
-            with open(_target, "rb") as _lf:
+        if os.path.exists(ruta):
+            with open(ruta, "rb") as _lf:
                 return _base64_mod.b64encode(_lf.read()).decode("utf-8")
     except Exception:
         pass
@@ -84,8 +72,6 @@ def _resolver_logo(nombres_candidatos: list) -> str:
         _b = _cargar_logo_b64(os.path.join(_dir, _n))
         if _b:
             return _b
-    # Ningún candidato encontrado — advertir en consola (visible en logs de Streamlit)
-    st.warning(f"⚠️ Logo no encontrado. Se buscó: {nombres_candidatos} en `{_dir}`. Verifica que el archivo exista con ese nombre exacto.", icon="🖼️")
     return ""
 
 _APP_DIR        = os.path.dirname(os.path.abspath(__file__))
@@ -142,16 +128,19 @@ def _inyectar_css_global():
         }
 
         /* ── Swap automático de logos según esquema del SO ────────────────── */
-        .img-logo-light { display: none; width: 100%; max-width: 220px; margin: 0 auto; }
-        .img-logo-dark  { display: none; width: 100%; max-width: 220px; margin: 0 auto; }
+        /* Estado por defecto: muestra logo claro, oculta el oscuro          */
+        img.img-logo-light { display: inline-block !important; }
+        img.img-logo-dark  { display: none         !important; }
 
+        /* Modo claro explícito */
         @media (prefers-color-scheme: light) {
-            .img-logo-light { display: block !important; }
-            .img-logo-dark  { display: none  !important; }
+            img.img-logo-light { display: inline-block !important; }
+            img.img-logo-dark  { display: none         !important; }
         }
+        /* Modo oscuro: intercambia a la versión para fondos oscuros         */
         @media (prefers-color-scheme: dark) {
-            .img-logo-light { display: none  !important; }
-            .img-logo-dark  { display: block !important; }
+            img.img-logo-light { display: none         !important; }
+            img.img-logo-dark  { display: inline-block !important; }
         }
         </style>
     """, unsafe_allow_html=True)
@@ -1180,7 +1169,7 @@ def _chat_parametros(historial: list, mensaje: str) -> str:
       datos      : dict con los valores nuevos en la estructura de TARIFAS / LOGISTICA / VIATICOS
     """
     try:
-        SYSTEM_PARAMS = """Eres el asesor de costos operativos de MARMOLES COLLANTE & CASTRO LTDA., Barranquilla, Colombia.
+        SYSTEM_PARAMS = """Eres el asesor de costos operativos de Costo360, plataforma SaaS B2B de presupuestos y control de costos para talleres de piedra. El taller opera en Barranquilla, Colombia.
 Tu función es ayudar a actualizar los parámetros internos de la empresa: tarifas de producción, viáticos, logística.
 
 CONTEXTO DEL MERCADO (Feb 2026, Barranquilla):
@@ -1590,22 +1579,23 @@ def _pantalla_login() -> None:
             f'</div>',
             unsafe_allow_html=True,
         )
-    elif st.session_state.get("logo_bytes") and len(st.session_state.logo_bytes) > 0:
-        # Fallback: logo subido en Configuración (BD) — solo si tiene contenido real
-        _l_b64 = _base64_mod.b64encode(st.session_state.logo_bytes).decode("utf-8")
-        st.markdown(
-            f'<div style="text-align:center;margin-bottom:15px;padding-top:8px">'
-            f'<img src="data:image/jpeg;base64,{_l_b64}" '
-            f'style="{_logo_img_style}" alt="Costo360"/></div>',
-            unsafe_allow_html=True,
-        )
     else:
-        st.markdown(
-            '<div style="text-align:center;padding:10px 0 12px">'
-            '<span style="color:#C9A45C;font-size:2.4rem;font-weight:900;'
-            'font-family:serif;line-height:1">C360</span></div>',
-            unsafe_allow_html=True,
-        )
+        # Fallback: logo subido en Configuración (BD) o texto C360
+        if st.session_state.get("logo_bytes"):
+            _l_b64 = _base64_mod.b64encode(st.session_state.logo_bytes).decode("utf-8")
+            st.markdown(
+                f'<div style="text-align:center;margin-bottom:15px;padding-top:8px">'
+                f'<img src="data:image/jpeg;base64,{_l_b64}" '
+                f'style="{_logo_img_style}" alt="Costo360"/></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                '<div style="text-align:center;padding:10px 0 12px">'
+                '<span style="color:#C9A45C;font-size:2.4rem;font-weight:900;'
+                'font-family:serif;line-height:1">C360</span></div>',
+                unsafe_allow_html=True,
+            )
 
     st.markdown(
         '<div class="login-title" style="margin-top:-20px;margin-bottom:8px">Iniciar Sesión</div>',
@@ -2483,10 +2473,21 @@ with st.sidebar:
             f'</div>',
             unsafe_allow_html=True,
         )
-    elif st.session_state.get("logo_bytes") and len(st.session_state.logo_bytes) > 0:
-        # Fallback: logo subido en Configuración (BD) — solo si tiene contenido real
-        st.image(st.session_state.logo_bytes, use_container_width=True)
     else:
+        # Fallback: logo subido en Configuración (BD) → archivo legacy → texto
+        _base_dir  = os.path.dirname(os.path.abspath(__file__))
+        _logo_path = next(
+            (os.path.join(_base_dir, n) for n in
+             ["logo_cc.jpeg", "logo_cc.jpg", "logo_cc.png",
+              "Logo_cc.jpeg", "Logo_cc.jpg", "Logo_cc.png"]
+             if os.path.exists(os.path.join(_base_dir, n))),
+            None
+        )
+        if st.session_state.get("logo_bytes"):
+            st.image(st.session_state.logo_bytes, use_container_width=True)
+        elif _logo_path:
+            st.image(_logo_path, use_container_width=True)
+        else:
             st.markdown(
                 '<div style="text-align:center;padding:14px 0 8px">'
                 '<span style="color:#C9A45C;font-size:2rem;font-weight:900;'
