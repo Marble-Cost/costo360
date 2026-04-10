@@ -1,5 +1,5 @@
 # calculos.py — Sistema de Cotización v4
-# MARMOLES COLLANTE & CASTRO LTDA.
+# Costo360 · Motor de Cálculo
 # Motor de cálculo con soporte dual ML/m²
 #
 # LÓGICA DE NEGOCIO:
