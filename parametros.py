@@ -1,5 +1,5 @@
 # parametros.py — Sistema de Cotización v4
-# MARMOLES COLLANTE & CASTRO LTDA. · Feb 2026 · Barranquilla, Colombia
+# Costo360 · Plataforma SaaS B2B de costos y cotización para talleres de piedra
 
 CATEGORIAS_MATERIAL = ["Mármol", "Granito", "Sinterizado", "Quarztone", "Quarzita"]
 
@@ -327,10 +327,10 @@ MATERIALES_CATALOGO = {
 TOUR_PASOS = [
     {
         "id":       "bienvenida",
-        "etiqueta": "MARMOLES COLLANTE & CASTRO",
+        "etiqueta": "COSTO360",
         "icono":    "⚡",
         "titulo":   "Sistema de Cotizacion Profesional",
-        "cuerpo":   "Bienvenido. Esta herramienta es de uso exclusivo de MARMOLES COLLANTE & CASTRO LTDA. y te permite calcular el costo real de cualquier proyecto en piedra natural o sinterizado y generar cotizaciones PDF listas para enviar al cliente.\n\nEl recorrido guiado cubre las funciones clave en menos de 2 minutos.",
+        "cuerpo":   "Bienvenido a Costo360. Esta plataforma te permite calcular el costo real de cualquier proyecto en piedra natural o sinterizado y generar cotizaciones PDF listas para enviar al cliente.\n\nEl recorrido guiado cubre las funciones clave en menos de 2 minutos.",
         "pagina":   None,
     },
     {
