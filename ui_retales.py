@@ -37,13 +37,17 @@ def _ui_banco_retales(
         fn_actualizar_precio: Callable — actualiza precio_recuperacion en BD.
                              Firma: fn_actualizar_precio(retal_id, precio) -> bool
     """
-    st.markdown(
-        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>♻️ Sobrantes Aprovechables</h2>"
-        "<p style='opacity:0.6;font-size:0.85rem;margin:0 0 12px'>"
-        "Material que sobró de proyectos anteriores y puedes volver a vender — úsalo en el próximo proyecto y dispara tu margen de ganancia."
-        "</p>",
-        unsafe_allow_html=True
-    )
+    st.markdown("""
+    <div style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Inventario</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 6px">Banco de Retales</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Material sobrante de proyectos anteriores — reutilízalo y dispara tu margen de ganancia.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── Tarjeta explicativa fija ──────────────────────────────────────────────
     with st.expander("📖 ¿Cómo funciona este módulo? — Léeme si es tu primera vez", expanded=False):
