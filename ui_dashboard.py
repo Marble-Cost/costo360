@@ -52,11 +52,17 @@ def _ui_dashboard(stats_db_fn, stats_retales_fn):
     """
     import pandas as pd
 
-    st.markdown(
-        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>Dashboard</h2>"
-        "<p style='opacity:0.52;font-size:0.85rem;margin:0 0 20px'>Métricas reales de tu negocio — actualizadas automáticamente con cada cotización.</p>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Analíticas</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 6px">Dashboard</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Métricas reales de tu negocio — actualizadas automáticamente con cada cotización.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     _s = stats_db_fn(
         usuario_id=st.session_state.get("usuario_actual", {}).get("id"),
