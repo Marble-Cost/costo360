@@ -31,10 +31,17 @@ def _ui_configuracion(
 ):
     """Renderiza la pestaña completa de Configuración (Perfil de la Empresa)."""
 
-    st.markdown(
-        "<h2 style='font-family:Playfair Display,serif'>Perfil de la Empresa y Preferencias</h2>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div style="margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Cuenta</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 5px">Perfil de la Empresa</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Datos de facturación, identidad visual y gestión de usuarios del taller.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     _rol_actual = st.session_state.get("usuario_actual", {}).get("rol", "Operario")
     if _rol_actual == "Admin":
