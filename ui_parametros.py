@@ -43,14 +43,17 @@ def _ui_parametros(
 
     import pandas as pd
 
-    st.markdown(
-        "<h2 style='font-family:Playfair Display,serif'>Parámetros Operativos y Costos</h2>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "Ten control total de los costos de la empresa. "
-        "Modifica las tablas manualmente o pídele al asistente que lo haga por ti."
-    )
+    st.markdown("""
+    <div style="margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Configuración</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 5px">Parámetros Operativos</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Control total de tarifas, logística y costos. Modifica manualmente o usa el asistente IA.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     t_ia, t_tar, t_via, t_log, t_add = st.tabs([
         "🤖 Asistente IA (Modificación Automática)",
