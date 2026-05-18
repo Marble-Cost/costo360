@@ -57,19 +57,17 @@ def _ui_cotizacion_express():
     de proyecto y llama a calcular_cotizacion_directa con valores por defecto
     para logística local. Sin wizard, sin pasos, sin esperas.
     """
-    st.markdown(
-        '<div style="background:linear-gradient(135deg,#1C1C1C,#1F6F54);'
-        'border-radius:14px;padding:20px 26px;margin-bottom:22px">'
-        '<div style="font-size:0.67rem;font-weight:800;letter-spacing:0.13em;'
-        'color:rgba(255,255,255,0.5);text-transform:uppercase;margin-bottom:4px">'
-        'Costo360</div>'
-        '<div style="font-size:1.25rem;font-weight:900;color:white;margin-bottom:3px">'
-        '⚡ Modo Express — Cotización en segundos</div>'
-        '<div style="font-size:0.8rem;color:rgba(255,255,255,0.6)">'
-        'Una sola pantalla. Cálculo real. Sin pasos.</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("""
+    <div style="margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Cotización Rápida</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 5px">Modo Express</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Una sola pantalla. Cálculo real. Sin pasos — precio en segundos.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── Tipos de proyecto y su lógica de cobro ────────────────────────────────
     _EX_TIPOS_ML = ["Mesón", "Cocina", "Baño", "Escalera", "Encimera"]
