@@ -99,6 +99,18 @@ def _ui_cotizacion_aiu(
 ):
     """Renderiza la pantalla completa de Cotización AIU (wizard 3 pasos)."""
 
+    st.markdown("""
+    <div style="margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Cotización</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 5px">Cotización AIU</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Administración, Imprevistos y Utilidades — estructura profesional para licitaciones de obra.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
     # ── Safe fallbacks so function works even if Anti-Amnesia callbacks not injected ──
     def _noop(*a, **kw): pass
     if fn_sp is None:
