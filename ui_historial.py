@@ -47,11 +47,17 @@ def _ui_historial(
         fn_cargar_en_calculadora:  Callable — _cargar_en_calculadora de app.py.
         fn_stats_db:               Callable — _stats_db de app.py.
     """
-    st.markdown(
-        "<h2 style='font-family:Playfair Display,serif;margin-bottom:4px'>"
-        "Historial de cotizaciones</h2>",
-        unsafe_allow_html=True
-    )
+    st.markdown("""
+    <div style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Gestión</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 6px">Historial de Cotizaciones</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Registro completo de proyectos. Filtra, actualiza estados y recarga en el calculador.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── Métricas rápidas ──────────────────────────────────────────────────────
     _s = fn_stats_db(
