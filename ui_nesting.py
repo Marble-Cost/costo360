@@ -54,37 +54,29 @@ def _ui_nesting(
     # ── Estilos ───────────────────────────────────────────────────────────────
     st.markdown("""
     <style>
-    .plano-header {
-        background: linear-gradient(135deg, #0D2137 0%, #1B5FA8 100%);
-        border-radius: 10px;
-        padding: 22px 24px 18px;
-        margin-bottom: 18px;
-    }
-    .plano-header h2  { color:#FFFFFF; font-size:1.35rem; font-weight:700; margin:0 0 4px 0; }
-    .plano-header p   { color:#B8D4F0; font-size:0.88rem; margin:0 0 10px 0; }
-    .plano-badge      { background:#C9A84C; color:#0D2137; font-size:0.72rem;
-                        font-weight:700; border-radius:4px; padding:3px 10px;
-                        letter-spacing:0.06em; text-transform:uppercase; }
-    .plano-tip        { background:#EFF6FF; border-left:3px solid #1B5FA8;
-                        border-radius:0 6px 6px 0; padding:8px 12px;
-                        font-size:0.82rem; color:#1E3A5F; margin-bottom:10px; }
-    .plano-error      { background:#FEF2F2; border:1px solid #FECACA;
-                        border-radius:6px; padding:10px 14px;
-                        font-size:0.84rem; color:#7F1D1D; margin-top:8px; }
+    .plano-tip   { background:rgba(31,111,84,0.08);border-left:3px solid #1F6F54;
+                   border-radius:0 8px 8px 0;padding:8px 12px;
+                   font-size:0.82rem;color:rgba(232,240,235,0.75);margin-bottom:10px; }
+    .plano-error { background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);
+                   border-radius:8px;padding:10px 14px;
+                   font-size:0.84rem;color:#fca5a5;margin-top:8px; }
     .pieza-card-header {
-        font-size:0.72rem; font-weight:700; color:#1B5FA8;
-        text-transform:uppercase; letter-spacing:0.07em; margin:0 0 6px 0;
+        font-size:0.72rem;font-weight:700;color:#2A9070;
+        text-transform:uppercase;letter-spacing:0.07em;margin:0 0 6px 0;
     }
     </style>
     """, unsafe_allow_html=True)
 
     # ── Encabezado ────────────────────────────────────────────────────────────
     st.markdown("""
-    <div class="plano-header">
-        <h2>📐 Planos de Taller &amp; Optimizador de Corte</h2>
-        <p>Ingresa las medidas de la placa y las piezas a cortar.
-        El algoritmo 2D acomoda automáticamente todas las piezas dentro de la lámina.</p>
-        <span class="plano-badge">✦ Nesting 2D · Descarga PDF</span>
+    <div style="margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Optimización</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 5px">Nesting Inteligente</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Planos de taller y optimización 2D de cortes — minimiza desperdicio en cada losa.
+      </p>
     </div>
     """, unsafe_allow_html=True)
 
