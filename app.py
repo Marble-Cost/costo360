@@ -91,56 +91,344 @@ _LOGO_MIME = "image/jpeg"
 def _inyectar_css_global():
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
-        
-        html, body, [class*="css"] {
-            font-family: 'Inter', sans-serif !important;
+        /* ══════════════════════════════════════════════════════
+           COSTO360 — DESIGN SYSTEM v2
+           Paleta: verde #1F6F54 · dorado #C9A45C · fondo #0F1A14
+        ══════════════════════════════════════════════════════ */
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+        :root {
+            --c-primary:      #1F6F54;
+            --c-primary-lt:   #2A9070;
+            --c-primary-dk:   #165A43;
+            --c-gold:         #C9A45C;
+            --c-gold-lt:      #DDB97A;
+            --c-bg:           #0F1A14;
+            --c-bg2:          #162019;
+            --c-bg3:          #1E2D23;
+            --c-border:       rgba(31,111,84,0.18);
+            --c-border-gold:  rgba(201,164,92,0.18);
+            --c-text:         #E8F0EB;
+            --c-text-muted:   rgba(232,240,235,0.5);
+            --c-glass:        rgba(31,111,84,0.07);
+            --radius-card:    14px;
+            --radius-btn:     10px;
+            --shadow-green:   0 0 28px rgba(31,111,84,0.25);
+            --shadow-gold:    0 0 20px rgba(201,164,92,0.18);
         }
 
-        /* Botones primarios */
+        /* ── Base typography ── */
+        html, body, [class*="css"], .stApp {
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            background-color: var(--c-bg) !important;
+            color: var(--c-text) !important;
+        }
+        h1, h2, h3 { font-family: 'Playfair Display', serif !important; }
+
+        /* ── Main content area ── */
+        .main .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 4rem !important;
+            max-width: 1200px !important;
+        }
+
+        /* ── Noise texture overlay ── */
+        .stApp::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ══ SIDEBAR ══════════════════════════════════════════ */
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #0F1A14 0%, #162019 100%) !important;
+            border-right: 1px solid var(--c-border) !important;
+        }
+        [data-testid="stSidebar"] > div:first-child {
+            padding-top: 1rem !important;
+        }
+
+        /* Sidebar radio → menú de navegación */
+        [data-testid="stSidebar"] .stRadio { margin-top: 0 !important; }
+        [data-testid="stSidebar"] .stRadio > label { display: none !important; }
+        [data-testid="stSidebar"] .stRadio [data-testid="stWidgetLabel"] { display: none !important; }
+        [data-testid="stSidebar"] .stRadio div[role="radiogroup"] {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 2px !important;
+        }
+        [data-testid="stSidebar"] .stRadio label {
+            display: flex !important;
+            align-items: center !important;
+            padding: 9px 14px !important;
+            border-radius: 8px !important;
+            cursor: pointer !important;
+            transition: all 0.18s ease !important;
+            color: rgba(232,240,235,0.6) !important;
+            font-size: 0.875rem !important;
+            font-weight: 500 !important;
+            border: 1px solid transparent !important;
+            margin: 0 !important;
+        }
+        [data-testid="stSidebar"] .stRadio label:hover {
+            background: rgba(31,111,84,0.12) !important;
+            color: var(--c-text) !important;
+            border-color: var(--c-border) !important;
+        }
+        [data-testid="stSidebar"] .stRadio label:has(input:checked) {
+            background: linear-gradient(135deg, rgba(31,111,84,0.22), rgba(31,111,84,0.10)) !important;
+            color: #fff !important;
+            border-color: rgba(31,111,84,0.4) !important;
+            box-shadow: 0 0 12px rgba(31,111,84,0.2) !important;
+            font-weight: 700 !important;
+        }
+        [data-testid="stSidebar"] .stRadio label:has(input:checked)::before {
+            content: '';
+            display: inline-block;
+            width: 3px;
+            height: 16px;
+            background: var(--c-primary);
+            border-radius: 2px;
+            margin-right: 10px;
+            flex-shrink: 0;
+            box-shadow: 0 0 8px var(--c-primary);
+        }
+        /* Ocultar los círculos del radio */
+        [data-testid="stSidebar"] .stRadio input[type="radio"],
+        [data-testid="stSidebar"] .stRadio [data-testid="stMarkdownContainer"] + span > span {
+            display: none !important;
+        }
+        [data-testid="stSidebar"] .stRadio label > div:first-child { display: none !important; }
+        [data-testid="stSidebar"] .stRadio label p {
+            margin: 0 !important;
+            font-size: 0.875rem !important;
+        }
+
+        /* Sidebar hr */
+        [data-testid="stSidebar"] hr {
+            border-color: var(--c-border) !important;
+            margin: 10px 0 !important;
+        }
+
+        /* ══ BOTONES ══════════════════════════════════════════ */
+        .stButton > button {
+            border-radius: var(--radius-btn) !important;
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            font-weight: 600 !important;
+            font-size: 0.875rem !important;
+            transition: all 0.2s ease !important;
+            cursor: pointer !important;
+        }
         .stButton > button[kind="primary"] {
-            background-color: #1F6F54 !important;
-            color: #FFFFFF !important;
+            background: linear-gradient(135deg, var(--c-primary), var(--c-primary-lt)) !important;
+            color: #fff !important;
             border: none !important;
-            transition: all 0.3s ease;
+            box-shadow: var(--shadow-green) !important;
         }
         .stButton > button[kind="primary"]:hover {
-            background-color: #144D3A !important;
-            transform: scale(1.02);
+            background: linear-gradient(135deg, var(--c-primary-lt), var(--c-primary)) !important;
+            box-shadow: 0 0 36px rgba(31,111,84,0.4) !important;
+            transform: translateY(-1px) !important;
         }
-
-        /* Botones secundarios */
         .stButton > button[kind="secondary"] {
-            background-color: transparent !important;
-            border: 1px solid #1F6F54 !important;
-            color: var(--text-color) !important;
-            transition: all 0.3s ease;
+            background: transparent !important;
+            border: 1px solid var(--c-border) !important;
+            color: var(--c-text) !important;
         }
         .stButton > button[kind="secondary"]:hover {
-            border-color: #1F6F54 !important;
-            color: #1F6F54 !important;
-            box-shadow: 0 2px 4px rgba(31, 111, 84, 0.2);
+            border-color: var(--c-primary) !important;
+            color: var(--c-primary-lt) !important;
+            background: rgba(31,111,84,0.08) !important;
         }
 
-        /* Métricas en verde de marca */
+        /* ══ MÉTRICAS ══════════════════════════════════════════ */
+        div[data-testid="stMetric"] {
+            background: var(--c-glass) !important;
+            border: 1px solid var(--c-border) !important;
+            border-radius: var(--radius-card) !important;
+            padding: 18px 20px !important;
+            backdrop-filter: blur(12px) !important;
+            transition: box-shadow 0.2s !important;
+        }
+        div[data-testid="stMetric"]:hover {
+            box-shadow: var(--shadow-green) !important;
+            border-color: rgba(31,111,84,0.35) !important;
+        }
         div[data-testid="stMetricValue"] {
-            color: #1F6F54 !important;
+            color: var(--c-gold) !important;
+            font-family: 'Playfair Display', serif !important;
+            font-weight: 700 !important;
+            font-size: 1.6rem !important;
+        }
+        div[data-testid="stMetricLabel"] {
+            color: var(--c-text-muted) !important;
+            font-size: 0.78rem !important;
+            font-weight: 600 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.05em !important;
+        }
+        div[data-testid="stMetricDelta"] { font-size: 0.8rem !important; }
+
+        /* ══ INPUTS / SELECTBOXES ══════════════════════════════ */
+        .stTextInput > div > div > input,
+        .stNumberInput > div > div > input,
+        .stTextArea > div > div > textarea {
+            background: var(--c-bg2) !important;
+            border: 1px solid var(--c-border) !important;
+            border-radius: 8px !important;
+            color: var(--c-text) !important;
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            transition: border-color 0.2s !important;
+        }
+        .stTextInput > div > div > input:focus,
+        .stNumberInput > div > div > input:focus,
+        .stTextArea > div > div > textarea:focus {
+            border-color: var(--c-primary) !important;
+            box-shadow: 0 0 0 2px rgba(31,111,84,0.2) !important;
+        }
+        .stSelectbox > div > div,
+        .stMultiSelect > div > div {
+            background: var(--c-bg2) !important;
+            border: 1px solid var(--c-border) !important;
+            border-radius: 8px !important;
+        }
+        .stSelectbox [data-baseweb="select"] > div:first-child {
+            background: var(--c-bg2) !important;
+            border-color: var(--c-border) !important;
         }
 
-        /* ── Swap automático de logos según esquema del SO ────────────────── */
-        /* Estado por defecto: muestra logo claro, oculta el oscuro          */
-        img.img-logo-light { display: inline-block !important; }
-        img.img-logo-dark  { display: none         !important; }
+        /* ══ TABS ══════════════════════════════════════════════ */
+        .stTabs [data-baseweb="tab-list"] {
+            background: var(--c-bg2) !important;
+            border-radius: 10px !important;
+            padding: 4px !important;
+            gap: 2px !important;
+            border: 1px solid var(--c-border) !important;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background: transparent !important;
+            border-radius: 8px !important;
+            color: var(--c-text-muted) !important;
+            font-family: 'Plus Jakarta Sans', sans-serif !important;
+            font-weight: 500 !important;
+            font-size: 0.875rem !important;
+            border: none !important;
+            padding: 8px 18px !important;
+            transition: all 0.2s !important;
+        }
+        .stTabs [aria-selected="true"] {
+            background: var(--c-primary) !important;
+            color: #fff !important;
+            font-weight: 700 !important;
+            box-shadow: var(--shadow-green) !important;
+        }
+        .stTabs [data-baseweb="tab-highlight"] { display: none !important; }
+        .stTabs [data-baseweb="tab-border"] { display: none !important; }
 
-        /* Modo claro explícito */
+        /* ══ EXPANDERS ═════════════════════════════════════════ */
+        .stExpander {
+            background: var(--c-glass) !important;
+            border: 1px solid var(--c-border) !important;
+            border-radius: var(--radius-card) !important;
+        }
+        .stExpander summary {
+            font-weight: 600 !important;
+            color: var(--c-text) !important;
+        }
+        .stExpander summary:hover { color: var(--c-primary-lt) !important; }
+
+        /* ══ DATAFRAME / TABLE ═════════════════════════════════ */
+        .stDataFrame, .dataframe {
+            border-radius: var(--radius-card) !important;
+            overflow: hidden !important;
+            border: 1px solid var(--c-border) !important;
+        }
+
+        /* ══ ALERTS / INFO BOXES ═══════════════════════════════ */
+        .stAlert {
+            border-radius: var(--radius-card) !important;
+            border-left: 3px solid var(--c-primary) !important;
+            background: rgba(31,111,84,0.08) !important;
+        }
+        [data-testid="stInfoBox"] {
+            background: rgba(31,111,84,0.08) !important;
+            border: 1px solid var(--c-border) !important;
+            border-radius: var(--radius-card) !important;
+        }
+
+        /* ══ DIVIDER ═══════════════════════════════════════════ */
+        hr {
+            border: none !important;
+            height: 1px !important;
+            background: linear-gradient(90deg, transparent, var(--c-border), transparent) !important;
+            margin: 20px 0 !important;
+        }
+
+        /* ══ POPOVER / DIALOG ══════════════════════════════════ */
+        [data-testid="stPopover"] > div {
+            background: var(--c-bg2) !important;
+            border: 1px solid var(--c-border) !important;
+            border-radius: var(--radius-card) !important;
+        }
+
+        /* ══ SCROLLBAR ═════════════════════════════════════════ */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: var(--c-bg); }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(31,111,84,0.4);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: var(--c-primary); }
+
+        /* ══ LOGO SWAP (light/dark SO) ═════════════════════════ */
+        img.img-logo-light { display: none !important; }
+        img.img-logo-dark  { display: inline-block !important; }
         @media (prefers-color-scheme: light) {
             img.img-logo-light { display: inline-block !important; }
-            img.img-logo-dark  { display: none         !important; }
+            img.img-logo-dark  { display: none !important; }
         }
-        /* Modo oscuro: intercambia a la versión para fondos oscuros         */
-        @media (prefers-color-scheme: dark) {
-            img.img-logo-light { display: none         !important; }
-            img.img-logo-dark  { display: inline-block !important; }
+
+        /* ══ UTILITY CLASSES ═══════════════════════════════════ */
+        .c360-card {
+            background: var(--c-glass);
+            border: 1px solid var(--c-border);
+            border-radius: var(--radius-card);
+            padding: 20px 24px;
+            backdrop-filter: blur(12px);
+            transition: box-shadow 0.2s, border-color 0.2s;
+        }
+        .c360-card:hover {
+            box-shadow: var(--shadow-green);
+            border-color: rgba(31,111,84,0.35);
+        }
+        .c360-card-gold {
+            background: rgba(201,164,92,0.06);
+            border: 1px solid var(--c-border-gold);
+            border-radius: var(--radius-card);
+            padding: 20px 24px;
+        }
+        .c360-page-header {
+            margin-bottom: 28px;
+        }
+        .c360-badge {
+            display: inline-block;
+            background: rgba(31,111,84,0.15);
+            color: var(--c-primary-lt);
+            border: 1px solid rgba(31,111,84,0.3);
+            border-radius: 20px;
+            padding: 3px 12px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .c360-badge-gold {
+            background: rgba(201,164,92,0.12);
+            color: var(--c-gold);
+            border-color: rgba(201,164,92,0.25);
         }
         </style>
     """, unsafe_allow_html=True)
@@ -1550,67 +1838,79 @@ def _pantalla_login() -> None:
     """
     _asegurar_admin_existe()
 
+    # ── CSS extra para la pantalla de login ─────────────────────────────────
     st.markdown("""
     <style>
-    .login-title {
+    /* Centrar el contenido del login */
+    .login-wrapper { max-width: 420px; margin: 0 auto; padding: 0 8px; }
+    .login-hero {
+        text-align: center;
+        padding: 40px 0 32px;
+    }
+    .login-logo-icon {
+        width: 52px; height: 52px; border-radius: 14px;
+        background: linear-gradient(135deg,#1F6F54,#2A9070);
+        display: inline-flex; align-items: center; justify-content: center;
+        margin-bottom: 16px;
+        box-shadow: 0 0 28px rgba(31,111,84,0.35);
+    }
+    .login-brand {
         font-family: 'Playfair Display', serif;
-        font-size: 1.45rem; font-weight: 700;
-        color: #1F6F54; margin-bottom: 4px; text-align: center;
+        font-size: 2rem; font-weight: 700;
+        color: #E8F0EB; line-height: 1.1; margin-bottom: 6px;
+    }
+    .login-brand span { color: #C9A45C; }
+    .login-sub {
+        font-size: 0.82rem; color: rgba(232,240,235,0.45);
+        font-weight: 500; letter-spacing: 0.04em;
     }
     </style>
     """, unsafe_allow_html=True)
 
     # ── Logo centrado — bimodal (Light / Dark automático) ────────────────────
-    # IMPORTANTE: los <img> NO llevan display en el style inline para que las
-    # media queries de CSS puedan controlar su visibilidad sin ser sobreescritas.
-    _logo_img_style = (
-        "width:220px;max-width:90%;height:auto;object-fit:contain;"
-    )
+    _logo_img_style = "width:200px;max-width:88%;height:auto;object-fit:contain;"
     if _LOGO_LIGHT_B64 or _LOGO_DARK_B64:
         _src_light = f"data:{_LOGO_MIME};base64,{_LOGO_LIGHT_B64}" if _LOGO_LIGHT_B64 else ""
         _src_dark  = f"data:{_LOGO_MIME};base64,{_LOGO_DARK_B64}"  if _LOGO_DARK_B64  else ""
-        # Si sólo existe uno de los dos, usarlo en ambas variantes
         _src_light = _src_light or _src_dark
         _src_dark  = _src_dark  or _src_light
         st.markdown(
-            f'<div style="text-align:center;margin-bottom:15px;padding-top:8px">'
+            f'<div class="login-hero">'
             f'<img src="{_src_light}" class="img-logo-light" style="{_logo_img_style}" alt="Costo360"/>'
             f'<img src="{_src_dark}"  class="img-logo-dark"  style="{_logo_img_style}" alt="Costo360"/>'
+            f'<div class="login-sub" style="margin-top:12px">Plataforma B2B · Talleres de Piedra</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
     else:
-        # Fallback: logo subido en Configuración (BD) o texto C360
         if st.session_state.get("logo_bytes"):
             _l_b64 = _base64_mod.b64encode(st.session_state.logo_bytes).decode("utf-8")
             st.markdown(
-                f'<div style="text-align:center;margin-bottom:15px;padding-top:8px">'
-                f'<img src="data:image/jpeg;base64,{_l_b64}" '
-                f'style="{_logo_img_style}" alt="Costo360"/></div>',
+                f'<div class="login-hero">'
+                f'<img src="data:image/jpeg;base64,{_l_b64}" style="{_logo_img_style}" alt="Costo360"/>'
+                f'<div class="login-sub" style="margin-top:12px">Plataforma B2B · Talleres de Piedra</div>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
         else:
             st.markdown(
-                '<div style="text-align:center;padding:10px 0 12px">'
-                '<span style="color:#C9A45C;font-size:2.4rem;font-weight:900;'
-                'font-family:serif;line-height:1">C360</span></div>',
+                '<div class="login-hero">'
+                '<div class="login-logo-icon">'
+                '<svg width="28" height="28" fill="none" viewBox="0 0 24 24" stroke="white" stroke-width="2">'
+                '<path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10"/>'
+                '</svg></div>'
+                '<div class="login-brand">Costo<span>360</span></div>'
+                '<div class="login-sub">Plataforma B2B · Talleres de Piedra</div>'
+                '</div>',
                 unsafe_allow_html=True,
             )
 
-    st.markdown(
-        '<div class="login-title" style="margin-top:-20px;margin-bottom:8px">Iniciar Sesión</div>',
-        unsafe_allow_html=True
-    )
-
     with st.container(border=True):
-        _tab_login, _tab_pin = st.tabs(["🔐 Acceder", "🔑 Recuperar contraseña"])
+        _tab_login, _tab_pin = st.tabs(["Acceder", "Recuperar contraseña"])
 
         # ── Tab login principal ───────────────────────────────────────────────
         with _tab_login:
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            # FIX-1: st.form agrupa los inputs en un solo bloque cerrado.
-            # Efecto: (a) cero reruns por pulsación de tecla — elimina el lag y
-            # la gray-screen al escribir; (b) habilita submit nativo con Enter.
             with st.form("login_form", clear_on_submit=False):
                 _uname = st.text_input(
                     "Usuario", placeholder="Ej: jcastro", key="login_username"
@@ -1623,21 +1923,16 @@ def _pantalla_login() -> None:
                     "Iniciar Sesión", type="primary", use_container_width=True
                 )
 
-            # La lógica de validación va FUERA del form para poder mostrar
-            # el spinner sin que quede capturado dentro del contexto del form.
             if _btn_login:
                 if not _uname or not _pwd:
                     st.error("Completa usuario y contraseña.", icon="⚠️")
                 else:
-                    # FIX-2a: spinner durante la consulta a BD — da feedback
-                    # inmediato y bloquea el doble-clic accidental.
                     with st.spinner("Validando credenciales..."):
                         _usr     = _buscar_usuario_por_username(_uname)
                         _auth_ok = bool(
                             _usr and _verificar_password(_pwd, _usr["password_hash"])
                         )
                     if _auth_ok:
-                        # Login exitoso: persistir sesión en cookie HTTP (30 días)
                         _crear_sesion(_usr["id"])
                         st.session_state["usuario_actual"] = _usr
                         st.success(
@@ -1649,12 +1944,9 @@ def _pantalla_login() -> None:
 
             st.markdown(
                 """<div style='text-align:center;margin-top:14px;padding-top:10px;
-                border-top:1px solid rgba(128,128,128,0.15)'>
-                <span style='color:#9ca3af;font-size:0.75rem;font-weight:400;
-                letter-spacing:0.03em'>Sistema de uso exclusivo</span>
-                <span style='color:#9ca3af;font-size:0.75rem'> · </span>
-                <span style='font-style:italic;font-weight:600;color:#6b7280;
-                font-size:0.75rem'>Costo360 Plataforma B2B</span>
+                border-top:1px solid rgba(31,111,84,0.15)'>
+                <span style='color:rgba(232,240,235,0.3);font-size:0.75rem'>
+                Sistema de uso exclusivo · Costo360</span>
                 </div>""",
                 unsafe_allow_html=True
             )
@@ -2499,10 +2791,10 @@ with st.sidebar:
             )
 
     st.markdown(
-        '<div style="text-align:center;margin:2px 0 14px;padding-bottom:10px;'
-        'border-bottom:1px solid var(--border-color)">'
-        '<div style="font-size:0.66rem;font-weight:600;opacity:0.5;letter-spacing:0.07em;'
-        'text-transform:uppercase">Sistema de Cotización Profesional</div>'
+        '<div style="text-align:center;margin:4px 0 16px;padding-bottom:14px;'
+        'border-bottom:1px solid rgba(31,111,84,0.2)">'
+        '<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.12em;'
+        'text-transform:uppercase;color:rgba(201,164,92,0.7)">Plataforma B2B · Costos</div>'
         '</div>',
         unsafe_allow_html=True
     )
@@ -2540,30 +2832,48 @@ with st.sidebar:
              label_visibility="collapsed")
     pagina = st.session_state.nav_radio
 
-    st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
+    st.markdown('<hr style="margin:14px 0">', unsafe_allow_html=True)
     if ia_disponible():
-        st.markdown('<div style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.3);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#16a34a">🟢 IA Activa</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="background:rgba(31,111,84,0.12);border:1px solid rgba(31,111,84,0.3);'
+            'border-radius:8px;padding:8px 12px;font-size:0.75rem;font-weight:600;color:#2A9070;'
+            'display:flex;align-items:center;gap:8px">'
+            '<span style="width:7px;height:7px;border-radius:50%;background:#2A9070;'
+            'box-shadow:0 0 6px #2A9070;display:inline-block;flex-shrink:0"></span>'
+            'IA Activa</div>',
+            unsafe_allow_html=True
+        )
     else:
-        st.markdown('<div style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.25);border-radius:6px;padding:7px 10px;font-size:0.75rem;font-weight:600;color:#d97706">🟠 IA sin configurar</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="background:rgba(201,164,92,0.1);border:1px solid rgba(201,164,92,0.25);'
+            'border-radius:8px;padding:8px 12px;font-size:0.75rem;font-weight:600;color:#C9A45C;'
+            'display:flex;align-items:center;gap:8px">'
+            '<span style="width:7px;height:7px;border-radius:50%;background:#C9A45C;'
+            'display:inline-block;flex-shrink:0"></span>'
+            'IA sin configurar</div>',
+            unsafe_allow_html=True
+        )
 
     # ── Info de usuario en sesión + botón de logout ───────────────────────────
-    st.markdown('<hr style="margin:12px 0">', unsafe_allow_html=True)
+    st.markdown('<hr style="margin:14px 0">', unsafe_allow_html=True)
     _usr_ses = st.session_state.get("usuario_actual", {})
     _rol_ses = _usr_ses.get("rol", "")
     _nom_ses = _usr_ses.get("nombre_completo") or _usr_ses.get("username", "")
-    _badge_rol = ("#1F6F54", "Admin") if _rol_ses == "Admin" else ("#6b7280", "Operario")
+    _badge_bg  = "linear-gradient(135deg,#1F6F54,#2A9070)" if _rol_ses == "Admin" else "rgba(107,114,128,0.3)"
+    _badge_txt = "#fff" if _rol_ses == "Admin" else "rgba(232,240,235,0.6)"
     st.markdown(
-        f'''<div style="background:var(--secondary-background-color);border:1px solid var(--border-color);
-        border-radius:8px;padding:8px 12px;margin-bottom:8px">
-        <div style="font-size:0.72rem;opacity:0.5;font-weight:600;text-transform:uppercase;margin-bottom:2px">Sesión activa</div>
-        <div style="font-size:0.85rem;font-weight:700">{_nom_ses}</div>
-        <div style="display:inline-block;background:{_badge_rol[0]};color:white;
-             font-size:0.62rem;font-weight:700;padding:2px 7px;border-radius:4px;
-             margin-top:3px;text-transform:uppercase">{_badge_rol[1]}</div>
+        f'''<div style="background:rgba(31,111,84,0.07);border:1px solid rgba(31,111,84,0.18);
+        border-radius:10px;padding:10px 14px;margin-bottom:10px">
+        <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.08em;
+        text-transform:uppercase;color:rgba(201,164,92,0.6);margin-bottom:4px">Sesión activa</div>
+        <div style="font-size:0.88rem;font-weight:700;color:#E8F0EB">{_nom_ses}</div>
+        <div style="display:inline-block;background:{_badge_bg};color:{_badge_txt};
+             font-size:0.62rem;font-weight:700;padding:2px 9px;border-radius:20px;
+             margin-top:5px;text-transform:uppercase;letter-spacing:0.06em">{_rol_ses}</div>
         </div>''',
         unsafe_allow_html=True
     )
-    if st.button("⏻ Cerrar sesión", use_container_width=True, key="btn_logout"):
+    if st.button("Cerrar sesión", use_container_width=True, key="btn_logout"):
         _limpiar_sesion()
         st.rerun()
 
@@ -2872,31 +3182,129 @@ def _cargar_en_calculadora(rid, rnum, rjson):
 
 
 if pagina == "Inicio":
+    _nom_inicio = st.session_state.get("usuario_actual", {}).get("nombre_completo") or \
+                  st.session_state.get("usuario_actual", {}).get("username", "")
+
+    # ── Hero ──────────────────────────────────────────────────────────────────
     st.markdown(f"""
-    <div style="background:var(--secondary-background-color); border-radius:16px;padding:40px 44px;margin-bottom:28px; border:2px solid #1F6F54;">
-      <div style="color:#C9A45C;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.15em;font-weight:800;margin-bottom:12px">
-        Costo360 — Plataforma B2B
+    <div style="
+        background: linear-gradient(135deg,rgba(31,111,84,0.14) 0%,rgba(201,164,92,0.05) 100%);
+        border: 1px solid rgba(31,111,84,0.25);
+        border-radius: 18px;
+        padding: 40px 44px;
+        margin-bottom: 28px;
+        position: relative;
+        overflow: hidden;
+    ">
+      <div style="position:absolute;top:-60px;right:-60px;width:220px;height:220px;
+           border-radius:50%;background:radial-gradient(circle,rgba(31,111,84,0.18),transparent 70%);
+           pointer-events:none"></div>
+      <div style="color:#C9A45C;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.14em;
+           font-weight:800;margin-bottom:10px">Costo360 · Plataforma B2B</div>
+      <div style="font-size:2.2rem;font-weight:700;font-family:'Playfair Display',serif;
+           line-height:1.15;margin-bottom:12px;color:#E8F0EB">
+        {'Hola, ' + _nom_inicio + '' if _nom_inicio else 'Bienvenido a Costo360'}
       </div>
-      <div style="font-size:2.4rem;font-weight:900;font-family:'Playfair Display',serif;line-height:1.1;margin-bottom:14px; color:var(--text-color);">
-        Sistema de Cotización<br>Profesional
-      </div>
-      <div style="opacity:0.8;font-size:0.92rem;line-height:1.65;max-width:500px; color:var(--text-color);">
-        Calcula el costo real de tus proyectos comerciales. Cotización Directa, licitaciones AIU y exportación a PDF adaptable a cualquier entorno.
+      <div style="font-size:0.92rem;line-height:1.7;max-width:560px;color:rgba(232,240,235,0.65);">
+        Cotiza, optimiza y controla cada proyecto con precisión industrial.
+        Selecciona un módulo en el menú lateral para comenzar.
       </div>
     </div>
     """, unsafe_allow_html=True)
 
-    if st.button("🚀 Reactivar Guía de Inicio", use_container_width=True):
+    # ── Stats ─────────────────────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Materiales", "5 tipos", "Mármol · Granito · Sint. · Quartz · Quarzita")
+    c2.metric("Ahorro de tiempo", "85%", "vs. cotización manual")
+    c3.metric("Estructura", "AIU + IVA", "Norma colombiana")
+    c4.metric("Exporta", "PDF", "Cotización + Cuenta de cobro")
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    # ── Accesos rápidos ───────────────────────────────────────────────────────
+    st.markdown("""
+    <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;
+         color:rgba(201,164,92,0.7);margin-bottom:14px">Accesos rápidos</div>
+    """, unsafe_allow_html=True)
+
+    _qa1, _qa2, _qa3 = st.columns(3)
+    with _qa1:
+        st.markdown("""
+        <div style="background:rgba(31,111,84,0.08);border:1px solid rgba(31,111,84,0.2);
+             border-radius:12px;padding:18px 20px;cursor:pointer;
+             transition:box-shadow .2s">
+          <div style="font-size:0.78rem;font-weight:700;color:#2A9070;margin-bottom:4px">
+            Cotización Directa
+          </div>
+          <div style="font-size:0.78rem;color:rgba(232,240,235,0.5);line-height:1.5">
+            Genera presupuestos por material, mano de obra y logística en minutos.
+          </div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("Abrir", key="qa_cdir", use_container_width=True, type="primary"):
+            st.session_state.nav_radio = "Cotizacion Directa"
+            st.session_state.radio_ui  = "Cotizacion Directa"
+            st.rerun()
+
+    with _qa2:
+        st.markdown("""
+        <div style="background:rgba(201,164,92,0.07);border:1px solid rgba(201,164,92,0.18);
+             border-radius:12px;padding:18px 20px">
+          <div style="font-size:0.78rem;font-weight:700;color:#C9A45C;margin-bottom:4px">
+            Modo Express
+          </div>
+          <div style="font-size:0.78rem;color:rgba(232,240,235,0.5);line-height:1.5">
+            Cotización rápida para clientes que necesitan precio inmediato.
+          </div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("Abrir", key="qa_express", use_container_width=True):
+            st.session_state.nav_radio = "⚡ Modo Express"
+            st.session_state.radio_ui  = "⚡ Modo Express"
+            st.rerun()
+
+    with _qa3:
+        st.markdown("""
+        <div style="background:rgba(31,111,84,0.08);border:1px solid rgba(31,111,84,0.2);
+             border-radius:12px;padding:18px 20px">
+          <div style="font-size:0.78rem;font-weight:700;color:#2A9070;margin-bottom:4px">
+            Dashboard
+          </div>
+          <div style="font-size:0.78rem;color:rgba(232,240,235,0.5);line-height:1.5">
+            Métricas reales del negocio: ingresos, márgenes y tasa de cierre.
+          </div>
+        </div>""", unsafe_allow_html=True)
+        if st.button("Abrir", key="qa_dash", use_container_width=True):
+            st.session_state.nav_radio = "Dashboard"
+            st.session_state.radio_ui  = "Dashboard"
+            st.rerun()
+
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+    # ── Features grid ─────────────────────────────────────────────────────────
+    st.markdown("""
+    <div style="font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;
+         color:rgba(201,164,92,0.7);margin:20px 0 14px">Módulos disponibles</div>
+    """, unsafe_allow_html=True)
+
+    _f1, _f2, _f3 = st.columns(3)
+    _features = [
+        ("Cotización AIU", "Administración, Imprevistos y Utilidades. Formato profesional para licitaciones.", _f1),
+        ("Banco de Retales", "Inventario digital de sobrantes. Recupera valor de cada m² de material.", _f2),
+        ("Nesting Inteligente", "Optimización 2D de cortes para reducir desperdicio de losas.", _f3),
+    ]
+    for _fname, _fdesc, _fcol in _features:
+        with _fcol:
+            st.markdown(f"""
+            <div style="background:rgba(31,111,84,0.06);border:1px solid rgba(31,111,84,0.15);
+                 border-radius:10px;padding:14px 16px;height:100%">
+              <div style="font-size:0.8rem;font-weight:700;color:#E8F0EB;margin-bottom:4px">{_fname}</div>
+              <div style="font-size:0.76rem;color:rgba(232,240,235,0.45);line-height:1.5">{_fdesc}</div>
+            </div>""", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    if st.button("Reactivar Guía de Inicio", use_container_width=False):
         st.session_state.onboarding_activo = True
         st.session_state.onboarding_paso = 0
         st.rerun()
-
-    st.markdown("---")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Materiales", "5 tipos", "Mármol · Granito · Sint. · Quartz · Quarzita")
-    c2.metric("Tiempo", "2 min", "vs. 45–90 min manual")
-    c3.metric("Estructura", "AIU + IVA", "Norma colombiana")
-    c4.metric("Exporta", "PDF", "Cotización + Cuenta de cobro")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
