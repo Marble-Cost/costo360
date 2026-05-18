@@ -125,6 +125,18 @@ def _ui_cotizacion_directa(
 ):
     """Renderiza el wizard completo de Cotización Directa (5 pasos)."""
 
+    st.markdown("""
+    <div style="margin-bottom:24px;padding-bottom:18px;border-bottom:1px solid rgba(31,111,84,0.2)">
+      <div style="font-size:0.65rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+           color:rgba(201,164,92,0.7);margin-bottom:6px">Cotización</div>
+      <h2 style="font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:700;
+           color:#E8F0EB;margin:0 0 5px">Cotización Directa</h2>
+      <p style="color:rgba(232,240,235,0.5);font-size:0.88rem;margin:0;line-height:1.5">
+        Wizard de 5 pasos: material, dimensiones, proyecto, logística y resultado con PDF.
+      </p>
+    </div>
+    """, unsafe_allow_html=True)
+
     # ── Event-driven state sync: store_permanente → pre (on page entry) ───────
     _sp_entry = fn_sp()
     if _sp_entry.get("cdir_piezas") or _sp_entry.get("cdir_materiales"):
