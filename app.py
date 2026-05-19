@@ -3242,7 +3242,6 @@ if pagina == "Inicio":
         </div>""", unsafe_allow_html=True)
         if st.button("Abrir", key="qa_cdir", use_container_width=True, type="primary"):
             st.session_state.nav_radio = "Cotizacion Directa"
-            st.session_state.radio_ui  = "Cotizacion Directa"
             st.rerun()
 
     with _qa2:
@@ -3258,7 +3257,6 @@ if pagina == "Inicio":
         </div>""", unsafe_allow_html=True)
         if st.button("Abrir", key="qa_express", use_container_width=True):
             st.session_state.nav_radio = "⚡ Modo Express"
-            st.session_state.radio_ui  = "⚡ Modo Express"
             st.rerun()
 
     with _qa3:
@@ -3274,7 +3272,6 @@ if pagina == "Inicio":
         </div>""", unsafe_allow_html=True)
         if st.button("Abrir", key="qa_dash", use_container_width=True):
             st.session_state.nav_radio = "Dashboard"
-            st.session_state.radio_ui  = "Dashboard"
             st.rerun()
 
     st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
@@ -3534,7 +3531,6 @@ elif pagina == "Asistente IA":
             )
             if st.button("Ir a Configuración →", type="primary"):
                 st.session_state.nav_radio = "Configuracion"
-                st.session_state.radio_ui = "Configuracion"
                 st.rerun()
         st.stop()
 
@@ -3660,7 +3656,6 @@ elif pagina == "Asistente IA":
                             _d["_origen"] = "ia"
                             st.session_state.pre = _d
                             st.session_state.nav_radio = "Cotizacion Directa"
-                            st.session_state.radio_ui = "Cotizacion Directa"
                             st.query_params["pagina"] = "Cotizacion Directa"
                             st.rerun()
 
